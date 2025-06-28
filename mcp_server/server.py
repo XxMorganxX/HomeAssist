@@ -21,6 +21,19 @@ logging.basicConfig(
 )
 logger = logging.getLogger(__name__)
 
+# Debug Python environment
+logger.info(f"Python executable: {sys.executable}")
+logger.info(f"Python version: {sys.version}")
+logger.info(f"Python path: {sys.path[:3]}...")
+
+# Test kasa import
+try:
+    import kasa
+    logger.info(f"Kasa module found at: {kasa.__file__}")
+except ImportError as e:
+    logger.error(f"Cannot import kasa: {e}")
+    logger.info(f"Site packages: {[p for p in sys.path if 'site-packages' in p]}")
+
 from mcp_server.tool_registry import ToolRegistry
 from mcp_server.base_tool import CoreServices
 
