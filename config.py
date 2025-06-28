@@ -1,7 +1,15 @@
+# AI Model Configuration
+WHISPER_MODEL = "whisper-1"  # OpenAI Whisper for STT (currently only option)
+
+# Chat Provider Selection - "openai" or "gemini"
+CHAT_PROVIDER = "openai"  # Change to "openai" to use OpenAI instead
+
 # OpenAI Models
-WHISPER_MODEL = "whisper-1"
-RESPONSE_MODEL = "gpt-3.5-turbo"
+OPENAI_CHAT_MODEL = "gpt-4.1-nano"
 TEXT_TO_SPEECH_MODEL = "tts-1"
+
+# Gemini Models  
+GEMINI_CHAT_MODEL = "gemini-1.5-flash"  # or "gemini-1.5-pro"
 
 # Directories
 VOICE_DATA_DIR = "speech_data"
@@ -15,7 +23,7 @@ FRAME_SIZE = SAMPLE_RATE * FRAME_MS // 1000  # samples per frame
 VAD_MODE = 3                 # 0-3 (2 = moderately aggressive, less false positives)
 MAX_UTTERANCE_SEC = 15        # safety cap for utterance length
 SILENCE_END_SEC = 0.9         # gap that ends a speech chunk
-COMPLETE_SILENCE_SEC = 5.0    # longer gap that completes the full message
+COMPLETE_SILENCE_SEC = 2.0    # longer gap that completes the full message
 
 # Chat Configuration
 SYSTEM_PROMPT = """

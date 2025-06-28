@@ -4,25 +4,53 @@ Handles Whisper STT and ChatGPT interactions.
 """
 
 import io
+import os
 from typing import List, Dict, Optional
 from openai import OpenAI
+from .model_providers import ModelProvider, create_provider
 
 
 class SpeechServices:
     """Handles speech-to-text and chat completion services."""
     
-    def __init__(self, api_key: str, whisper_model: str, chat_model: str):
+    def __init__(self, 
+                 openai_api_key: str, 
+                 whisper_model: str, 
+                 chat_provider: str,
+                 chat_model: str,
+                 gemini_api_key: Optional[str] = None):
         """
         Initialize speech services.
         
         Args:
-            api_key: OpenAI API key
+            openai_api_key: OpenAI API key (required for Whisper)
             whisper_model: Whisper model name (e.g., "whisper-1")
-            chat_model: Chat model name (e.g., "gpt-3.5-turbo")
+            chat_provider: "openai" or "gemini"
+            chat_model: Chat model name for the selected provider
+            gemini_api_key: Google API key (required if using Gemini)
         """
-        self.client = OpenAI(api_key=api_key)
+        # OpenAI client for Whisper (always needed)
+        self.openai_client = OpenAI(api_key=openai_api_key)
         self.whisper_model = whisper_model
-        self.chat_model = chat_model
+        
+        # Set up chat provider
+        self.chat_provider = chat_provider.lower()
+        if self.chat_provider == "openai":
+            self.model_provider = create_provider(
+                "openai", 
+                api_key=openai_api_key, 
+                model=chat_model
+            )
+        elif self.chat_provider == "gemini":
+            if not gemini_api_key:
+                raise ValueError("Gemini API key required when using Gemini provider")
+            self.model_provider = create_provider(
+                "gemini", 
+                api_key=gemini_api_key, 
+                model=chat_model
+            )
+        else:
+            raise ValueError(f"Unsupported chat provider: {chat_provider}")
         
     def transcribe(self, wav_io: io.BytesIO) -> str:
         """
@@ -44,7 +72,7 @@ class SpeechServices:
             wav_io.name = "audio.wav"
             
             print("🔄 Sending to Whisper API...")
-            transcript = self.client.audio.transcriptions.create(
+            transcript = self.openai_client.audio.transcriptions.create(
                 model=self.whisper_model,
                 file=wav_io,
                 prompt="This is a conversation. Listen for natural speech.",
@@ -69,7 +97,7 @@ class SpeechServices:
                        temperature: float = 0.7,
                        functions: Optional[List[Dict[str, any]]] = None) -> Optional[Dict[str, any]]:
         """
-        Get chat completion from ChatGPT.
+        Get chat completion from the configured provider.
         
         Args:
             messages: Conversation history
@@ -80,33 +108,13 @@ class SpeechServices:
         Returns:
             Dict with 'content' and optionally 'function_call' keys, or error message
         """
-        try:
-            kwargs = {
-                "model": self.chat_model,
-                "messages": messages,
-                "max_tokens": max_tokens,
-                "temperature": temperature
-            }
-            
-            # Add function calling if functions are provided
-            if functions:
-                kwargs["functions"] = functions
-                kwargs["function_call"] = "auto"
-            
-            response = self.client.chat.completions.create(**kwargs, timeout=15.0)
-            message = response.choices[0].message
-            
-            result = {"content": message.content}
-            if hasattr(message, 'function_call') and message.function_call:
-                result["function_call"] = {
-                    "name": message.function_call.name,
-                    "arguments": message.function_call.arguments
-                }
-            
-            return result
-        except Exception as e:
-            print(f"❌ Chat error: {e}")
-            return {"content": "Sorry, I'm having trouble connecting to the chat service."}
+        print(f"🤖 Using {self.chat_provider.upper()} for chat completion...")
+        return self.model_provider.chat_completion(
+            messages=messages,
+            max_tokens=max_tokens,
+            temperature=temperature,
+            functions=functions
+        )
 
 
 class ConversationManager:

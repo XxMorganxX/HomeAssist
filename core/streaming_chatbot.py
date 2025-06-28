@@ -42,9 +42,14 @@ class StreamingChatbot:
     
     def __init__(self):
         """Initialize chatbot components."""
-        api_key = os.getenv("OPENAI_KEY")
-        if not api_key:
+        openai_api_key = os.getenv("OPENAI_KEY")
+        if not openai_api_key:
             raise ValueError("OPENAI_KEY environment variable not set")
+            
+        # Get Gemini API key if using Gemini
+        gemini_api_key = os.getenv("GEMINI_API_KEY")
+        if config.CHAT_PROVIDER == "gemini" and not gemini_api_key:
+            raise ValueError("GEMINI_API_KEY environment variable not set when using Gemini provider")
             
         self.chunker = VADChunker(
             sample_rate=config.SAMPLE_RATE,
@@ -54,10 +59,20 @@ class StreamingChatbot:
             max_utterance_sec=config.MAX_UTTERANCE_SEC
         )
         
+        # Determine chat model based on provider
+        if config.CHAT_PROVIDER == "openai":
+            chat_model = config.OPENAI_CHAT_MODEL
+        elif config.CHAT_PROVIDER == "gemini":
+            chat_model = config.GEMINI_CHAT_MODEL
+        else:
+            raise ValueError(f"Unsupported chat provider: {config.CHAT_PROVIDER}")
+        
         self.speech_services = SpeechServices(
-            api_key=api_key,
+            openai_api_key=openai_api_key,
             whisper_model=config.WHISPER_MODEL,
-            chat_model=config.RESPONSE_MODEL
+            chat_provider=config.CHAT_PROVIDER,
+            chat_model=chat_model,
+            gemini_api_key=gemini_api_key
         )
         
         self.conversation = ConversationManager(config.SYSTEM_PROMPT)
@@ -76,7 +91,6 @@ class StreamingChatbot:
     def process_chunk(self, chunk: bytes) -> None:
         """Process a speech chunk through Whisper."""
         wav_io = wav_bytes_from_frames([chunk])
-        print("⏳  Transcribing chunk…")
         
         user_text = self.speech_services.transcribe(wav_io)
         if user_text:
@@ -295,6 +309,11 @@ def main():
         print("   pip install openai sounddevice webrtcvad numpy scipy python-dotenv")
         print("3. Your microphone is properly configured")
 
+def main_wakeword():
+    print("🎤 Streaming Chatbot")
+    print("Choose mode:")
+    chatbot = ToolEnabledStreamingChatbot()
+    chatbot.run()
 
 if __name__ == "__main__":
     main()
