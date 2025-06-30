@@ -89,10 +89,26 @@ class MCPServer:
             conversation_manager = None
             
             if SPEECH_SERVICES_AVAILABLE and api_key and CONFIG_AVAILABLE:
+                # Get Gemini API key if using Gemini
+                gemini_api_key = os.getenv("GEMINI_API_KEY")
+                
+                # Determine chat model based on provider
+                if self.config.CHAT_PROVIDER == "openai":
+                    chat_model = self.config.OPENAI_CHAT_MODEL
+                elif self.config.CHAT_PROVIDER == "gemini":
+                    chat_model = self.config.GEMINI_CHAT_MODEL
+                else:
+                    chat_model = self.config.OPENAI_CHAT_MODEL  # Default fallback
+                
                 speech_services = SpeechServices(
-                    api_key=api_key,
+                    openai_api_key=api_key,
                     whisper_model=self.config.WHISPER_MODEL,
-                    chat_model=self.config.RESPONSE_MODEL
+                    chat_provider=self.config.CHAT_PROVIDER,
+                    chat_model=chat_model,
+                    gemini_api_key=gemini_api_key,
+                    tts_enabled=getattr(self.config, 'TTS_ENABLED', False),
+                    tts_model=getattr(self.config, 'TEXT_TO_SPEECH_MODEL', 'tts-1'),
+                    tts_voice=getattr(self.config, 'TTS_VOICE', 'alloy')
                 )
                 conversation_manager = ConversationManager(self.config.SYSTEM_PROMPT)
                 logger.info("Speech services initialized")

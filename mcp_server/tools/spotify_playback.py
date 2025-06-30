@@ -8,39 +8,50 @@ import spotipy
 from spotipy.oauth2 import SpotifyOAuth
 from typing import Dict, Any, Optional
 from mcp_server.base_tool import BaseTool, CoreServices
+from typing import Literal
+from dotenv import load_dotenv
+import config
 
-
+load_dotenv()
 class SpotifyPlaybackTool(BaseTool):
     """Voice-controlled Spotify playback tool"""
     
     name = "spotify_playback"
-    description = "Controls Spotify playback including play, pause, next, previous, volume control, and music search"
+    description = "Called when the user wants to control Spotify playback including play, pause, next, previous, volume control, and music search"
     version = "1.0.0"
     
     def __init__(self, core_services: Optional[CoreServices]):
+        
         super().__init__(core_services)
         
         # Spotify credentials
-        self.SPOTIPY_CLIENT_ID = '661b0ffdfcb44e959376342e147f0d03'
-        self.SPOTIPY_CLIENT_SECRET = '68259cd4fbe64b7fa37f674a7372c07a'
-        self.SPOTIPY_REDIRECT_URI = 'http://127.0.0.1:8888/callback'
+        self.SPOTIPY_CLIENT_ID = {"Morgan": os.getenv("MORGAN_SPOTIFY_CLIENT_ID"), "Spencer": os.getenv("SPENCER_SPOTIFY_CLIENT_ID")}
+        self.SPOTIPY_CLIENT_SECRET = {"Morgan": os.getenv("MORGAN_SPOTIFY_CLIENT_SECRET"), "Spencer": os.getenv("SPENCER_SPOTIFY_CLIENT_SECRET")} 
+        self.SPOTIPY_REDIRECT_URI = {"Morgan": config.MORGAN_SPOTIFY_URI, "Spencer": config.SPENCER_SPOTIFY_URI}
         self.SCOPE = "user-read-playback-state user-modify-playback-state user-read-private"
         
-        # Initialize Spotify client
+        
+        # Initialize Spotify client (lazy initialization)
         self.sp = None
         self.device_id = None
         self.current_device_name = None
-        self._initialize_spotify()
+        self._spotify_initialized = False
     
     def _initialize_spotify(self):
         """Initialize Spotify client and find device"""
+        if self._spotify_initialized:
+            return True
+            
         try:
             self.sp = spotipy.Spotify(auth_manager=SpotifyOAuth(
-                client_id=self.SPOTIPY_CLIENT_ID,
-                client_secret=self.SPOTIPY_CLIENT_SECRET,
-                redirect_uri=self.SPOTIPY_REDIRECT_URI,
-                scope=self.SCOPE
+                client_id=self.SPOTIPY_CLIENT_ID[config.STATE_CURRENT_SPOTIFY_USER],
+                client_secret=self.SPOTIPY_CLIENT_SECRET[config.STATE_CURRENT_SPOTIFY_USER],
+                redirect_uri=self.SPOTIPY_REDIRECT_URI[config.STATE_CURRENT_SPOTIFY_USER],
+                scope=self.SCOPE,
+                cache_path=None  # Disable token caching entirely
             ))
+            
+            print("✅ Spotify authentication successful!")
             
             # Find HomePi device
             devices = self._get_devices()
@@ -50,12 +61,16 @@ class SpotifyPlaybackTool(BaseTool):
                     self.current_device_name = "HomePi"
                     self.log_info(f"Connected to Spotify device: {self.current_device_name}")
                 else:
-                    self.log_warning("HomePi device not found, will use default device")
+                    print("HomePi device not found, will use default device")
             else:
-                self.log_warning("No Spotify devices found")
+                print("No Spotify devices found")
+            
+            self._spotify_initialized = True
+            return True
                 
         except Exception as e:
-            self.log_error(f"Failed to initialize Spotify: {e}")
+            print(f"Failed to initialize Spotify: {e}")
+            return False
     
     def _get_devices(self):
         """Get available Spotify devices"""
@@ -81,8 +96,7 @@ class SpotifyPlaybackTool(BaseTool):
                 "action": {
                     "type": "string",
                     "description": "The action to perform",
-                    "enum": ["play", "pause", "next", "previous", "volume", "search_track", "search_artist", "status", "devices"],
-                    "default": "play"
+                    "enum": ["play", "pause", "next", "previous", "volume", "search_track", "search_artist", "status", "devices"]
                 },
                 "query": {
                     "type": "string",
@@ -99,9 +113,20 @@ class SpotifyPlaybackTool(BaseTool):
             "description": self.description
         }
     
-    def execute(self, params: Dict[str, Any]) -> Dict[str, Any]:
+    def execute(self, params: Dict[str, Literal["play", "pause", "next", "previous", "volume", "search_track", "search_artist", "status", "devices"]]) -> Dict[str, Any]:
         """Execute the Spotify playback tool."""
-        action = params.get("action", "play")
+        # Initialize Spotify on first use
+        if not self._spotify_initialized:
+            if not self._initialize_spotify():
+                return {
+                    "success": False,
+                    "error": "Failed to initialize Spotify connection"
+                }
+        
+        action = params.get("action")
+        
+        if not action:
+            raise ValueError("action parameter is required")
         
         try:
             if action == "play":

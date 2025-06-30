@@ -83,7 +83,10 @@ class StreamingChatbot:
             whisper_model=config.WHISPER_MODEL,
             chat_provider=config.CHAT_PROVIDER,
             chat_model=chat_model,
-            gemini_api_key=gemini_api_key
+            gemini_api_key=gemini_api_key,
+            tts_enabled=config.TTS_ENABLED,
+            tts_model=config.TEXT_TO_SPEECH_MODEL,
+            tts_voice=config.TTS_VOICE
         )
         
         self.conversation = ConversationManager(config.SYSTEM_PROMPT)
@@ -92,6 +95,7 @@ class StreamingChatbot:
         # State tracking
         self.accumulated_chunks: List[str] = []
         self.last_speech_activity: float = None
+        self.session_ended: bool = False
         
     def audio_callback(self, indata, frames, time_info, status):
         """Callback for audio stream."""
@@ -104,13 +108,26 @@ class StreamingChatbot:
         wav_io = wav_bytes_from_frames([chunk])
         
         user_text = self.speech_services.transcribe(wav_io)
-        for phrase in ["over out", "over, out", "over. out"]:
-            if phrase in user_text:
-                #if over out, then stop the conversation
-                print("🚫 Over out detected, stopping conversation")
-                return 
         if user_text:
             print(f"🎤  Chunk: {user_text}")
+            
+            # Check for end conversation phrases
+            user_text_lower = user_text.lower()
+            for phrase in config.END_CONVERSATION_PHRASES:
+                if phrase in user_text_lower:
+                    print(f"🚫 End phrase '{phrase}' detected, stopping conversation")
+                    print("🤖 Roger that! Conversation ending...")
+                    self.session_ended = True
+                    return
+            
+            # Check for force send phrases
+            for phrase in config.FORCE_SEND_PHRASES:
+                if phrase in user_text_lower:
+                    print(f"⚡ Force send phrase '{phrase}' detected, processing immediately")
+                    self.accumulated_chunks.append(user_text)
+                    self.process_complete_message()
+                    return
+            
             self.accumulated_chunks.append(user_text)
             
     def process_complete_message(self) -> None:
@@ -124,6 +141,17 @@ class StreamingChatbot:
         complete_message = " ".join(self.accumulated_chunks)
         
         print(f"\n📝  Complete message: {complete_message}")
+        
+        # Check for end conversation phrases in complete message
+        complete_message_lower = complete_message.lower()
+        for phrase in config.END_CONVERSATION_PHRASES:
+            if phrase in complete_message_lower:
+                print(f"🚫 End phrase '{phrase}' detected in complete message, stopping conversation")
+                print("🤖 Roger that! Conversation ending...")
+                self.session_ended = True
+                self.accumulated_chunks.clear()
+                return
+        
         print("🤖  Sending to ChatGPT...")
         
         # Add to conversation and get response
@@ -143,6 +171,14 @@ class StreamingChatbot:
         if response and response.get("content"):
             self.conversation.add_assistant_message(response["content"])
             print(f"🤖  GPT: {response['content']}\n")
+            
+            # Convert response to speech if TTS is enabled
+            if self.speech_services.tts_enabled:
+                audio_file = self.speech_services.text_to_speech(response["content"])
+                if audio_file and hasattr(self, 'chunker') and self.chunker.aec_enabled:
+                    # Add TTS audio as reference for AEC
+                    self.chunker.add_reference_audio_file(audio_file)
+            
             print("─" * 50)
         
         # Reset for next message
@@ -164,7 +200,7 @@ class StreamingChatbot:
             callback=self.audio_callback,
         ):
             try:
-                while True:
+                while not self.session_ended:
                     # Get audio frame
                     frame = self.audio_queue.get()
                     current_time = time.time()
@@ -180,6 +216,9 @@ class StreamingChatbot:
                     chunk = self.chunker.process(frame)
                     if chunk:
                         self.process_chunk(chunk)
+                        # Exit immediately if session ended during chunk processing
+                        if self.session_ended:
+                            break
                     
                     # Check for end of complete message
                     if (self.accumulated_chunks and 
@@ -189,6 +228,11 @@ class StreamingChatbot:
                         
             except KeyboardInterrupt:
                 print("\n\n✋ Finished. Bye!")
+            
+            # Handle graceful session termination
+            if self.session_ended:
+                print("\n🔚 Session ended gracefully. Goodbye!")
+                print("🔄 Returning to wake word detection...")
 
 
 class ToolEnabledStreamingChatbot(StreamingChatbot):
@@ -283,12 +327,28 @@ class ToolEnabledStreamingChatbot(StreamingChatbot):
                 if final_response and final_response.get("content"):
                     self.conversation.add_assistant_message(final_response["content"])
                     print(f"🤖  GPT: {final_response['content']}\n")
+                    
+                    # Convert response to speech if TTS is enabled
+                    if self.speech_services.tts_enabled:
+                        audio_file = self.speech_services.text_to_speech(final_response["content"])
+                        if audio_file and hasattr(self, 'chunker') and self.chunker.aec_enabled:
+                            # Add TTS audio as reference for AEC
+                            self.chunker.add_reference_audio_file(audio_file)
+                    
                     print("─" * 50)
             
             elif response.get("content"):
                 # Regular response without tools
                 self.conversation.add_assistant_message(response["content"])
                 print(f"🤖  GPT: {response['content']}\n")
+                
+                # Convert response to speech if TTS is enabled
+                if self.speech_services.tts_enabled:
+                    audio_file = self.speech_services.text_to_speech(response["content"])
+                    if audio_file and hasattr(self, 'chunker') and self.chunker.aec_enabled:
+                        # Add TTS audio as reference for AEC
+                        self.chunker.add_reference_audio_file(audio_file)
+                
                 print("─" * 50)
         
         # Reset for next message
@@ -332,5 +392,3 @@ def main_wakeword():
     chatbot = ToolEnabledStreamingChatbot()
     chatbot.run()
 
-if __name__ == "__main__":
-    main()

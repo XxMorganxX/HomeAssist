@@ -5,6 +5,8 @@ Handles Whisper STT and ChatGPT interactions.
 
 import io
 import os
+import subprocess
+import tempfile
 from typing import List, Dict, Optional
 from openai import OpenAI
 from .model_providers import ModelProvider, create_provider
@@ -18,20 +20,31 @@ class SpeechServices:
                  whisper_model: str, 
                  chat_provider: str,
                  chat_model: str,
-                 gemini_api_key: Optional[str] = None):
+                 gemini_api_key: Optional[str] = None,
+                 tts_enabled: bool = False,
+                 tts_model: str = "tts-1",
+                 tts_voice: str = "alloy"):
         """
         Initialize speech services.
         
         Args:
-            openai_api_key: OpenAI API key (required for Whisper)
+            openai_api_key: OpenAI API key (required for Whisper and TTS)
             whisper_model: Whisper model name (e.g., "whisper-1")
             chat_provider: "openai" or "gemini"
             chat_model: Chat model name for the selected provider
             gemini_api_key: Google API key (required if using Gemini)
+            tts_enabled: Enable text-to-speech
+            tts_model: TTS model name (e.g., "tts-1")
+            tts_voice: TTS voice (alloy, echo, fable, onyx, nova, shimmer)
         """
-        # OpenAI client for Whisper (always needed)
+        # OpenAI client for Whisper and TTS (always needed)
         self.openai_client = OpenAI(api_key=openai_api_key)
         self.whisper_model = whisper_model
+        
+        # TTS configuration
+        self.tts_enabled = tts_enabled
+        self.tts_model = tts_model
+        self.tts_voice = tts_voice
         
         # Set up chat provider
         self.chat_provider = chat_provider.lower()
@@ -115,6 +128,73 @@ class SpeechServices:
             temperature=temperature,
             functions=functions
         )
+    
+    def text_to_speech(self, text: str, play_immediately: bool = True) -> Optional[str]:
+        """
+        Convert text to speech using OpenAI TTS.
+        
+        Args:
+            text: Text to convert to speech
+            play_immediately: Whether to play the audio immediately
+            
+        Returns:
+            Path to the generated audio file, or None if TTS is disabled/failed
+        """
+        if not self.tts_enabled:
+            return None
+            
+        try:
+            print(f"🔊 Converting text to speech: '{text[:50]}{'...' if len(text) > 50 else ''}'")
+            
+            # Generate speech using OpenAI TTS
+            response = self.openai_client.audio.speech.create(
+                model=self.tts_model,
+                voice=self.tts_voice,
+                input=text,
+                response_format="mp3"
+            )
+            
+            # Save to temporary file
+            with tempfile.NamedTemporaryFile(delete=False, suffix=".mp3") as temp_file:
+                response.stream_to_file(temp_file.name)
+                audio_file_path = temp_file.name
+            
+            print(f"🎵 Generated speech audio: {audio_file_path}")
+            
+            # Play immediately if requested
+            if play_immediately:
+                self.play_audio_file(audio_file_path)
+            
+            return audio_file_path
+            
+        except Exception as e:
+            print(f"❌ TTS error: {e}")
+            return None
+    
+    def play_audio_file(self, file_path: str) -> None:
+        """
+        Play an audio file using system audio player.
+        
+        Args:
+            file_path: Path to the audio file to play
+        """
+        try:
+            print(f"🔊 Playing audio: {file_path}")
+            # Use afplay on macOS, could be extended for other platforms
+            subprocess.run(['afplay', file_path], check=True)
+            
+            # Clean up temporary file after playing
+            if file_path.startswith('/tmp') or '/tmp/' in file_path:
+                try:
+                    os.unlink(file_path)
+                    print(f"🗑️ Cleaned up temporary audio file")
+                except OSError:
+                    pass
+                    
+        except subprocess.CalledProcessError as e:
+            print(f"❌ Audio playback error: {e}")
+        except Exception as e:
+            print(f"❌ Unexpected audio error: {e}")
 
 
 class ConversationManager:
