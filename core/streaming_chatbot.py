@@ -51,12 +51,23 @@ class StreamingChatbot:
         if config.CHAT_PROVIDER == "gemini" and not gemini_api_key:
             raise ValueError("GEMINI_API_KEY environment variable not set when using Gemini provider")
             
+        # Set up AEC configuration
+        aec_config = {
+            'filter_length': config.AEC_FILTER_LENGTH,
+            'step_size': config.AEC_STEP_SIZE,
+            'delay_samples': config.AEC_DELAY_SAMPLES,
+            'reference_buffer_sec': config.AEC_REFERENCE_BUFFER_SEC,
+            'capture_strategy': config.AEC_CAPTURE_STRATEGY
+        }
+        
         self.chunker = VADChunker(
             sample_rate=config.SAMPLE_RATE,
             frame_ms=config.FRAME_MS,
             vad_mode=config.VAD_MODE,
             silence_end_sec=config.SILENCE_END_SEC,
-            max_utterance_sec=config.MAX_UTTERANCE_SEC
+            max_utterance_sec=config.MAX_UTTERANCE_SEC,
+            aec_enabled=config.AEC_ENABLED,
+            aec_config=aec_config
         )
         
         # Determine chat model based on provider
@@ -93,6 +104,11 @@ class StreamingChatbot:
         wav_io = wav_bytes_from_frames([chunk])
         
         user_text = self.speech_services.transcribe(wav_io)
+        for phrase in ["over out", "over, out", "over. out"]:
+            if phrase in user_text:
+                #if over out, then stop the conversation
+                print("🚫 Over out detected, stopping conversation")
+                return 
         if user_text:
             print(f"🎤  Chunk: {user_text}")
             self.accumulated_chunks.append(user_text)
@@ -106,6 +122,7 @@ class StreamingChatbot:
         
         # Combine all chunks
         complete_message = " ".join(self.accumulated_chunks)
+        
         print(f"\n📝  Complete message: {complete_message}")
         print("🤖  Sending to ChatGPT...")
         
@@ -114,12 +131,12 @@ class StreamingChatbot:
         
         # Debug: Show conversation history length and content
         messages = self.conversation.get_messages()
-        print(f"📊 Conversation has {len(messages)} messages")
-        print("📜 Recent messages:")
-        for i, msg in enumerate(messages[-3:]):  # Show last 3 messages
-            role = msg.get('role', 'unknown')
-            content = msg.get('content', 'no content')[:100]  # First 100 chars
-            print(f"   {i}: {role}: {content}")
+        #print(f"📊 Conversation has {len(messages)} messages")
+        # print("📜 Recent messages:")
+        # for i, msg in enumerate(messages[-3:]):  # Show last 3 messages
+        #     role = msg.get('role', 'unknown')
+        #     content = msg.get('content', 'no content')[:100]  # First 100 chars
+        #     print(f"   {i}: {role}: {content}")
         
         response = self.speech_services.chat_completion(messages)
         

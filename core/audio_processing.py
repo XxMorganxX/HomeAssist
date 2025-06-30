@@ -1,6 +1,7 @@
 """
 Audio processing utilities for speech detection and chunking.
 Handles VAD (Voice Activity Detection) and audio frame management.
+Includes Acoustic Echo Cancellation (AEC) for noise suppression.
 """
 
 import io
@@ -11,6 +12,7 @@ from typing import Optional, Tuple
 
 import numpy as np
 import webrtcvad
+from .aec_processor import AECProcessor, AudioCaptureManager
 
 
 def wav_bytes_from_frames(frames: list, sample_rate: int = 16000) -> io.BytesIO:
@@ -52,6 +54,7 @@ class VADChunker:
     """
     Voice Activity Detection chunker that collects mic frames until silence is detected.
     Yields complete speech chunks for transcription.
+    Includes optional Acoustic Echo Cancellation (AEC).
     """
     
     def __init__(self, 
@@ -59,7 +62,9 @@ class VADChunker:
                  frame_ms: int,
                  vad_mode: int,
                  silence_end_sec: float,
-                 max_utterance_sec: float):
+                 max_utterance_sec: float,
+                 aec_enabled: bool = False,
+                 aec_config: Optional[dict] = None):
         """
         Initialize VAD chunker.
         
@@ -69,6 +74,8 @@ class VADChunker:
             vad_mode: VAD aggressiveness (0-3, 3 = most aggressive)
             silence_end_sec: Seconds of silence that ends a speech chunk
             max_utterance_sec: Maximum utterance length before force flush
+            aec_enabled: Enable Acoustic Echo Cancellation
+            aec_config: AEC configuration dictionary
         """
         self.sample_rate = sample_rate
         self.frame_ms = frame_ms
@@ -78,6 +85,28 @@ class VADChunker:
         self.ring = deque(maxlen=int(silence_end_sec * 1000 // frame_ms))
         self.last_voice_t = None
         self.is_speaking = False
+        
+        # Initialize AEC if enabled
+        self.aec_enabled = aec_enabled
+        if aec_enabled:
+            if aec_config is None:
+                aec_config = {}
+            self.aec_processor = AECProcessor(
+                filter_length=aec_config.get('filter_length', 300),
+                step_size=aec_config.get('step_size', 0.05),
+                sample_rate=sample_rate,
+                frame_size=sample_rate * frame_ms // 1000,
+                delay_samples=aec_config.get('delay_samples', 800),
+                reference_buffer_sec=aec_config.get('reference_buffer_sec', 5.0)
+            )
+            self.audio_capture = AudioCaptureManager(
+                strategy=aec_config.get('capture_strategy', 'file_based')
+            )
+            print("🔊 VADChunker initialized with AEC enabled")
+        else:
+            self.aec_processor = None
+            self.audio_capture = None
+            print("🔊 VADChunker initialized without AEC")
         
     def process(self, frame_bytes: bytes) -> Optional[bytes]:
         """
@@ -89,18 +118,23 @@ class VADChunker:
         Returns:
             Complete speech chunk bytes if silence detected, None otherwise
         """
+        # Apply AEC if enabled
+        processed_frame = frame_bytes
+        if self.aec_enabled and self.aec_processor is not None:
+            processed_frame = self.aec_processor.process_frame(frame_bytes)
+        
         now = time.monotonic()
-        voiced = self.vad.is_speech(frame_bytes, self.sample_rate)
+        voiced = self.vad.is_speech(processed_frame, self.sample_rate)
         
         if voiced:
             if not self.is_speaking:
                 print("🟢 [CHUNK START] Speech detected")
                 self.is_speaking = True
-            self.speech_buf.append(frame_bytes)
+            self.speech_buf.append(processed_frame)
             self.last_voice_t = now
             self.ring.clear()
         else:
-            self.ring.append(frame_bytes)
+            self.ring.append(processed_frame)
             # Only flush if we have speech buffer AND ring buffer is full (indicating sustained silence)
             if self.speech_buf and len(self.ring) == self.ring.maxlen:
                 return self._flush()
@@ -126,3 +160,28 @@ class VADChunker:
     def is_speech(self, frame_bytes: bytes) -> bool:
         """Check if frame contains speech."""
         return self.vad.is_speech(frame_bytes, self.sample_rate)
+    
+    def add_reference_audio_file(self, audio_file_path: str) -> None:
+        """
+        Add reference audio from a file that's about to be played.
+        
+        Args:
+            audio_file_path: Path to the audio file being played
+        """
+        if self.aec_enabled and self.audio_capture is not None:
+            audio_data = self.audio_capture.capture_audio_file(audio_file_path)
+            if len(audio_data) > 0 and self.aec_processor is not None:
+                self.aec_processor.add_reference_audio(audio_data)
+                print(f"🎵 Added reference audio: {audio_file_path}")
+    
+    def get_aec_status(self) -> dict:
+        """Get AEC processor status."""
+        if self.aec_enabled and self.aec_processor is not None:
+            return self.aec_processor.get_status()
+        else:
+            return {"aec_enabled": False}
+    
+    def reset_aec(self) -> None:
+        """Reset AEC processor."""
+        if self.aec_enabled and self.aec_processor is not None:
+            self.aec_processor.reset()

@@ -35,7 +35,7 @@ class OpenWakeWordListener:
     def __init__(self, verbose=False):
         self.VERBOSE = verbose
         self.word_model_dir = "./audio_data/wake_word_models"
-        self.word_model_path = f"{self.word_model_dir}/hey_jarvis_v0.1.tflite"
+        self.word_model_path = f"{self.word_model_dir}/hey_monkey.tflite"
         self.opener_audio_dir = "./audio_data/opener_audio"
         
         if not os.path.exists(self.word_model_path):
