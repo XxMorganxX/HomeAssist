@@ -43,12 +43,15 @@ class SpotifyPlaybackTool(BaseTool):
             return True
             
         try:
+            # Use in-memory cache handler to avoid file creation
+            from spotipy.cache_handler import MemoryCacheHandler
+            
             self.sp = spotipy.Spotify(auth_manager=SpotifyOAuth(
                 client_id=self.SPOTIPY_CLIENT_ID[config.STATE_CURRENT_SPOTIFY_USER],
                 client_secret=self.SPOTIPY_CLIENT_SECRET[config.STATE_CURRENT_SPOTIFY_USER],
                 redirect_uri=self.SPOTIPY_REDIRECT_URI[config.STATE_CURRENT_SPOTIFY_USER],
                 scope=self.SCOPE,
-                cache_path=None  # Disable token caching entirely
+                cache_handler=MemoryCacheHandler()  # Use memory instead of file cache
             ))
             
             print("✅ Spotify authentication successful!")

@@ -11,6 +11,8 @@ from pathlib import Path
 from typing import List
 import logging
 import json
+from datetime import datetime
+from core.db.db_connect import DBConnect
 
 import sounddevice as sd
 from dotenv import load_dotenv
@@ -102,7 +104,12 @@ class StreamingChatbot:
         if status:
             print(f"⚠️  Audio status: {status}")
         self.audio_queue.put(bytes(indata))
-        
+    
+    def send_to_db(self, chat: dict):
+        """Send chat to database."""
+        with DBConnect() as db:
+            db.insert_new_chat(datetime.now(), chat)
+
     def process_chunk(self, chunk: bytes) -> None:
         """Process a speech chunk through Whisper."""
         wav_io = wav_bytes_from_frames([chunk])
@@ -118,6 +125,7 @@ class StreamingChatbot:
                     print(f"🚫 End phrase '{phrase}' detected, stopping conversation")
                     print("🤖 Roger that! Conversation ending...")
                     self.session_ended = True
+                    self.send_to_db(self.conversation.get_messages())
                     return
             
             # Check for force send phrases
@@ -150,6 +158,7 @@ class StreamingChatbot:
                 print("🤖 Roger that! Conversation ending...")
                 self.session_ended = True
                 self.accumulated_chunks.clear()
+                self.send_to_db(self.conversation.get_messages())
                 return
         
         print("🤖  Sending to ChatGPT...")
@@ -189,7 +198,6 @@ class StreamingChatbot:
         """Main run loop for streaming chatbot."""
         print("\n🎤  Ready. Speak into the microphone (Ctrl-C to quit)…")
         print("💡  I'll show each chunk as I hear it, then send the complete message after a longer pause.")
-        print("🚫  CHUNKS ARE NEVER SENT TO CHATGPT INDIVIDUALLY - ONLY COMBINED!")
         print("─" * 50)
         
         with sd.RawInputStream(

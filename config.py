@@ -14,10 +14,10 @@ OPENAI_CHAT_MODEL = "gpt-4.1-nano"
 RESPONSE_MODEL = "gpt-4.1-nano"  # Alias for backward compatibility
 TEXT_TO_SPEECH_MODEL = "tts-1"
 TTS_VOICE = "alloy"  # Options: alloy, echo, fable, onyx, nova, shimmer
-TTS_ENABLED = False  # Enable/disable text-to-speech
+TTS_ENABLED = False  # Enable/disable text-to-speech - DISABLED to suppress voice responses
 
 
-STATE_CURRENT_SPOTIFY_USER = "Morgan" 
+STATE_CURRENT_SPOTIFY_USER = "Morgan"  # Set to None to disable Spotify 
 VALID_SPOTIFY_USERS = ["Morgan", "Spencer"]
 MORGAN_SPOTIFY_URI = os.getenv("MORGAN_SPOTIFY_URI")
 SPENCER_SPOTIFY_URI = os.getenv("SPENCER_SPOTIFY_URI")
@@ -49,11 +49,30 @@ COMPLETE_SILENCE_SEC = 3.5    # longer gap that completes the full message
 
 # Acoustic Echo Cancellation (AEC)
 AEC_ENABLED = True           # Enable/disable AEC processing
-AEC_FILTER_LENGTH = 300      # NLMS filter length (200-500 typical)
-AEC_STEP_SIZE = 0.05         # NLMS step size (0.01-0.1, smaller = more stable)
-AEC_DELAY_SAMPLES = 800      # Estimated delay between speaker and mic (samples)
-AEC_REFERENCE_BUFFER_SEC = 5.0  # How long to keep reference audio (seconds)
-AEC_CAPTURE_STRATEGY = "file_based"  # "file_based", "virtual_device", or "system_monitor"
+AEC_FILTER_LENGTH = 100
+AEC_STEP_SIZE = 0.02
+AEC_DELAY_SAMPLES = 1600
+AEC_REFERENCE_BUFFER_SEC = 10.0
+AEC_CAPTURE_STRATEGY = "system_monitor"  # "file_based", "virtual_device", or "system_monitor"
+
+# AEC Fine-tuning profiles - uncomment to use different settings
+# For aggressive echo cancellation (high echo environments):
+# AEC_FILTER_LENGTH = 500
+# AEC_STEP_SIZE = 0.02
+# AEC_DELAY_SAMPLES = 1000
+# AEC_REFERENCE_BUFFER_SEC = 10.0
+
+# For fast adaptation (quickly changing audio):
+# AEC_FILTER_LENGTH = 250
+# AEC_STEP_SIZE = 0.08
+# AEC_DELAY_SAMPLES = 600
+# AEC_REFERENCE_BUFFER_SEC = 4.0
+
+# For stable operation (noisy microphone):
+# AEC_FILTER_LENGTH = 350
+# AEC_STEP_SIZE = 0.02
+# AEC_DELAY_SAMPLES = 800
+# AEC_REFERENCE_BUFFER_SEC = 6.0
 
 # Chat Configuration
 SYSTEM_PROMPT = """
@@ -118,3 +137,8 @@ STARTUP_SOUND = True         # Play sound when system starts
 
 # Light Configuration
 LIGHT_ONE_IP = "192.168.1.186"
+
+# Chat Classification Configuration
+CHAT_CLASSIFICATION_BATCH_SIZE = 5  # Number of chats to classify in one API call
+CHAT_CLASSIFICATION_MAX_TOKENS_PER_CHAT = 150  # Max tokens allocated per chat in batch
+CHAT_CLASSIFICATION_RATE_LIMIT_DELAY = 0.5  # Seconds between individual API calls

@@ -1,19 +1,319 @@
-"""
-Audio processing utilities for speech detection and chunking.
-Handles VAD (Voice Activity Detection) and audio frame management.
-Includes Acoustic Echo Cancellation (AEC) for noise suppression.
-"""
-
 import io
 import time
 import wave
 from collections import deque
 from typing import Optional, Tuple
-
 import numpy as np
 import webrtcvad
-from .aec_processor import AECProcessor, AudioCaptureManager
 
+
+
+"""
+Acoustic Echo Cancellation (AEC) processor for noise suppression.
+Uses NLMS (Normalized Least Mean Squares) adaptive filtering to remove
+speaker output from microphone input.
+"""
+
+
+class AECProcessor:
+    """
+    Acoustic Echo Cancellation processor using NLMS adaptive filtering.
+    Removes speaker audio from microphone input in real-time.
+    """
+    
+    def __init__(self,
+                 filter_length: int = 300,
+                 step_size: float = 0.05,
+                 sample_rate: int = 16000,
+                 frame_size: int = 480,
+                 delay_samples: int = 600,
+                 reference_buffer_sec: float = 5.0):
+        """
+        Initialize AEC processor.
+        
+        Args:
+            filter_length: Number of filter taps (200-500 typical)
+            step_size: NLMS step size (0.01-0.1, smaller = more stable)
+            sample_rate: Audio sample rate in Hz
+            frame_size: Audio frame size in samples
+            delay_samples: Estimated delay between speaker and mic in samples
+            reference_buffer_sec: How long to keep reference audio (seconds)
+        """
+        self.filter_length = filter_length
+        self.step_size = step_size
+        self.sample_rate = sample_rate
+        self.frame_size = frame_size
+        self.delay_samples = delay_samples
+        
+        # Initialize NLMS filter coefficients
+        self.filter_coeffs = np.zeros(filter_length, dtype=np.float32)
+        self.eps = 1e-6  # Small value to prevent division by zero
+        
+        # Reference signal buffer (speaker output)
+        buffer_samples = int(reference_buffer_sec * sample_rate)
+        self.reference_buffer = deque(maxlen=buffer_samples)
+        
+        # Delay compensation buffer
+        self.delay_buffer = deque(maxlen=delay_samples)
+        
+        # Statistics
+        self.total_frames_processed = 0
+        self.echo_reduction_db = 0.0
+        self.last_stats_time = time.time()
+        
+        print(f"🔧 AEC Initialized: filter_len={filter_length}, step={step_size}, delay={delay_samples}")
+    
+    def add_reference_audio(self, audio_data: np.ndarray) -> None:
+        """
+        Add reference audio (what's being played through speakers).
+        
+        Args:
+            audio_data: Audio data as numpy array (float32, normalized)
+        """
+        # Ensure audio is float32 and normalized
+        if audio_data.dtype != np.float32:
+            audio_data = audio_data.astype(np.float32)
+        
+        # Normalize if needed
+        if np.max(np.abs(audio_data)) > 1.0:
+            audio_data = audio_data / np.max(np.abs(audio_data))
+        
+        # Add to reference buffer
+        self.reference_buffer.extend(audio_data)
+    
+    def process_microphone_audio(self, mic_audio: np.ndarray) -> np.ndarray:
+        """
+        Process microphone audio to remove echo.
+        
+        Args:
+            mic_audio: Raw microphone audio as numpy array (int16 or float32)
+            
+        Returns:
+            Echo-cancelled audio as numpy array (same type as input)
+        """
+        input_dtype = mic_audio.dtype
+        
+        # Convert to float32 for processing
+        if mic_audio.dtype == np.int16:
+            mic_float = mic_audio.astype(np.float32) / 32768.0
+        else:
+            mic_float = mic_audio.astype(np.float32)
+        
+        # Ensure we have enough reference audio
+        if len(self.reference_buffer) < self.filter_length:
+            # Not enough reference audio yet, return original
+            return mic_audio
+        
+        # Get reference signal with delay compensation
+        ref_start_idx = max(0, len(self.reference_buffer) - len(mic_float) - self.delay_samples)
+        ref_end_idx = ref_start_idx + len(mic_float)
+        
+        if ref_end_idx > len(self.reference_buffer):
+            # Not enough reference audio, return original
+            return mic_audio
+        
+        reference_signal = np.array(list(self.reference_buffer))[ref_start_idx:ref_end_idx]
+        
+        if len(reference_signal) != len(mic_float):
+            # Length mismatch, return original
+            return mic_audio
+        
+        # Apply NLMS filtering
+        try:
+            output_audio = self._apply_nlms_filter(reference_signal, mic_float)
+            
+            # Update statistics
+            self._update_statistics(mic_float, output_audio)
+            
+        except Exception as e:
+            print(f"⚠️ AEC processing error: {e}")
+            output_audio = mic_float
+        
+        # Convert back to original data type
+        if input_dtype == np.int16:
+            # Clip to prevent overflow
+            output_audio = np.clip(output_audio, -1.0, 1.0)
+            output_audio = (output_audio * 32767.0).astype(np.int16)
+        
+        return output_audio
+    
+    def process_frame(self, mic_frame: bytes, reference_frame: Optional[bytes] = None) -> bytes:
+        """
+        Process a single audio frame (convenience method for existing pipeline).
+        
+        Args:
+            mic_frame: Microphone audio frame as bytes (int16)
+            reference_frame: Reference audio frame as bytes (int16), optional
+            
+        Returns:
+            Processed audio frame as bytes
+        """
+        # Convert bytes to numpy array
+        mic_array = np.frombuffer(mic_frame, dtype=np.int16)
+        
+        # Add reference audio if provided
+        if reference_frame is not None:
+            ref_array = np.frombuffer(reference_frame, dtype=np.int16)
+            ref_float = ref_array.astype(np.float32) / 32768.0
+            self.add_reference_audio(ref_float)
+        
+        # Process audio
+        processed_array = self.process_microphone_audio(mic_array)
+        
+        # Convert back to bytes
+        return processed_array.tobytes()
+    
+    def _apply_nlms_filter(self, reference: np.ndarray, microphone: np.ndarray) -> np.ndarray:
+        """
+        Apply NLMS (Normalized Least Mean Squares) filtering.
+        
+        Args:
+            reference: Reference signal (speaker output)
+            microphone: Microphone signal (input with echo)
+            
+        Returns:
+            Echo-cancelled microphone signal
+        """
+        output = np.zeros_like(microphone)
+        
+        # Process sample by sample for real-time operation
+        for i in range(len(microphone)):
+            # Get reference window
+            if i < self.filter_length:
+                # Pad with zeros at the beginning
+                ref_window = np.concatenate([
+                    np.zeros(self.filter_length - i - 1),
+                    reference[:i+1]
+                ])
+            else:
+                ref_window = reference[i-self.filter_length+1:i+1]
+            
+            # Reverse for convolution (most recent sample first)
+            ref_window = ref_window[::-1]
+            
+            # Predict echo using current filter coefficients
+            predicted_echo = np.dot(self.filter_coeffs, ref_window)
+            
+            # Calculate error (echo-cancelled signal)
+            error = microphone[i] - predicted_echo
+            output[i] = error
+            
+            # Update filter coefficients using NLMS
+            ref_power = np.dot(ref_window, ref_window) + self.eps
+            self.filter_coeffs += (self.step_size * error / ref_power) * ref_window
+        
+        return output
+    
+    def _update_statistics(self, original: np.ndarray, processed: np.ndarray) -> None:
+        """Update processing statistics."""
+        self.total_frames_processed += 1
+        
+        # Calculate echo reduction every 100 frames
+        if self.total_frames_processed % 100 == 0:
+            original_power = np.mean(original ** 2)
+            processed_power = np.mean(processed ** 2)
+            
+            if original_power > 0 and processed_power > 0:
+                self.echo_reduction_db = 10 * np.log10(original_power / processed_power)
+            
+            # Print stats every 10 seconds
+            current_time = time.time()
+            if current_time - self.last_stats_time > 10.0:
+                print(f"🔊 AEC Stats: {self.echo_reduction_db:.1f}dB reduction, "
+                      f"{self.total_frames_processed} frames processed")
+                self.last_stats_time = current_time
+    
+    def reset(self) -> None:
+        """Reset the AEC processor."""
+        self.filter_coeffs.fill(0.0)
+        self.reference_buffer.clear()
+        self.delay_buffer.clear()
+        self.total_frames_processed = 0
+        print("🔄 AEC processor reset")
+    
+    def get_status(self) -> dict:
+        """Get current AEC status."""
+        return {
+            "filter_length": self.filter_length,
+            "step_size": self.step_size,
+            "frames_processed": self.total_frames_processed,
+            "echo_reduction_db": self.echo_reduction_db,
+            "reference_buffer_size": len(self.reference_buffer),
+            "reference_buffer_sec": len(self.reference_buffer) / self.sample_rate
+        }
+
+
+class AudioCaptureManager:
+    """
+    Manages capturing audio that's being played through speakers.
+    Provides multiple strategies for different platforms.
+    """
+    
+    def __init__(self, strategy: str = "file_based"):
+        """
+        Initialize audio capture manager.
+        
+        Args:
+            strategy: "file_based", "virtual_device", or "system_monitor"
+        """
+        self.strategy = strategy
+        self.captured_audio_buffer = deque(maxlen=16000 * 10)  # 10 seconds
+        
+        if strategy == "file_based":
+            print("🎵 Using file-based audio capture strategy")
+        elif strategy == "virtual_device":
+            print("🎵 Using virtual device audio capture strategy")
+        elif strategy == "system_monitor":
+            print("🎵 Using system monitor audio capture strategy")
+        else:
+            raise ValueError(f"Unknown capture strategy: {strategy}")
+    
+    def capture_audio_file(self, file_path: str) -> np.ndarray:
+        """
+        Capture audio from a file that's about to be played.
+        
+        Args:
+            file_path: Path to audio file
+            
+        Returns:
+            Audio data as numpy array
+        """
+        try:
+            import librosa
+            audio_data, sample_rate = librosa.load(file_path, sr=16000, mono=True)
+            return audio_data.astype(np.float32)
+        except ImportError:
+            print("⚠️ librosa not installed, using basic file reading")
+            # Fallback to basic wave reading
+            try:
+                import wave
+                with wave.open(file_path, 'rb') as wf:
+                    frames = wf.readframes(wf.getnframes())
+                    audio_array = np.frombuffer(frames, dtype=np.int16)
+                    return audio_array.astype(np.float32) / 32768.0
+            except Exception as e:
+                print(f"⚠️ Could not read audio file {file_path}: {e}")
+                return np.array([], dtype=np.float32)
+    
+    def add_played_audio(self, audio_data: np.ndarray) -> None:
+        """Add audio that was just played to the capture buffer."""
+        self.captured_audio_buffer.extend(audio_data)
+    
+    def get_recent_audio(self, duration_sec: float) -> np.ndarray:
+        """Get recently played audio."""
+        samples_needed = int(duration_sec * 16000)
+        if len(self.captured_audio_buffer) >= samples_needed:
+            return np.array(list(self.captured_audio_buffer)[-samples_needed:])
+        else:
+            return np.array(list(self.captured_audio_buffer))
+
+
+
+"""
+Audio processing utilities for speech detection and chunking.
+Handles VAD (Voice Activity Detection) and audio frame management.
+Includes Acoustic Echo Cancellation (AEC) for noise suppression.
+"""
 
 def wav_bytes_from_frames(frames: list, sample_rate: int = 16000) -> io.BytesIO:
     """
@@ -48,7 +348,6 @@ def calculate_rms(audio_data: bytes) -> float:
     """
     audio_array = np.frombuffer(audio_data, dtype=np.int16)
     return np.sqrt(np.mean(audio_array**2))
-
 
 class VADChunker:
     """
@@ -185,3 +484,4 @@ class VADChunker:
         """Reset AEC processor."""
         if self.aec_enabled and self.aec_processor is not None:
             self.aec_processor.reset()
+
