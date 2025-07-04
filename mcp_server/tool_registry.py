@@ -85,13 +85,12 @@ class ToolRegistry:
                 issubclass(obj, BaseTool) and 
                 obj is not BaseTool)
     
-    def get_tool_instance(self, tool_name: str, core_services=None) -> Any:
+    def get_tool_instance(self, tool_name: str) -> Any:
         """
         Get or create an instance of a tool.
         
         Args:
             tool_name: Name of the tool
-            core_services: Core services to inject into tool
             
         Returns:
             Tool instance
@@ -101,7 +100,7 @@ class ToolRegistry:
                 raise ValueError(f"Tool '{tool_name}' not found")
             
             tool_class = self.registered_tools[tool_name]
-            self.tool_instances[tool_name] = tool_class(core_services)
+            self.tool_instances[tool_name] = tool_class()
             
         return self.tool_instances[tool_name]
     
@@ -116,7 +115,7 @@ class ToolRegistry:
             
         tool_class = self.registered_tools[tool_name]
         # Create temporary instance to get schema
-        temp_instance = tool_class(None)
+        temp_instance = tool_class()
         return temp_instance.get_schema()
     
     def reload_tools(self) -> List[str]:
@@ -166,7 +165,7 @@ class ToolRegistry:
                     return False
                     
             # Try to create instance and get schema
-            temp_instance = tool_class(None)
+            temp_instance = tool_class()
             schema = temp_instance.get_schema()
             
             if not isinstance(schema, dict):

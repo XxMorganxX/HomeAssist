@@ -1,6 +1,6 @@
 """
 MCP Server bootstrap and main server implementation.
-Coordinates tool discovery, core services, and MCP protocol handling.
+Coordinates tool discovery and MCP protocol handling.
 """
 
 import os
@@ -35,132 +35,22 @@ except ImportError as e:
     logger.info(f"Site packages: {[p for p in sys.path if 'site-packages' in p]}")
 
 from mcp_server.tool_registry import ToolRegistry
-from mcp_server.base_tool import CoreServices
-
-# Import core modules with fallback for missing dependencies
-try:
-    from core.speech_services import SpeechServices, ConversationManager
-    SPEECH_SERVICES_AVAILABLE = True
-except ImportError as e:
-    logger.warning(f"Speech services not available: {e}")
-    SpeechServices = None
-    ConversationManager = None
-    SPEECH_SERVICES_AVAILABLE = False
-
-try:
-    import config
-    CONFIG_AVAILABLE = True
-except ImportError as e:
-    logger.warning(f"Config not available: {e}")
-    config = None
-    CONFIG_AVAILABLE = False
 
 
 class MCPServer:
     """
-    Main MCP Server that coordinates tools and core services.
+    Main MCP Server that coordinates tools and provides MCP protocol handling.
     Provides a framework for extensible tool creation.
     """
     
-    def __init__(self, config_module=None):
-        """
-        Initialize MCP server.
-        
-        Args:
-            config_module: Configuration module (defaults to project config)
-        """
-        self.config = config_module or config
+    def __init__(self):
+        """Initialize MCP server."""
         self.tool_registry = ToolRegistry()
-        self.core_services = None
         self.available_tools: Dict[str, Any] = {}
-        
-        # Initialize core services
-        self._initialize_core_services()
         
         # Discover and register tools
         self._discover_tools()
         
-    def _initialize_core_services(self):
-        """Initialize core services that tools can access."""
-        try:
-            # Initialize speech services if available and API key is set
-            api_key = os.getenv("OPENAI_KEY")
-            speech_services = None
-            conversation_manager = None
-            
-            if SPEECH_SERVICES_AVAILABLE and api_key and CONFIG_AVAILABLE:
-                # Get Gemini API key if using Gemini
-                gemini_api_key = os.getenv("GEMINI_API_KEY")
-                
-                # Determine chat model based on provider
-                if self.config.CHAT_PROVIDER == "openai":
-                    chat_model = self.config.OPENAI_CHAT_MODEL
-                elif self.config.CHAT_PROVIDER == "gemini":
-                    chat_model = self.config.GEMINI_CHAT_MODEL
-                else:
-                    chat_model = self.config.OPENAI_CHAT_MODEL  # Default fallback
-                
-                speech_services = SpeechServices(
-                    openai_api_key=api_key,
-                    whisper_model=self.config.WHISPER_MODEL,
-                    chat_provider=self.config.CHAT_PROVIDER,
-                    chat_model=chat_model,
-                    gemini_api_key=gemini_api_key,
-                    tts_enabled=getattr(self.config, 'TTS_ENABLED', False),
-                    tts_model=getattr(self.config, 'TEXT_TO_SPEECH_MODEL', 'tts-1'),
-                    tts_voice=getattr(self.config, 'TTS_VOICE', 'alloy')
-                )
-                conversation_manager = ConversationManager(self.config.SYSTEM_PROMPT)
-                logger.info("Speech services initialized")
-            else:
-                if not SPEECH_SERVICES_AVAILABLE:
-                    logger.warning("Speech services not available - missing dependencies")
-                elif not api_key:
-                    logger.warning("No OPENAI_KEY found - speech services unavailable")
-                elif not CONFIG_AVAILABLE:
-                    logger.warning("Config not available - using defaults")
-            
-            # Initialize audio processor configuration (with defaults if config unavailable)
-            audio_processor_config = {}
-            if CONFIG_AVAILABLE:
-                audio_processor_config = {
-                    'sample_rate': self.config.SAMPLE_RATE,
-                    'frame_ms': self.config.FRAME_MS,
-                    'vad_mode': self.config.VAD_MODE,
-                    'silence_end_sec': self.config.SILENCE_END_SEC,
-                    'max_utterance_sec': self.config.MAX_UTTERANCE_SEC
-                }
-            else:
-                # Provide defaults
-                audio_processor_config = {
-                    'sample_rate': 16000,
-                    'frame_ms': 30,
-                    'vad_mode': 2,
-                    'silence_end_sec': 0.7,
-                    'max_utterance_sec': 15
-                }
-            
-            # Create core services container
-            self.core_services = CoreServices(
-                audio_processor=audio_processor_config,
-                speech_services=speech_services,
-                conversation_manager=conversation_manager,
-                config=self.config if CONFIG_AVAILABLE else None
-            )
-            
-            logger.info("Core services initialized")
-            
-        except Exception as e:
-            logger.error(f"Failed to initialize core services: {e}")
-            # Don't raise - create minimal core services
-            self.core_services = CoreServices(
-                audio_processor={},
-                speech_services=None,
-                conversation_manager=None,
-                config=None
-            )
-            logger.warning("Created minimal core services")
-    
     def _discover_tools(self):
         """Discover and validate all available tools."""
         try:
@@ -201,11 +91,15 @@ class MCPServer:
             
         Returns:
             Tool information dictionary
+            
+        Raises:
+            ValueError: If tool not found
         """
         if tool_name not in self.available_tools:
             raise ValueError(f"Tool '{tool_name}' not found")
             
-        tool_instance = self.tool_registry.get_tool_instance(tool_name, self.core_services)
+        # Get tool instance to access metadata
+        tool_instance = self.tool_registry.get_tool_instance(tool_name)
         return tool_instance.get_info()
     
     def execute_tool(self, tool_name: str, params: Dict[str, Any]) -> Dict[str, Any]:
@@ -226,7 +120,7 @@ class MCPServer:
             }
         
         try:
-            tool_instance = self.tool_registry.get_tool_instance(tool_name, self.core_services)
+            tool_instance = self.tool_registry.get_tool_instance(tool_name)
             result = tool_instance.safe_execute(params)
             
             logger.info(f"Tool '{tool_name}' executed successfully: {result.get('success', False)}")
@@ -281,13 +175,7 @@ class MCPServer:
         return {
             "status": "running",
             "tools_available": len(self.available_tools),
-            "tool_names": list(self.available_tools.keys()),
-            "core_services": {
-                "speech_services": self.core_services.speech_services is not None,
-                "conversation_manager": self.core_services.conversation_manager is not None,
-                "audio_processor": self.core_services.audio_processor is not None,
-                "config": self.core_services.config is not None
-            }
+            "tool_names": list(self.available_tools.keys())
         }
     
     def start(self):
@@ -300,23 +188,11 @@ class MCPServer:
         print(f"Tools loaded: {len(self.available_tools)}")
         print(f"Available tools: {', '.join(self.available_tools.keys())}")
         print("\nThe server is now running. Press Ctrl+C to stop.")
-        print("\nTo use this server:")
-        print("1. Run examples/interactive_tool_chat.py in another terminal")
-        print("2. Or use the HTTP server: python mcp_server/run_server.py")
         
         try:
             # Keep the server running
             while True:
                 time.sleep(1)
-                
-                # Optional: Auto-reload tools every 30 seconds for development
-                # Uncomment the following lines to enable auto-reload:
-                # if not hasattr(self, '_last_reload'):
-                #     self._last_reload = time.time()
-                # elif time.time() - self._last_reload > 30:
-                #     logger.info("Auto-reloading tools...")
-                #     self.reload_tools()
-                #     self._last_reload = time.time()
                 
         except KeyboardInterrupt:
             print("\n\nShutting down MCP Server...")
@@ -335,11 +211,6 @@ def main():
         print(f"Status: {status['status']}")
         print(f"Tools available: {status['tools_available']}")
         print(f"Tool names: {', '.join(status['tool_names'])}")
-        
-        # Print core services status
-        print("\n=== Core Services ===")
-        for service, available in status['core_services'].items():
-            print(f"{service}: {'✓' if available else '✗'}")
         
         # List all tools with schemas
         print("\n=== Available Tools ===")

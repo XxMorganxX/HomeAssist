@@ -138,15 +138,46 @@ class WakeWordDetector(Component):
                 self.previous_scores[model_name] = 0
                 self.is_armed[model_name] = True
             
-            # Initialize audio
-            self.audio = pyaudio.PyAudio()
-            self.mic_stream = self.audio.open(
-                format=self.FORMAT,
-                channels=self.CHANNELS,
-                rate=self.RATE,
-                input=True,
-                frames_per_buffer=self.CHUNK
-            )
+            # Initialize audio with retry logic for macOS
+            max_retries = 3
+            retry_delay = 1.0  # seconds
+            
+            for attempt in range(max_retries):
+                try:
+                    if self.audio:
+                        self.audio.terminate()
+                    
+                    self.audio = pyaudio.PyAudio()
+                    
+                    # Get default input device info
+                    default_input = self.audio.get_default_input_device_info()
+                    if config.DEBUG_MODE:
+                        print(f"Using audio input device: {default_input['name']}")
+                    
+                    # Try to match device's native sample rate first
+                    device_rate = int(default_input['defaultSampleRate'])
+                    
+                    # Open stream with device's native rate
+                    self.mic_stream = self.audio.open(
+                        format=self.FORMAT,
+                        channels=self.CHANNELS,
+                        rate=device_rate,
+                        input=True,
+                        frames_per_buffer=self.CHUNK
+                    )
+                    
+                    # Test the stream
+                    test_data = self.mic_stream.read(self.CHUNK, exception_on_overflow=False)
+                    if len(test_data) > 0:
+                        break
+                        
+                except Exception as e:
+                    if attempt < max_retries - 1:
+                        print(f"⚠️ Audio initialization attempt {attempt + 1} failed: {e}")
+                        time.sleep(retry_delay)
+                        continue
+                    else:
+                        raise Exception(f"Failed to initialize audio after {max_retries} attempts: {e}")
             
             # Start detection thread
             self.running = True
@@ -213,8 +244,17 @@ class WakeWordDetector(Component):
         
         while self.running:
             try:
-                # Get audio frame
-                audio_data = self.mic_stream.read(self.CHUNK, exception_on_overflow=False)
+                # Get audio frame with error handling
+                try:
+                    audio_data = self.mic_stream.read(self.CHUNK, exception_on_overflow=False)
+                except OSError as e:
+                    if "Input overflowed" in str(e):
+                        # Skip this frame and continue
+                        continue
+                    else:
+                        print(f"❌ Audio stream error: {e}")
+                        break
+                
                 audio_array = np.frombuffer(audio_data, dtype=np.int16)
                 
                 # Process through OpenWakeWord
@@ -224,6 +264,8 @@ class WakeWordDetector(Component):
                 # Check each model for detection
                 for model_name in self.oww_model.prediction_buffer.keys():
                     scores = list(self.oww_model.prediction_buffer[model_name])
+                    if not scores:  # Skip if no scores available
+                        continue
                     current_score = scores[-1]
                     previous_score = self.previous_scores.get(model_name, 0)
                     
@@ -249,19 +291,18 @@ class WakeWordDetector(Component):
                         if self.wake_word_callback:
                             self.wake_word_callback()
                     
-                    # Re-arm detection when score drops
-                    elif not self.is_armed[model_name] and current_score < 0.2:
-                        self.is_armed[model_name] = True
-                        if config.DEBUG_MODE:
-                            print(f"🔄 {model_name} re-armed for detection")
-                    
                     # Update previous score
                     self.previous_scores[model_name] = current_score
                     
+                    # Re-arm after cooldown
+                    if not self.is_armed[model_name] and time_since_last > self.cooldown_seconds:
+                        self.is_armed[model_name] = True
+                
             except Exception as e:
-                if self.running:  # Only log if we're supposed to be running
-                    print(f"⚠️ Detection loop error: {e}")
-                    time.sleep(0.1)  # Brief pause on error
+                print(f"❌ Error in detection loop: {e}")
+                if not self.running:
+                    break
+                time.sleep(0.1)  # Prevent tight loop on error
     
     def _play_greeting_audio(self):
         """Play a random greeting audio file."""

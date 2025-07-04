@@ -1,36 +1,13 @@
 """
 Abstract base class for MCP tools.
-Provides a consistent interface and access to core services.
+Provides a consistent interface for tool creation.
 """
 
 from abc import ABC, abstractmethod
-from typing import Dict, Any, Optional
+from typing import Dict, Any
 import logging
 
 logger = logging.getLogger(__name__)
-
-
-class CoreServices:
-    """Container for core services that tools can access."""
-    
-    def __init__(self, 
-                 audio_processor=None,
-                 speech_services=None, 
-                 conversation_manager=None,
-                 config=None):
-        """
-        Initialize core services container.
-        
-        Args:
-            audio_processor: Audio processing utilities (VADChunker, etc.)
-            speech_services: Speech-to-text and chat services
-            conversation_manager: Conversation history management
-            config: Configuration object
-        """
-        self.audio_processor = audio_processor
-        self.speech_services = speech_services
-        self.conversation_manager = conversation_manager
-        self.config = config
 
 
 class BaseTool(ABC):
@@ -45,14 +22,8 @@ class BaseTool(ABC):
     description: str = None
     version: str = "1.0.0"
     
-    def __init__(self, core_services: Optional[CoreServices]):
-        """
-        Initialize the tool with access to core services.
-        
-        Args:
-            core_services: Container with audio processing, speech services, etc.
-        """
-        self.core_services = core_services
+    def __init__(self):
+        """Initialize the tool."""
         self.logger = logging.getLogger(f"{self.__class__.__module__}.{self.__class__.__name__}")
         
         # Validate tool metadata
@@ -160,28 +131,6 @@ class BaseTool(ABC):
                 "success": False,
                 "error": f"Tool execution failed: {str(e)}"
             }
-    
-    # Convenience methods for accessing core services
-    
-    @property
-    def audio_processor(self):
-        """Get audio processing utilities."""
-        return self.core_services.audio_processor if self.core_services else None
-    
-    @property 
-    def speech_services(self):
-        """Get speech services (Whisper, ChatGPT)."""
-        return self.core_services.speech_services if self.core_services else None
-    
-    @property
-    def conversation_manager(self):
-        """Get conversation manager."""
-        return self.core_services.conversation_manager if self.core_services else None
-    
-    @property
-    def config(self):
-        """Get configuration object."""
-        return self.core_services.config if self.core_services else None
     
     def log_info(self, message: str):
         """Log info message with tool context."""

@@ -90,6 +90,7 @@ State when you are making assumptions.
 Available Tools:
 - light_on: Turn on smart lights in any room. Requires room name and light name.
 - light_off: Turn off smart lights in any room. Requires room name and light name.
+- state_manager: Manage system state including Spotify user and lighting scenes.
 - spotify_playback: Control Spotify music playback with these actions:
   * play/pause - Start or pause current playback
   * next/previous - Skip tracks forward or backward
@@ -138,7 +139,46 @@ STARTUP_SOUND = True         # Play sound when system starts
 # Light Configuration
 LIGHT_ONE_IP = "192.168.1.186"
 
+# Light to Room Mapping
+LIGHT_ROOM_MAPPING = {
+    "lights": {
+        "Light 1": {
+            "room": "living room",
+            "ip": LIGHT_ONE_IP,
+            "credentials": {
+                "username": "morgannstuart@gmail.com",
+                "password": "ithaca-home-2025"
+            }
+        },
+        "Light 2": {
+            "room": "bedroom",
+            "ip": None,  # Not yet configured
+            "credentials": None
+        }
+    },
+    "rooms": {
+        "living room": ["Light 1"],
+        "bedroom": ["Light 2"],
+        "kitchen": []  # No lights configured yet
+    }
+}
+
 # Chat Classification Configuration
 CHAT_CLASSIFICATION_BATCH_SIZE = 5  # Number of chats to classify in one API call
 CHAT_CLASSIFICATION_MAX_TOKENS_PER_CHAT = 150  # Max tokens allocated per chat in batch
 CHAT_CLASSIFICATION_RATE_LIMIT_DELAY = 0.5  # Seconds between individual API calls
+
+ALL_CHAT_CONTROLLED_STATES = ["Morgan", "Spencer", "mood", "party", "movie"]
+
+
+STATE_MANAGER_FILE = "core/state_management/statemanager.json"
+"""
+  "state": {
+    "current_spotify_user": "Morgan", /* Morgan or Spencer */
+    "current_spotify_playlist": "https://open.spotify.com/playlist/37i9dQZF1DX9wCBDkixAu6?si=1234567890", 
+    "chat_phase": "asleep" /* asleep, listening (quiet), listening (active) */ 
+    "lighting_scene": "none" /* off, mood, party, movie */
+  }
+  "chat_alternati
+}
+"""

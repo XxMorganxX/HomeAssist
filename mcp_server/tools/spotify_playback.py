@@ -6,13 +6,13 @@ Provides voice-controlled Spotify playback functionality.
 import os
 import spotipy
 from spotipy.oauth2 import SpotifyOAuth
-from typing import Dict, Any, Optional
-from mcp_server.base_tool import BaseTool, CoreServices
-from typing import Literal
+from typing import Dict, Any, Optional, Literal
+from mcp_server.base_tool import BaseTool
 from dotenv import load_dotenv
 import config
 
 load_dotenv()
+
 class SpotifyPlaybackTool(BaseTool):
     """Voice-controlled Spotify playback tool"""
     
@@ -20,9 +20,8 @@ class SpotifyPlaybackTool(BaseTool):
     description = "Called when the user wants to control Spotify playback including play, pause, next, previous, volume control, and music search"
     version = "1.0.0"
     
-    def __init__(self, core_services: Optional[CoreServices]):
-        
-        super().__init__(core_services)
+    def __init__(self):
+        super().__init__()
         
         # Spotify credentials
         self.SPOTIPY_CLIENT_ID = {"Morgan": os.getenv("MORGAN_SPOTIFY_CLIENT_ID"), "Spencer": os.getenv("SPENCER_SPOTIFY_CLIENT_ID")}
@@ -36,6 +35,11 @@ class SpotifyPlaybackTool(BaseTool):
         self.device_id = None
         self.current_device_name = None
         self._spotify_initialized = False
+        
+        # Cache for available devices
+        self._devices_cache = None
+        self._devices_cache_time = 0
+        self.CACHE_TIMEOUT = 10  # seconds
     
     def _initialize_spotify(self):
         """Initialize Spotify client and find device"""

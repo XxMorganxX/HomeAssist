@@ -64,14 +64,35 @@ class OpenAIProvider(ModelProvider):
             
             # Add function calling if functions are provided
             if functions:
-                kwargs["functions"] = functions
-                kwargs["function_call"] = "auto"
+                # Convert functions to tools format for newer API
+                tools = []
+                for func in functions:
+                    tools.append({
+                        "type": "function",
+                        "function": func
+                    })
+                kwargs["tools"] = tools
+                kwargs["tool_choice"] = "auto"
             
             response = self.client.chat.completions.create(**kwargs, timeout=15.0)
             message = response.choices[0].message
             
             result = {"content": message.content}
-            if hasattr(message, 'function_call') and message.function_call:
+            
+            # Handle new tool_calls format (supports multiple calls)
+            if hasattr(message, 'tool_calls') and message.tool_calls:
+                result["tool_calls"] = []
+                for tool_call in message.tool_calls:
+                    result["tool_calls"].append({
+                        "id": tool_call.id,
+                        "type": tool_call.type,
+                        "function": {
+                            "name": tool_call.function.name,
+                            "arguments": tool_call.function.arguments
+                        }
+                    })
+            # Backward compatibility: still support old function_call format
+            elif hasattr(message, 'function_call') and message.function_call:
                 result["function_call"] = {
                     "name": message.function_call.name,
                     "arguments": message.function_call.arguments

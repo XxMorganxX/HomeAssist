@@ -4,6 +4,7 @@ RasPi Smart Home Voice Assistant - Main Entry Point
 
 Unified entry point for the voice assistant system with configurable components.
 Supports multiple operational modes: wake_word, continuous, and interactive.
+Includes integrated MCP tool server for external tool access.
 """
 
 import os
@@ -11,8 +12,11 @@ import sys
 import time
 import signal
 import argparse
+import threading
 from pathlib import Path
 from typing import Optional
+
+from core.state_management.statemanager import StateManager
 
 # Add project root to path
 project_root = Path(__file__).parent
@@ -21,6 +25,7 @@ sys.path.insert(0, str(project_root))
 try:
     import config
     from core.components import ComponentOrchestrator
+    from mcp_server.server import MCPServer
 except ImportError as e:
     print(f"❌ Failed to import required modules: {e}")
     print("Make sure you're running from the project root directory")
@@ -28,16 +33,20 @@ except ImportError as e:
 
 
 class VoiceAssistantApp:
-    """Main application class for the RasPi Smart Home Voice Assistant."""
+    """Main application class for the RasPi Smart Home Voice Assistant with integrated MCP server."""
     
-    def __init__(self, config_overrides: Optional[dict] = None):
+    def __init__(self, config_overrides: Optional[dict] = None, enable_mcp_server: bool = True):
         """
         Initialize the voice assistant application.
         
         Args:
             config_overrides: Optional configuration overrides
+            enable_mcp_server: Whether to start the integrated MCP server
         """
         self.orchestrator: Optional[ComponentOrchestrator] = None
+        self.mcp_server: Optional[MCPServer] = None
+        self.mcp_server_thread: Optional[threading.Thread] = None
+        self.enable_mcp_server = enable_mcp_server
         self.running = False
         
 
@@ -46,12 +55,19 @@ class VoiceAssistantApp:
         signal.signal(signal.SIGTERM, self._signal_handler)
         
         print("🏠 RasPi Smart Home Voice Assistant")
+        if enable_mcp_server:
+            print("🔧 With Integrated MCP Tool Server")
         print("=" * 50)
     
     def _signal_handler(self, signum, frame):
         """Handle shutdown signals gracefully."""
-        print(f"\n🛑 Received signal {signum}, shutting down...")
-        self.shutdown()
+        # Only handle shutdown if we're actually running the main system
+        if self.running:
+            print(f"\n🛑 Received signal {signum}, shutting down...")
+            self.shutdown()
+        else:
+            # In test mode or other non-running states, just raise the interrupt
+            raise KeyboardInterrupt()
     
     def _print_system_info(self):
         """Print system configuration and status."""
@@ -62,6 +78,7 @@ class VoiceAssistantApp:
         print(f"   AEC: {'✓' if config.AEC_ENABLED else '✗'}")
         print(f"   Debug Mode: {'✓' if config.DEBUG_MODE else '✗'}")
         print(f"   Auto Restart: {'✓' if config.AUTO_RESTART else '✗'}")
+        print(f"   MCP Server: {'✓' if self.enable_mcp_server else '✗'}")
         
         print(f"\n🤖 AI Configuration:")
         print(f"   Chat Provider: {config.CHAT_PROVIDER}")
@@ -112,7 +129,48 @@ class VoiceAssistantApp:
             return False
         
         return True
-    
+
+    def _initialize_mcp_server(self) -> bool:
+        """Initialize the MCP server."""
+        if not self.enable_mcp_server:
+            return True
+            
+        try:
+            print("🔧 Initializing MCP server...")
+            self.mcp_server = MCPServer()
+            
+            # Print MCP server status
+            status = self.mcp_server.get_server_status()
+            print(f"   Tools available: {status['tools_available']}")
+            print(f"   Tool names: {', '.join(status['tool_names'])}")
+            
+            print("✅ MCP server initialized successfully")
+            return True
+            
+        except Exception as e:
+            print(f"❌ MCP server initialization failed: {e}")
+            return False
+
+    def _start_mcp_server_background(self):
+        """Start MCP server in background thread."""
+        if not self.mcp_server:
+            return
+            
+        def run_mcp_server():
+            try:
+                print("🚀 Starting MCP server in background...")
+                # Note: In a real implementation, this would start the MCP protocol handler
+                # For now, it just keeps the server instance alive and ready for tool calls
+                while self.running:
+                    time.sleep(1)
+                print("🛑 MCP server background thread stopped")
+            except Exception as e:
+                print(f"❌ MCP server background error: {e}")
+        
+        self.mcp_server_thread = threading.Thread(target=run_mcp_server, daemon=True)
+        self.mcp_server_thread.start()
+        print("✅ MCP server running in background")
+
     def initialize(self) -> bool:
         """Initialize the voice assistant system."""
         try:
@@ -120,6 +178,10 @@ class VoiceAssistantApp:
             
             # Check dependencies
             if not self._check_dependencies():
+                return False
+            
+            # Initialize MCP server first
+            if not self._initialize_mcp_server():
                 return False
             
             # Create component orchestrator
@@ -146,6 +208,10 @@ class VoiceAssistantApp:
             
             print("\n🚀 Starting voice assistant...")
             
+            # Start MCP server in background
+            if self.mcp_server:
+                self._start_mcp_server_background()
+            
             # Start all components
             if not self.orchestrator.start_all():
                 print("❌ Failed to start components")
@@ -160,20 +226,112 @@ class VoiceAssistantApp:
             print(f"❌ Failed to start system: {e}")
             return False
     
+    def run_terminal_test_mode(self):
+        """Run in terminal test mode for testing MCP tools via text input."""
+        if not self.mcp_server:
+            print("❌ MCP server not available")
+            return
+        
+        print("\n🧪 Terminal Test Mode - MCP Tools Testing")
+        print("=" * 50)
+        
+        # Get available tools
+        status = self.mcp_server.get_server_status()
+        tools = status['tool_names']
+        
+        print(f"Available tools: {', '.join(tools)}")
+        print("\nExamples:")
+        print("  - 'turn on the living room lights'")
+        print("  - 'play some music on spotify'")
+        print("  - 'set the lighting scene to movie'")
+        print("  - 'what's the current spotify user?'")
+        print("  - 'pause the music'")
+        print("\nType 'quit', 'exit', or 'q' to exit test mode")
+        print("Type 'tools' to see available tools again")
+        print("Type 'status' to see system status")
+        print("Press Ctrl+C to exit at any time")
+        print("-" * 50)
+        
+        # Initialize the streaming chatbot for tool processing
+        try:
+            from core.streaming_chatbot import ToolEnabledStreamingChatbot
+            chatbot = ToolEnabledStreamingChatbot()
+        except Exception as e:
+            print(f"❌ Failed to initialize chatbot: {e}")
+            return
+        
+        # Set a flag for test mode to handle signals differently
+        original_running = self.running
+        self.running = False  # Prevent the main signal handler from shutting down everything
+        
+        try:
+            while True:
+                try:
+                    # Get user input
+                    user_input = input("\n💬 You: ").strip()
+                    
+                    if not user_input:
+                        continue
+                    
+                    # Handle special commands
+                    if user_input.lower() in ['quit', 'exit', 'q']:
+                        print("👋 Exiting terminal test mode")
+                        break
+                    elif user_input.lower() == 'tools':
+                        print(f"Available tools: {', '.join(tools)}")
+                        continue
+                    elif user_input.lower() == 'status':
+                        status = self.mcp_server.get_server_status()
+                        print(f"🔧 Server Status:")
+                        print(f"   Tools available: {status['tools_available']}")
+                        print(f"   Tool names: {', '.join(status['tool_names'])}")
+                        continue
+                    
+                    # Process the input through the chatbot
+                    print("🤖 Assistant: ", end="", flush=True)
+                    
+                    response_text = chatbot.process_text_input(user_input)
+                    print(response_text)
+                    
+                except EOFError:
+                    # Handle Ctrl+D gracefully
+                    print("\n👋 Exiting terminal test mode")
+                    break
+                except Exception as e:
+                    print(f"\n❌ Error processing input: {e}")
+                    continue
+                    
+        except KeyboardInterrupt:
+            # Handle Ctrl+C gracefully
+            print("\n\n👋 Exiting terminal test mode")
+        finally:
+            # Restore the original running state
+            self.running = original_running
+
     def run_forever(self):
         """Run the voice assistant until interrupted."""
         if not self.running:
             print("❌ System not started")
             return
+    
+        self.state_manager = StateManager()
+        
         
         try:
             # Print usage instructions
             if config.CONVERSATION_MODE == "wake_word":
+                self.state_manager.set("chat_controlled_state", "asleep")
                 print("💡 Say the wake word to start a conversation")
             elif config.CONVERSATION_MODE == "interactive":
+                self.state_manager.set("chat_controlled_state", "listening (active)")
                 print("💡 Press Enter to start a conversation")
             elif config.CONVERSATION_MODE == "continuous":
+                self.state_manager.set("chat_controlled_state", "listening (quiet)")
                 print("💡 Continuous listening mode - speak naturally")
+            
+            if self.mcp_server:
+                tools = self.mcp_server.get_server_status()['tool_names']
+                print(f"🔧 Available tools: {', '.join(tools)}")
             
             print("💡 Press Ctrl+C to stop the system\n")
             
@@ -192,18 +350,21 @@ class VoiceAssistantApp:
         if self.running:
             print("🛑 Stopping voice assistant...")
             
+            # Stop orchestrator
             if self.orchestrator:
                 self.orchestrator.stop_all()
             
+            # Stop MCP server
             self.running = False
+            if self.mcp_server_thread and self.mcp_server_thread.is_alive():
+                print("🛑 Stopping MCP server...")
+                self.mcp_server_thread.join(timeout=2)
+            
             print("✅ Voice assistant stopped")
-    
-    def get_status(self) -> dict:
-        """Get current system status."""
-        if not self.orchestrator:
-            return {"status": "not_initialized"}
-        
-        return self.orchestrator.get_system_status()
+
+    def get_mcp_server(self) -> Optional[MCPServer]:
+        """Get the MCP server instance for external access."""
+        return self.mcp_server
 
 
 def parse_arguments():
@@ -305,6 +466,19 @@ Examples:
         help="Show system status and exit"
     )
     
+    parser.add_argument(
+        "--no-mcp-server",
+        action="store_false",
+        dest="enable_mcp_server",
+        help="Disable the integrated MCP tool server"
+    )
+    
+    parser.add_argument(
+        "--test",
+        action="store_true",
+        help="Run in terminal test mode for testing MCP tools via text input"
+    )
+    
     return parser.parse_args()
 
 
@@ -342,7 +516,8 @@ def main():
         config_overrides = build_config_overrides(args)
         
         # Create and initialize the application
-        app = VoiceAssistantApp(config_overrides)
+        enable_mcp_server = getattr(args, 'enable_mcp_server', True)
+        app = VoiceAssistantApp(config_overrides, enable_mcp_server)
         
         # Show system information
         app._print_system_info()
@@ -350,15 +525,24 @@ def main():
         # Handle status request
         if args.status:
             if app.initialize():
-                status = app.get_status()
                 print(f"\n📊 System Status:")
-                print(f"   Running: {status.get('running', False)}")
-                print(f"   Mode: {status.get('mode', 'unknown')}")
-                print(f"   Components: {len(status.get('components', {}))}")
-                for name, comp_status in status.get('components', {}).items():
-                    state = comp_status.get('state', 'unknown')
-                    healthy = comp_status.get('healthy', False)
-                    print(f"     {name}: {state} {'✓' if healthy else '✗'}")
+                print(f"   Voice Assistant: {'✓' if app.orchestrator else '✗'}")
+                print(f"   MCP Server: {'✓' if app.mcp_server else '✗'}")
+                if app.mcp_server:
+                    mcp_status = app.mcp_server.get_server_status()
+                    print(f"   Available Tools: {mcp_status['tools_available']}")
+                    for tool_name in mcp_status['tool_names']:
+                        print(f"     - {tool_name}")
+            return
+        
+        # Handle test mode
+        if args.test:
+            if not app.initialize():
+                print("❌ Failed to initialize voice assistant")
+                sys.exit(1)
+            
+            # Run in test mode (no need to start full system)
+            app.run_terminal_test_mode()
             return
         
         # Initialize the system

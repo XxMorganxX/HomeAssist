@@ -116,27 +116,28 @@ class StreamingChatbot:
         
         user_text = self.speech_services.transcribe(wav_io)
         if user_text:
-            print(f"🎤  Chunk: {user_text}")
+            if user_text != "Learn English for free www.engvid.com" and user_text != "Learn more at www.plastics-car.com":
+                print(f"🎤  Chunk: {user_text}")
+                
+                # Check for end conversation phrases
+                user_text_lower = user_text.lower()
+                for phrase in config.END_CONVERSATION_PHRASES:
+                    if phrase in user_text_lower:
+                        print(f"🚫 End phrase '{phrase}' detected, stopping conversation")
+                        print("🤖 Roger that! Conversation ending...")
+                        self.session_ended = True
+                        self.send_to_db(self.conversation.get_messages())
+                        return
             
-            # Check for end conversation phrases
-            user_text_lower = user_text.lower()
-            for phrase in config.END_CONVERSATION_PHRASES:
-                if phrase in user_text_lower:
-                    print(f"🚫 End phrase '{phrase}' detected, stopping conversation")
-                    print("🤖 Roger that! Conversation ending...")
-                    self.session_ended = True
-                    self.send_to_db(self.conversation.get_messages())
-                    return
-            
-            # Check for force send phrases
-            for phrase in config.FORCE_SEND_PHRASES:
-                if phrase in user_text_lower:
-                    print(f"⚡ Force send phrase '{phrase}' detected, processing immediately")
-                    self.accumulated_chunks.append(user_text)
-                    self.process_complete_message()
-                    return
-            
-            self.accumulated_chunks.append(user_text)
+                # Check for force send phrases
+                for phrase in config.FORCE_SEND_PHRASES:
+                    if phrase in user_text_lower:
+                        print(f"⚡ Force send phrase '{phrase}' detected, processing immediately")
+                        self.accumulated_chunks.append(user_text)
+                        self.process_complete_message()
+                        return
+                
+                self.accumulated_chunks.append(user_text)
             
     def process_complete_message(self) -> None:
         """Process accumulated chunks as complete message."""
@@ -300,8 +301,54 @@ class ToolEnabledStreamingChatbot(StreamingChatbot):
         )
         
         if response:
-            # Handle function calling
-            if response.get("function_call") and self.mcp_server:
+            # Handle new tool_calls format (multiple tools)
+            if response.get("tool_calls") and self.mcp_server:
+                # Add assistant message with tool calls
+                self.conversation.messages.append({
+                    "role": "assistant",
+                    "content": response.get("content", ""),
+                    "tool_calls": response["tool_calls"]
+                })
+                
+                # Execute each tool call in sequence
+                print(f"🔧 [Executing {len(response['tool_calls'])} tool(s)]")
+                for tool_call in response["tool_calls"]:
+                    func_name = tool_call["function"]["name"]
+                    func_args = json.loads(tool_call["function"]["arguments"])
+                    tool_call_id = tool_call["id"]
+                    
+                    print(f"  → Tool: {func_name}")
+                    
+                    # Execute tool
+                    tool_result = self.mcp_server.execute_tool(func_name, func_args)
+                    
+                    # Add tool result to conversation
+                    self.conversation.messages.append({
+                        "role": "tool",
+                        "tool_call_id": tool_call_id,
+                        "content": json.dumps(tool_result)
+                    })
+                
+                # Get final response after all tool executions
+                final_response = self.speech_services.chat_completion(
+                    self.conversation.get_messages()
+                )
+                
+                if final_response and final_response.get("content"):
+                    self.conversation.add_assistant_message(final_response["content"])
+                    print(f"🤖  GPT: {final_response['content']}\n")
+                    
+                    # Convert response to speech if TTS is enabled
+                    if self.speech_services.tts_enabled:
+                        audio_file = self.speech_services.text_to_speech(final_response["content"])
+                        if audio_file and hasattr(self, 'chunker') and self.chunker.aec_enabled:
+                            # Add TTS audio as reference for AEC
+                            self.chunker.add_reference_audio_file(audio_file)
+                    
+                    print("─" * 50)
+            
+            # Handle old function_call format (backward compatibility)
+            elif response.get("function_call") and self.mcp_server:
                 func_name = response["function_call"]["name"]
                 func_args = json.loads(response["function_call"]["arguments"])
                 
@@ -311,8 +358,6 @@ class ToolEnabledStreamingChatbot(StreamingChatbot):
                 tool_result = self.mcp_server.execute_tool(func_name, func_args)
                 
                 # Add function call and result to conversation
-                # Note: We manually append to messages list since ConversationManager's 
-                # add_assistant_message() doesn't support function calls
                 self.conversation.messages.append({
                     "role": "assistant",
                     "content": "",
@@ -362,6 +407,104 @@ class ToolEnabledStreamingChatbot(StreamingChatbot):
         # Reset for next message
         self.accumulated_chunks = []
         self.last_speech_activity = None
+
+    def process_text_input(self, user_input: str):
+        """Process direct text input for testing purposes."""
+        print(f"\n📝 Processing: {user_input}")
+        
+        # Add to conversation and get response with tools
+        self.conversation.add_user_message(user_input)
+        messages = self.conversation.get_messages()
+        
+        response = self.speech_services.chat_completion(
+            messages,
+            functions=self.functions if self.functions else None
+        )
+        
+        if response:
+            # Handle new tool_calls format (multiple tools)
+            if response.get("tool_calls") and self.mcp_server:
+                # Add assistant message with tool calls
+                self.conversation.messages.append({
+                    "role": "assistant",
+                    "content": response.get("content", ""),
+                    "tool_calls": response["tool_calls"]
+                })
+                
+                # Execute each tool call in sequence
+                print(f"🔧 [Executing {len(response['tool_calls'])} tool(s)]")
+                for tool_call in response["tool_calls"]:
+                    func_name = tool_call["function"]["name"]
+                    func_args = json.loads(tool_call["function"]["arguments"])
+                    tool_call_id = tool_call["id"]
+                    
+                    print(f"  → Tool: {func_name} with args: {func_args}")
+                    
+                    # Execute tool
+                    tool_result = self.mcp_server.execute_tool(func_name, func_args)
+                    print(f"  → Result: {tool_result}")
+                    
+                    # Add tool result to conversation
+                    self.conversation.messages.append({
+                        "role": "tool",
+                        "tool_call_id": tool_call_id,
+                        "content": json.dumps(tool_result)
+                    })
+                
+                # Get final response after all tool executions
+                final_response = self.speech_services.chat_completion(
+                    self.conversation.get_messages()
+                )
+                
+                if final_response and final_response.get("content"):
+                    self.conversation.add_assistant_message(final_response["content"])
+                    return final_response["content"]
+                else:
+                    return "Tools executed successfully but no response generated."
+            
+            # Handle old function_call format (backward compatibility)
+            elif response.get("function_call") and self.mcp_server:
+                func_name = response["function_call"]["name"]
+                func_args = json.loads(response["function_call"]["arguments"])
+                
+                print(f"🔧 [Using tool: {func_name} with args: {func_args}]")
+                
+                # Execute tool
+                tool_result = self.mcp_server.execute_tool(func_name, func_args)
+                print(f"🔧 [Tool result: {tool_result}]")
+                
+                # Add function call and result to conversation
+                self.conversation.messages.append({
+                    "role": "assistant",
+                    "content": "",
+                    "function_call": {
+                        "name": func_name, 
+                        "arguments": response["function_call"]["arguments"]
+                    }
+                })
+                self.conversation.messages.append({
+                    "role": "function",
+                    "name": func_name,
+                    "content": json.dumps(tool_result)
+                })
+                
+                # Get final response after tool execution
+                final_response = self.speech_services.chat_completion(
+                    self.conversation.get_messages()
+                )
+                
+                if final_response and final_response.get("content"):
+                    self.conversation.add_assistant_message(final_response["content"])
+                    return final_response["content"]
+                else:
+                    return "Tool executed successfully but no response generated."
+            
+            elif response.get("content"):
+                # Regular response without tools
+                self.conversation.add_assistant_message(response["content"])
+                return response["content"]
+        
+        return "No response generated."
 
 
 def main():
