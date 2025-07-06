@@ -33,6 +33,21 @@ SPENCER_SPOTIFY_URI = os.getenv("SPENCER_SPOTIFY_URI")
 # Gemini Models  
 GEMINI_CHAT_MODEL = "gemini-1.5-flash"  # or "gemini-1.5-pro"
 
+# Google Calendar Configuration
+CALENDAR_ENABLED = True
+CALENDAR_SCOPES = ['https://www.googleapis.com/auth/calendar']
+CALENDAR_CREDENTIALS_DIR = "google_credentials"
+CALENDAR_USERS = {
+    "morgan": {
+        "client_secret": "google_credentials/google_creds_morgan.json",
+        "token": "google_credentials/token_morgan.json"
+    },
+    "spencer": {
+        "client_secret": "google_credentials/google_creds_spencer.json", 
+        "token": "google_credentials/token_spencer.json"
+    }
+}
+
 # Directories
 VOICE_DATA_DIR = "speech_data"
 
@@ -113,6 +128,9 @@ TEMPERATURE = 0.7            # Response randomness (0-1)
 
 END_CONVERSATION_PHRASES = ["over out", "over, out", "over. out", "over and out", ]
 
+# Terminal phrases that trigger immediate return to wake word mode
+TERMINAL_PHRASES = ["hey jarvis", "jarvis", "sleep mode", "wake word mode"]
+
 # Force Send Phrases - trigger immediate transcription processing even if audio is still being detected
 FORCE_SEND_PHRASES = [
     "send it", "send that", "process it", "process that", 
@@ -122,8 +140,17 @@ FORCE_SEND_PHRASES = [
 
 # Component Control - Enable/Disable Features
 WAKE_WORD_ENABLED = True     # Enable wake word detection
+TERMINAL_WORD_ENABLED = True # Enable terminal word detection for conversation ending
 # TTS_ENABLED = True         # Already defined above
 # AEC_ENABLED = True         # Already defined above
+
+# Wake Word Detection Configuration
+WAKE_WORD_MODEL = "hey_monkey"      # Model for starting conversations
+TERMINAL_WORD_MODEL = "hey_jarvis_v0.1"  # Model for ending conversations
+WAKE_WORD_THRESHOLD = 0.3           # Detection threshold for wake word
+TERMINAL_WORD_THRESHOLD = 0.3       # Detection threshold for terminal word
+WAKE_WORD_COOLDOWN = 2.0           # Cooldown period after wake word detection
+TERMINAL_WORD_COOLDOWN = 2.0       # Cooldown period after terminal word detection
 
 # Operational Modes
 CONVERSATION_MODE = "wake_word"  # Options: "wake_word", "continuous", "interactive"
@@ -134,7 +161,8 @@ CONVERSATION_MODE = "wake_word"  # Options: "wake_word", "continuous", "interact
 # System Configuration
 DEBUG_MODE = False           # Enable detailed logging
 AUTO_RESTART = True          # Restart components on failure
-STARTUP_SOUND = True         # Play sound when system starts
+STARTUP_SOUND = False         # Play sound when system starts
+FAST_SHUTDOWN = True        # Enable faster shutdown with shorter timeouts
 
 # Light Configuration
 LIGHT_ONE_IP = "192.168.1.186"
@@ -173,12 +201,13 @@ ALL_CHAT_CONTROLLED_STATES = ["Morgan", "Spencer", "mood", "party", "movie"]
 
 STATE_MANAGER_FILE = "core/state_management/statemanager.json"
 """
-  "state": {
+  "chat_controlled_state": {
     "current_spotify_user": "Morgan", /* Morgan or Spencer */
-    "current_spotify_playlist": "https://open.spotify.com/playlist/37i9dQZF1DX9wCBDkixAu6?si=1234567890", 
-    "chat_phase": "asleep" /* asleep, listening (quiet), listening (active) */ 
     "lighting_scene": "none" /* off, mood, party, movie */
   }
-  "chat_alternati
+  "autonomous_state": {
+    "current_spotify_playlist": "https://open.spotify.com/playlist/37i9dQZF1DX9wCBDkixAu6?si=1234567890",
+    "chat_phase": "asleep" /* asleep, listening (quiet), listening (active) */ 
+  }
 }
 """

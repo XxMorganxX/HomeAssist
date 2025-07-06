@@ -3,3 +3,4 @@ venv/
 .claude/
 __pycache__/
 .cache
+google_credentials

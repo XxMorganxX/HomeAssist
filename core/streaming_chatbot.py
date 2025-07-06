@@ -12,6 +12,10 @@ from typing import List
 import logging
 import json
 from datetime import datetime
+
+# Suppress common warnings from dependencies
+from core.suppress_warnings import suppress_common_warnings
+
 from core.db.db_connect import DBConnect
 
 import sounddevice as sd
@@ -128,6 +132,14 @@ class StreamingChatbot:
                         self.session_ended = True
                         self.send_to_db(self.conversation.get_messages())
                         return
+                
+                # Check for terminal phrases that return to wake word mode
+                for phrase in config.TERMINAL_PHRASES:
+                    if phrase in user_text_lower:
+                        print(f"🛑 Terminal phrase '{phrase}' detected, returning to wake word mode")
+                        self.session_ended = True
+                        self.send_to_db(self.conversation.get_messages())
+                        return
             
                 # Check for force send phrases
                 for phrase in config.FORCE_SEND_PHRASES:
@@ -157,6 +169,15 @@ class StreamingChatbot:
             if phrase in complete_message_lower:
                 print(f"🚫 End phrase '{phrase}' detected in complete message, stopping conversation")
                 print("🤖 Roger that! Conversation ending...")
+                self.session_ended = True
+                self.accumulated_chunks.clear()
+                self.send_to_db(self.conversation.get_messages())
+                return
+        
+        # Check for terminal phrases in complete message
+        for phrase in config.TERMINAL_PHRASES:
+            if phrase in complete_message_lower:
+                print(f"🛑 Terminal phrase '{phrase}' detected in complete message, returning to wake word mode")
                 self.session_ended = True
                 self.accumulated_chunks.clear()
                 self.send_to_db(self.conversation.get_messages())
@@ -201,47 +222,59 @@ class StreamingChatbot:
         print("💡  I'll show each chunk as I hear it, then send the complete message after a longer pause.")
         print("─" * 50)
         
-        with sd.RawInputStream(
-            samplerate=config.SAMPLE_RATE,
-            blocksize=config.FRAME_SIZE,
-            dtype="int16",
-            channels=1,
-            callback=self.audio_callback,
-        ):
-            try:
-                while not self.session_ended:
-                    # Get audio frame
-                    frame = self.audio_queue.get()
-                    current_time = time.time()
-                    
-                    # Check if frame contains speech
-                    frame_has_speech = self.chunker.is_speech(frame)
-                    
-                    # Update last speech activity
-                    if frame_has_speech:
-                        self.last_speech_activity = current_time
-                    
-                    # Process frame for chunks
-                    chunk = self.chunker.process(frame)
-                    if chunk:
-                        self.process_chunk(chunk)
-                        # Exit immediately if session ended during chunk processing
-                        if self.session_ended:
-                            break
-                    
-                    # Check for end of complete message
-                    if (self.accumulated_chunks and 
-                        self.last_speech_activity and 
-                        current_time - self.last_speech_activity > config.COMPLETE_SILENCE_SEC):
-                        self.process_complete_message()
+        # Request exclusive audio access to prevent conflicts with wake word detector
+        from core.components import SharedAudioManager
+        audio_manager = SharedAudioManager()
+        
+        if not audio_manager.request_audio_access("StreamingChatbot", timeout=5.0):
+            print("❌ Could not obtain audio access for conversation")
+            return
+        
+        try:
+            with sd.RawInputStream(
+                samplerate=config.SAMPLE_RATE,
+                blocksize=config.FRAME_SIZE,
+                dtype="int16",
+                channels=1,
+                callback=self.audio_callback,
+            ):
+                try:
+                    while not self.session_ended:
+                        # Get audio frame
+                        frame = self.audio_queue.get()
+                        current_time = time.time()
                         
-            except KeyboardInterrupt:
-                print("\n\n✋ Finished. Bye!")
-            
-            # Handle graceful session termination
-            if self.session_ended:
-                print("\n🔚 Session ended gracefully. Goodbye!")
-                print("🔄 Returning to wake word detection...")
+                        # Check if frame contains speech
+                        frame_has_speech = self.chunker.is_speech(frame)
+                        
+                        # Update last speech activity
+                        if frame_has_speech:
+                            self.last_speech_activity = current_time
+                        
+                        # Process frame for chunks
+                        chunk = self.chunker.process(frame)
+                        if chunk:
+                            self.process_chunk(chunk)
+                            # Exit immediately if session ended during chunk processing
+                            if self.session_ended:
+                                break
+                        
+                        # Check for end of complete message
+                        if (self.accumulated_chunks and 
+                            self.last_speech_activity and 
+                            current_time - self.last_speech_activity > config.COMPLETE_SILENCE_SEC):
+                            self.process_complete_message()
+                        
+                except KeyboardInterrupt:
+                    print("\n\n✋ Finished. Bye!")
+                
+                # Handle graceful session termination
+                if self.session_ended:
+                    print("\n🔚 Session ended gracefully. Goodbye!")
+                    print("🔄 Returning to wake word detection...")
+        finally:
+            # Always release audio access when conversation ends
+            audio_manager.release_audio_access("StreamingChatbot")
 
 
 class ToolEnabledStreamingChatbot(StreamingChatbot):
@@ -281,6 +314,27 @@ class ToolEnabledStreamingChatbot(StreamingChatbot):
         # Combine all chunks
         complete_message = " ".join(self.accumulated_chunks)
         print(f"\n📝  Complete message: {complete_message}")
+        
+        # Check for end conversation phrases in complete message
+        complete_message_lower = complete_message.lower()
+        for phrase in config.END_CONVERSATION_PHRASES:
+            if phrase in complete_message_lower:
+                print(f"🚫 End phrase '{phrase}' detected in complete message, stopping conversation")
+                print("🤖 Roger that! Conversation ending...")
+                self.session_ended = True
+                self.accumulated_chunks.clear()
+                self.send_to_db(self.conversation.get_messages())
+                return
+        
+        # Check for terminal phrases in complete message
+        for phrase in config.TERMINAL_PHRASES:
+            if phrase in complete_message_lower:
+                print(f"🛑 Terminal phrase '{phrase}' detected in complete message, returning to wake word mode")
+                self.session_ended = True
+                self.accumulated_chunks.clear()
+                self.send_to_db(self.conversation.get_messages())
+                return
+        
         print("🤖  Sending to ChatGPT...")
         
         # Add to conversation and get response with tools

@@ -16,6 +16,9 @@ import threading
 from pathlib import Path
 from typing import Optional
 
+# Suppress common warnings from dependencies
+from core.suppress_warnings import suppress_common_warnings
+
 from core.state_management.statemanager import StateManager
 
 # Add project root to path
@@ -61,19 +64,34 @@ class VoiceAssistantApp:
     
     def _signal_handler(self, signum, frame):
         """Handle shutdown signals gracefully."""
-        # Only handle shutdown if we're actually running the main system
-        if self.running:
-            print(f"\n🛑 Received signal {signum}, shutting down...")
+        print(f"\n🛑 Received signal {signum}, shutting down...")
+        
+        # Check if this is the second Ctrl+C (force exit)
+        if hasattr(self, '_shutdown_requested'):
+            print("🛑 Force exit requested - terminating immediately")
+            import os
+            os._exit(1)
+        
+        self._shutdown_requested = True
+        
+        # Always try to shutdown gracefully first
+        try:
             self.shutdown()
-        else:
-            # In test mode or other non-running states, just raise the interrupt
-            raise KeyboardInterrupt()
+        except Exception as e:
+            print(f"Error during shutdown: {e}")
+        
+        # If we're not in the main running loop, force exit
+        if not self.running:
+            print("🛑 Force exit")
+            import os
+            os._exit(1)
     
     def _print_system_info(self):
         """Print system configuration and status."""
         print("\n📋 System Configuration:")
         print(f"   Mode: {config.CONVERSATION_MODE}")
         print(f"   Wake Word: {'✓' if config.WAKE_WORD_ENABLED else '✗'}")
+        print(f"   Terminal Word: {'✓' if config.TERMINAL_WORD_ENABLED else '✗'}")
         print(f"   TTS: {'✓' if config.TTS_ENABLED else '✗'}")
         print(f"   AEC: {'✓' if config.AEC_ENABLED else '✗'}")
         print(f"   Debug Mode: {'✓' if config.DEBUG_MODE else '✗'}")
@@ -92,6 +110,13 @@ class VoiceAssistantApp:
         print(f"   Sample Rate: {config.SAMPLE_RATE} Hz")
         print(f"   VAD Mode: {config.VAD_MODE}")
         print(f"   Frame Size: {config.FRAME_MS} ms")
+        
+        if config.WAKE_WORD_ENABLED or config.TERMINAL_WORD_ENABLED:
+            print(f"\n🗣️ Wake Word Configuration:")
+            if config.WAKE_WORD_ENABLED:
+                print(f"   Wake Model: {config.WAKE_WORD_MODEL} (threshold: {config.WAKE_WORD_THRESHOLD})")
+            if config.TERMINAL_WORD_ENABLED:
+                print(f"   Terminal Phrases: {', '.join(config.TERMINAL_PHRASES)} (via transcription)")
     
     def _check_dependencies(self) -> bool:
         """Check for required dependencies and API keys."""
@@ -347,20 +372,41 @@ class VoiceAssistantApp:
     
     def shutdown(self):
         """Shutdown the voice assistant system."""
-        if self.running:
-            print("🛑 Stopping voice assistant...")
-            
-            # Stop orchestrator
-            if self.orchestrator:
+        import time
+        start_time = time.time()
+        print("🛑 Stopping voice assistant...")
+        
+        # Set running to False first to stop any loops
+        self.running = False
+        
+        # Stop orchestrator with timeout protection
+        if self.orchestrator:
+            try:
+                print("🛑 Stopping orchestrator...")
+                orchestrator_start = time.time()
                 self.orchestrator.stop_all()
-            
-            # Stop MCP server
-            self.running = False
-            if self.mcp_server_thread and self.mcp_server_thread.is_alive():
-                print("🛑 Stopping MCP server...")
-                self.mcp_server_thread.join(timeout=2)
-            
-            print("✅ Voice assistant stopped")
+                orchestrator_time = time.time() - orchestrator_start
+                print(f"   Orchestrator stopped in {orchestrator_time:.2f}s")
+            except Exception as e:
+                print(f"⚠️ Error stopping orchestrator: {e}")
+        
+        # Stop MCP server with timeout
+        if self.mcp_server_thread and self.mcp_server_thread.is_alive():
+            print("🛑 Stopping MCP server...")
+            mcp_start = time.time()
+            try:
+                timeout = 0.3 if config.FAST_SHUTDOWN else 1.0
+                self.mcp_server_thread.join(timeout=timeout)
+                mcp_time = time.time() - mcp_start
+                if self.mcp_server_thread.is_alive():
+                    print(f"⚠️ MCP server thread did not stop gracefully after {mcp_time:.2f}s")
+                else:
+                    print(f"   MCP server stopped in {mcp_time:.2f}s")
+            except Exception as e:
+                print(f"⚠️ Error stopping MCP server: {e}")
+        
+        total_time = time.time() - start_time
+        print(f"✅ Voice assistant stopped in {total_time:.2f}s")
 
     def get_mcp_server(self) -> Optional[MCPServer]:
         """Get the MCP server instance for external access."""

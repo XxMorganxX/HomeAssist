@@ -42,7 +42,14 @@ class OpenWakeWordListener:
             os.makedirs(self.word_model_dir, exist_ok=True) 
             download_models(target_directory=self.word_model_dir)
             
-        self.owwModel = Model(wakeword_models=[self.word_model_path], inference_framework='tflite')
+        # Try ONNX first, fallback to TFLite
+        onnx_model_path = self.word_model_path.replace('.tflite', '.onnx')
+        if os.path.exists(onnx_model_path):
+            self.owwModel = Model(wakeword_models=[onnx_model_path], inference_framework='onnx')
+            print(f"Using ONNX model: {onnx_model_path}")
+        else:
+            self.owwModel = Model(wakeword_models=[self.word_model_path], inference_framework='tflite')
+            print(f"Using TFLite model: {self.word_model_path}")
         self.n_models = len(self.owwModel.models.keys())
         
         # Initialize state tracking for debouncing
