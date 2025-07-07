@@ -30,7 +30,7 @@ class CalendarComponent:
         Initialize calendar component for a specific user.
         
         Args:
-            user: User name ('morgan' or 'spencer'). Must be explicitly specified.
+            user: User name ('morgan_personal' or 'morgan_school' or 'spencer'). Must be explicitly specified.
         
         Note:
             Once created, the user cannot be changed. Create a new instance for a different user.
@@ -52,6 +52,44 @@ class CalendarComponent:
     def user(self) -> str:
         """Get the user associated with this calendar component."""
         return self._user
+
+    def get_calendar_mappings(self):
+        """Get calendar ID->name and name->ID mappings from Google Calendar API."""
+        try:
+            if not self.service:
+                return {}, {}
+            
+            # Get all calendars for this user
+            calendar_list = self.service.calendarList().list().execute()
+            
+            id_to_name = {}
+            name_to_id = {}
+            
+            for cal in calendar_list.get('items', []):
+                cal_id = cal['id']
+                cal_name = cal.get('summary', cal_id)  # Use summary as the display name
+                
+
+                
+                id_to_name[cal_id] = cal_name
+                name_to_id[cal_name] = cal_id
+            
+            return id_to_name, name_to_id
+            
+        except Exception as e:
+            if config.DEBUG_MODE:
+                print(f"⚠️ Error getting calendar mappings: {e}")
+            return {}, {}
+
+    def calendar_id_to_name(self, cal_id) -> str:
+        """Convert calendar ID to human-readable name."""
+        id_to_name, _ = self.get_calendar_mappings()
+        return id_to_name.get(cal_id, cal_id)  # Return ID if name not found
+
+    def calendar_name_to_id(self, name) -> str:
+        """Convert calendar name to calendar ID."""
+        _, name_to_id = self.get_calendar_mappings()
+        return name_to_id.get(name, name)  # Return name if ID not found
 
     def get_morning_datetime(self) -> datetime:
         """Get the morning datetime for the user."""
@@ -115,8 +153,8 @@ class CalendarComponent:
                     token_file.write(self.creds.to_json())
                     if config.DEBUG_MODE:
                         print(f"💾 Saved calendar credentials for {self.user} to {token_path}")
-            
-            # Build calendar service
+
+    # Build calendar service
             self.service = build('calendar', 'v3', credentials=self.creds)
             
             if config.DEBUG_MODE:
@@ -142,23 +180,46 @@ class CalendarComponent:
             List of event dictionaries
         """
         try:
-            now = datetime.now(timezone.utc).isoformat() if time_min is None else time_min
+            calendar_list =self.service.calendarList().list().execute()
+            all_events = []
+            for cal in calendar_list['items']:
+                cal_id = cal['id']
+                
+                now = datetime.now(timezone.utc).isoformat() if time_min is None else time_min
+                
+                events_result = self.service.events().list(
+                    calendarId=cal_id,
+                    timeMin=now,
+                    timeMax=time_max,
+                    maxResults=num_events,
+                    singleEvents=True,
+                    orderBy='startTime'
+                ).execute()
+                
+                # Add calendar_id to each event
+                events = events_result.get('items', [])
+                for event in events:
+                    event['calendar_id'] = cal_id
             
-            events_result = self.service.events().list(
-                calendarId=calendar_id,
-                timeMin=now,
-                timeMax=time_max,
-                maxResults=num_events,
-                singleEvents=True,
-                orderBy='startTime'
-            ).execute()
-            
-            events = events_result.get('items', [])
+                all_events.append(events)
             
             if config.DEBUG_MODE:
-                print(f"📅 Retrieved {len(events)} events for {self.user}")
+                print(f"📅 Retrieved {len(all_events)} calendars for {self.user}")
             
-            return events
+            # Combine all events and sort by start time
+            combined_events = [event for calendars in all_events for event in calendars]
+            
+            # Sort by start time
+            combined_events.sort(key=lambda x: x['start'].get('dateTime', x['start'].get('date')))
+            
+            # Limit to requested number of events
+            limited_events = combined_events[:num_events]
+            
+            if config.DEBUG_MODE:
+                print(f"📅 Returning {len(limited_events)} events (limited from {len(combined_events)} total)")
+            
+            
+            return limited_events
             
         except HttpError as e:
             error_msg = f"Google Calendar API error: {e}"
@@ -202,6 +263,7 @@ class CalendarComponent:
             
             return {
                 'id': event.get('id', ''),
+                'calendar_name': self.calendar_id_to_name(event.get('calendar_id', '')),
                 'summary': event.get('summary', 'No Title'),
                 'description': event.get('description', ''),
                 'start_date': start_date,
@@ -218,11 +280,15 @@ class CalendarComponent:
                 print(f"⚠️ Error formatting event: {e}")
             return {
                 'id': event.get('id', ''),
+                'calendar_name': 'Unknown',
                 'summary': event.get('summary', 'Error formatting event'),
+                'description': '',
                 'start_date': 'Unknown',
                 'start_time': 'Unknown',
                 'end_date': 'Unknown', 
                 'end_time': 'Unknown',
+                'location': '',
+                'status': '',
                 'all_day': False
             }
     
@@ -246,15 +312,13 @@ class CalendarComponent:
         print("-" * 80)
         
         for event in events_list:
-            # Handle both raw and formatted events
             if 'start_date' in event:
-                # Already formatted
                 formatted = event
             else:
-                # Format raw event
                 formatted = self.format_event(event)
             
             print(f"📌 {formatted['summary']}")
+            print(f"   📅 Calendar: {formatted['calendar_name']}")
             print(f"   📅 {formatted['start_date']} {formatted['start_time']} - {formatted['end_time']}")
             if formatted['location']:
                 print(f"   📍 {formatted['location']}")
@@ -363,6 +427,7 @@ class CalendarComponent:
                         break
                 
                 if most_recent_past_event:
+                    print(most_recent_past_event)
                     formatted_event = self.format_event(most_recent_past_event)
                     return formatted_event
                 else:
@@ -412,6 +477,13 @@ class CalendarComponent:
         except Exception as e:
             return f"I'm having trouble accessing your calendar right now."
 
+    def display_all_calendar_types(self):
+        calendar_list = self.service.calendarList().list().execute()
+
+        for cal in calendar_list['items']:
+            cal_id = cal['id']
+            print(self.calendar_id_to_name(cal_id))
+
 
 
 def main():
@@ -422,8 +494,11 @@ def main():
     print("📅 Google Calendar Component Test")
     print("=" * 50)
     
-    calendar = CalendarComponent(user="morgan")
-    print(calendar.get_next_event())
+    calendar = CalendarComponent(user="morgan_personal")
+    calendar.display_all_calendar_types()
+    print("=" * 50)
+    calendar.display_events_details(calendar.get_events(num_events=10))
+
 
 
 if __name__ == '__main__':

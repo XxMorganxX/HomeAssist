@@ -18,7 +18,7 @@ class StateTool(BaseTool):
     def get_info(self):
         return {
             "name": "StateTool",
-            f"description": f"""Control the state of the autonomous system when prompted by the user. 
+            f"description": f"""Control the state of the chat_controlled system when prompted by the user. 
             This tool can use user specifications to change the {self.valid_state_types} system_types. 
             Should be called when the user asks to change the spotify user account, or when asking to change the lighting scene.""",
             "version": "1.0.0"
