@@ -10,6 +10,7 @@ import time
 import random
 import threading
 import subprocess
+import platform
 from abc import ABC, abstractmethod
 from typing import Optional, Callable, Dict, Any
 from pathlib import Path
@@ -63,34 +64,170 @@ class SharedAudioManager:
                 self.audio_in_use = False
                 self.current_user = None
     
-    def create_shared_stream(self, samplerate: int, blocksize: int, channels: int = 1, dtype=np.int16):
+    def create_shared_stream(self, samplerate: int, blocksize: int, channels: int = 1, dtype=np.int16, retry_count: int = 3):
         """Create a shared audio stream that multiple components can subscribe to."""
         with self._lock:
             if self._shared_stream is not None:
                 return True  # Stream already exists
             
-            try:
-                self._stream_config = {
-                    'samplerate': samplerate,
-                    'blocksize': blocksize,
-                    'channels': channels,
-                    'dtype': dtype
-                }
+            # Check audio device availability on macOS
+            if platform.system() == 'Darwin':
+                try:
+                    from core.macos_audio_fix import check_audio_device_availability
+                    if not check_audio_device_availability():
+                        print("⚠️ Audio device not available, attempting recovery...")
+                        # Try to reset any stuck audio streams
+                        sd._terminate()
+                        sd._initialize()
+                        time.sleep(0.5)
+                except ImportError:
+                    pass
+            
+            # Try multiple times with delays for macOS audio system
+            for attempt in range(retry_count):
+                if attempt > 0:
+                    if config.DEBUG_MODE:
+                        print(f"🔄 Retry attempt {attempt + 1}/{retry_count} for shared stream creation...")
+                    time.sleep(0.5 * attempt)  # Exponential backoff
                 
-                self._shared_stream = sd.RawInputStream(
-                    samplerate=samplerate,
-                    blocksize=blocksize,
-                    channels=channels,
-                    dtype=dtype,
-                    callback=self._shared_audio_callback
-                )
+                try:
+                    # Validate audio device and get compatible parameters
+                    device_info = self._validate_audio_device(samplerate, blocksize, channels)
+                    if not device_info:
+                        continue  # Try next attempt
+                    
+                    # Use validated parameters
+                    actual_samplerate = device_info['samplerate']
+                    actual_blocksize = device_info['blocksize']
+                    actual_channels = device_info['channels']
+                    
+                    self._stream_config = {
+                        'samplerate': actual_samplerate,
+                        'blocksize': actual_blocksize,
+                        'channels': actual_channels,
+                        'dtype': dtype,
+                        'needs_resampling': actual_samplerate != samplerate,
+                        'target_samplerate': samplerate  # Store original target rate
+                    }
                 
-                self._shared_stream.start()
-                return True
-                
-            except Exception as e:
-                print(f"❌ Failed to create shared audio stream: {e}")
-                return False
+                    if config.DEBUG_MODE:
+                        print(f"🎤 Creating shared stream: {actual_samplerate}Hz, {actual_blocksize} samples, {actual_channels} ch")
+                        if self._stream_config['needs_resampling']:
+                            print(f"⚠️ Will resample from {actual_samplerate}Hz to {samplerate}Hz")
+                    
+                    # Create stream with additional error handling for macOS audio issues
+                    try:
+                        # Add macOS-specific configuration if available
+                        extra_settings = {}
+                        if platform.system() == 'Darwin':
+                            try:
+                                from core.macos_audio_fix import get_macos_audio_config
+                                extra_settings = get_macos_audio_config()
+                            except ImportError:
+                                pass
+                        
+                        self._shared_stream = sd.RawInputStream(
+                            samplerate=actual_samplerate,
+                            blocksize=actual_blocksize,
+                            channels=actual_channels,
+                            dtype=dtype,
+                            callback=self._shared_audio_callback,
+                            **extra_settings
+                        )
+                        
+                        self._shared_stream.start()
+                        
+                        if config.DEBUG_MODE:
+                            print("✅ Shared audio stream created and started successfully")
+                        
+                    except Exception as stream_error:
+                        # Handle specific audio errors with fallback strategies
+                        error_str = str(stream_error)
+                        if "PaMacCore" in error_str or "Error -50" in error_str:
+                            print(f"⚠️ macOS audio error: {error_str}")
+                            print("🔄 Attempting recovery with different parameters...")
+                            
+                            # Try with smaller block size as fallback
+                            fallback_blocksize = max(64, actual_blocksize // 2)
+                            try:
+                                self._shared_stream = sd.RawInputStream(
+                                    samplerate=actual_samplerate,
+                                    blocksize=fallback_blocksize,
+                                    channels=actual_channels,
+                                    dtype=dtype,
+                                    callback=self._shared_audio_callback
+                                )
+                                
+                                # Update config with fallback parameters
+                                self._stream_config['blocksize'] = fallback_blocksize
+                                
+                                self._shared_stream.start()
+                                print(f"✅ Shared stream created with fallback blocksize: {fallback_blocksize}")
+                                
+                            except Exception as fallback_error:
+                                print(f"❌ Fallback also failed: {fallback_error}")
+                                raise stream_error  # Re-raise original error
+                        else:
+                            raise stream_error  # Re-raise for non-macOS errors
+                    
+                    return True  # Success!
+                    
+                except Exception as e:
+                    if attempt == retry_count - 1:  # Last attempt
+                        print(f"❌ Failed to create shared audio stream after {retry_count} attempts: {e}")
+                        return False
+                    else:
+                        if config.DEBUG_MODE:
+                            print(f"⚠️ Attempt {attempt + 1} failed: {e}")
+                        continue  # Try next attempt
+            
+            # Should not reach here
+            return False
+    
+    def _validate_audio_device(self, target_samplerate: int, target_blocksize: int, target_channels: int) -> dict:
+        """Validate audio device capabilities and return compatible parameters."""
+        try:
+            # Get default input device info
+            device_info = sd.query_devices(kind='input')
+            
+            if config.DEBUG_MODE:
+                print(f"🎤 Audio device: {device_info['name']}")
+                print(f"   Native rate: {device_info['default_samplerate']} Hz")
+                print(f"   Max channels: {device_info['max_input_channels']}")
+            
+            # Validate channels
+            if device_info['max_input_channels'] < target_channels:
+                print(f"❌ Device only supports {device_info['max_input_channels']} channels, need {target_channels}")
+                return None
+            
+            # Use device's native sample rate to avoid resampling in driver
+            device_samplerate = int(device_info['default_samplerate'])
+            
+            # Validate sample rate is reasonable
+            if device_samplerate < 8000 or device_samplerate > 192000:
+                print(f"⚠️ Unusual device sample rate: {device_samplerate} Hz, using target rate")
+                device_samplerate = target_samplerate
+            
+            # Calculate appropriate block size for device sample rate
+            # Keep the same time duration but adjust sample count
+            time_duration = target_blocksize / target_samplerate
+            device_blocksize = int(time_duration * device_samplerate)
+            
+            # Ensure block size is reasonable
+            if device_blocksize < 64:
+                device_blocksize = 64
+            elif device_blocksize > 8192:
+                device_blocksize = 8192
+            
+            return {
+                'samplerate': device_samplerate,
+                'blocksize': device_blocksize,
+                'channels': target_channels
+            }
+            
+        except Exception as e:
+            print(f"❌ Error validating audio device: {e}")
+            return None
     
     def subscribe_to_stream(self, component_name: str, callback: callable) -> bool:
         """Subscribe a component to receive audio data from the shared stream."""
@@ -131,12 +268,46 @@ class SharedAudioManager:
         if len(audio_array.shape) > 1:
             audio_array = audio_array.flatten()
         
+        # Apply resampling if needed
+        if self._stream_config.get('needs_resampling', False):
+            audio_array = self._resample_audio(audio_array)
+        
         # Distribute to all subscribers
         for component_name, callback in self._subscribers.items():
             try:
                 callback(audio_array)
             except Exception as e:
                 print(f"⚠️ Error in audio callback for {component_name}: {e}")
+    
+    def _resample_audio(self, audio_data: np.ndarray) -> np.ndarray:
+        """Resample audio data to the target sample rate."""
+        try:
+            # Get the actual sample rate from stream config
+            actual_rate = self._stream_config['samplerate']
+            
+            # Get the target rate from stream config
+            target_rate = self._stream_config['target_samplerate']
+            
+            if actual_rate == target_rate:
+                return audio_data
+            
+            # Calculate resampling ratio
+            ratio = target_rate / actual_rate
+            
+            # Resample using scipy
+            num_samples = int(len(audio_data) * ratio)
+            if num_samples > 0:
+                resampled = signal.resample(audio_data, num_samples)
+                
+                # Convert back to original dtype
+                return resampled.astype(self._stream_config['dtype'])
+            else:
+                return audio_data
+                
+        except Exception as e:
+            if config.DEBUG_MODE:
+                print(f"⚠️ Shared stream resampling error: {e}")
+            return audio_data
     
     def get_stream_info(self) -> dict:
         """Get information about the current shared stream."""
@@ -149,6 +320,11 @@ class SharedAudioManager:
                 "config": self._stream_config.copy(),
                 "subscribers": list(self._subscribers.keys())
             }
+        
+    def is_subscribed(self, component_name: str) -> bool:
+        """Check if a component is subscribed to the shared stream."""
+        with self._lock:
+            return component_name in self._subscribers
 
 # Add project root to path for imports
 project_root = Path(__file__).parent.parent
@@ -233,6 +409,7 @@ class WakeWordDetector(Component):
         # Audio resource management
         self.audio_manager = SharedAudioManager()
         self.has_audio_access = False
+        self.using_shared_stream = False
         
         # Detection state management
         self.last_activation_time = 0
@@ -246,97 +423,28 @@ class WakeWordDetector(Component):
         self.CHUNK = 1280
         self.needs_resampling = False
         
+        # Thread management
+        self._shutdown_event = threading.Event()
+        
         # Paths
         self.word_model_dir = "./audio_data/wake_word_models"
         self.word_model_path = f"{self.word_model_dir}/{model_name}.tflite"
         self.opener_audio_dir = "./audio_data/opener_audio"
         
     def start(self) -> bool:
-        """Start wake word detection."""
-        try:
-            self.state = ComponentState.STARTING
-            
-            # Request audio access first
-            if not self.audio_manager.request_audio_access(self.name, timeout=2.0):
-                print(f"❌ Could not obtain audio access for {self.name}")
-                self.state = ComponentState.ERROR
-                return False
-            
-            self.has_audio_access = True
-            
-            # Ensure model directory exists
-            if not os.path.exists(self.word_model_path):
-                os.makedirs(self.word_model_dir, exist_ok=True)
-                download_models(target_directory=self.word_model_dir)
-            
-            # Initialize OpenWakeWord model - try ONNX first, fallback to TFLite
-            onnx_model_path = self.word_model_path.replace('.tflite', '.onnx')
-            if os.path.exists(onnx_model_path):
-                self.oww_model = Model(
-                    wakeword_models=[onnx_model_path], 
-                    inference_framework='onnx'
-                )
-                if config.DEBUG_MODE:
-                    print(f"Using ONNX model: {onnx_model_path}")
-            else:
-                self.oww_model = Model(
-                    wakeword_models=[self.word_model_path], 
-                    inference_framework='tflite'
-                )
-                if config.DEBUG_MODE:
-                    print(f"Using TFLite model: {self.word_model_path}")
-            
-            # Initialize state tracking
-            for model_name in self.oww_model.models.keys():
-                self.previous_scores[model_name] = 0
-                self.is_armed[model_name] = True
-            
-            # Initialize audio with SoundDevice
-            try:
-                # Validate and configure audio device
-                device_info = self._validate_audio_device()
-                
-                # Start the audio stream using validated parameters
-                self.audio_stream = sd.RawInputStream(
-                    samplerate=self.device_rate,
-                    blocksize=self.device_chunk,
-                    device=None,  # Use default input device
-                    channels=self.CHANNELS,
-                    dtype=self.DTYPE,
-                    callback=self._audio_callback
-                )
-                
-                # Start the stream
-                self.audio_stream.start()
-                
-                if config.DEBUG_MODE:
-                    print(f"🎤 Audio stream started: {self.device_rate} Hz, {self.CHANNELS} channel(s), {self.DTYPE}")
-                
-            except Exception as e:
-                raise Exception(f"Failed to initialize SoundDevice audio: {e}")
-            
-            # Start detection thread
-            self.running = True
-            self.detection_thread = threading.Thread(target=self._detection_loop, daemon=True)
-            self.detection_thread.start()
-            
-            self.state = ComponentState.RUNNING
-            if config.DEBUG_MODE:
-                print(f"🎤 {self.name} started successfully")
-            
-            return True
-            
-        except Exception as e:
-            self.error_message = str(e)
-            self.state = ComponentState.ERROR
-            print(f"❌ Failed to start {self.name}: {e}")
-            return False
+        """Start wake-word detection using the already-running shared microphone stream."""
+        # All heavy lifting (model loading, state init) is handled inside start_shared_stream()
+        return self.start_shared_stream()
     
     def stop(self) -> bool:
         """Stop wake word detection."""
         try:
             self.state = ComponentState.STOPPING
             self.running = False
+            
+            # Signal shutdown event for faster thread termination
+            if hasattr(self, '_shutdown_event'):
+                self._shutdown_event.set()
             
             if config.DEBUG_MODE:
                 print(f"🛑 Stopping {self.name}...")
@@ -355,7 +463,7 @@ class WakeWordDetector(Component):
                     thread_start = time.time()
                     if config.DEBUG_MODE:
                         print(f"🛑 Waiting for {self.name} detection thread to stop...")
-                    timeout = 0.5 if config.FAST_SHUTDOWN else 1.0
+                    timeout = 0.2 if config.FAST_SHUTDOWN else 0.3  # Reduced timeout since we have faster shutdown
                     self.detection_thread.join(timeout=timeout)
                     thread_time = time.time() - thread_start
                     if self.detection_thread.is_alive():
@@ -363,13 +471,18 @@ class WakeWordDetector(Component):
                         # Force thread cleanup by setting running to False again
                         self.running = False
                     elif config.DEBUG_MODE:
-                        print(f"   Detection thread stopped in {thread_time:.2f}s")
+                        print(f"   Detection thread stopped in {thread_time:.3f}s")
             
             # Clean up audio resources with comprehensive error handling
             audio_cleanup_success = self._cleanup_audio_resources()
             
-            # Release audio access
-            if self.has_audio_access:
+            # Release audio access or unsubscribe from shared stream
+            if self.using_shared_stream:
+                self.audio_manager.unsubscribe_from_stream(self.name)
+                self.using_shared_stream = False
+                if config.DEBUG_MODE:
+                    print(f"🔓 Unsubscribed {self.name} from shared stream")
+            elif self.has_audio_access:
                 self.audio_manager.release_audio_access(self.name)
                 self.has_audio_access = False
                 if config.DEBUG_MODE:
@@ -384,6 +497,9 @@ class WakeWordDetector(Component):
             self.previous_scores.clear()
             self.is_armed.clear()
             
+            # Reset shutdown event for next start
+            self._shutdown_event.clear()
+            
             self.state = ComponentState.STOPPED
             if config.DEBUG_MODE:
                 print(f"🛑 {self.name} stopped {'successfully' if audio_cleanup_success else 'with audio issues'}")
@@ -395,6 +511,84 @@ class WakeWordDetector(Component):
             self.state = ComponentState.ERROR
             print(f"❌ Failed to stop {self.name}: {e}")
             return False
+    
+    def start_shared_stream(self) -> bool:
+        """Start wake word detection using shared audio stream."""
+        try:
+            self.state = ComponentState.STARTING
+            
+            # Ensure model directory exists and initialize model
+            if not os.path.exists(self.word_model_path):
+                os.makedirs(self.word_model_dir, exist_ok=True)
+                download_models(target_directory=self.word_model_dir)
+            
+            # Initialize OpenWakeWord model
+            onnx_model_path = self.word_model_path.replace('.tflite', '.onnx')
+            if os.path.exists(onnx_model_path):
+                self.oww_model = Model(
+                    wakeword_models=[onnx_model_path], 
+                    inference_framework='onnx'
+                )
+                if config.DEBUG_MODE:
+                    print(f"Using ONNX model for shared stream: {onnx_model_path}")
+            else:
+                self.oww_model = Model(
+                    wakeword_models=[self.word_model_path], 
+                    inference_framework='tflite'
+                )
+                if config.DEBUG_MODE:
+                    print(f"Using TFLite model for shared stream: {self.word_model_path}")
+            
+            # Initialize state tracking
+            for model_name in self.oww_model.models.keys():
+                self.previous_scores[model_name] = 0
+                self.is_armed[model_name] = True
+            
+            # Subscribe to shared stream
+            if not self.audio_manager.subscribe_to_stream(self.name, self._shared_audio_callback):
+                print(f"❌ Could not subscribe {self.name} to shared stream")
+                self.state = ComponentState.ERROR
+                return False
+            
+            self.using_shared_stream = True
+            
+            # Start detection thread
+            self.running = True
+            self.detection_thread = threading.Thread(
+                target=self._detection_loop,
+                name=f"{self.name}_detection",
+                daemon=True
+            )
+            self.detection_thread.start()
+            
+            self.state = ComponentState.RUNNING
+            if config.DEBUG_MODE:
+                print(f"🎯 {self.name} started with shared stream successfully")
+            
+            return True
+            
+        except Exception as e:
+            self.error_message = str(e)
+            self.state = ComponentState.ERROR
+            print(f"❌ Failed to start {self.name} with shared stream: {e}")
+            return False
+    
+    def _shared_audio_callback(self, audio_data):
+        """Callback for shared audio stream."""
+        # Apply resampling if needed
+        if self.needs_resampling:
+            audio_data = self._resample_audio(audio_data)
+        
+        # Initialize audio buffer if not exists
+        if not hasattr(self, '_audio_buffer'):
+            self._audio_buffer = []
+        
+        # Store audio data for processing in detection loop
+        self._audio_buffer.append(audio_data)
+        
+        # Keep buffer size manageable (max 10 frames)
+        if len(self._audio_buffer) > 10:
+            self._audio_buffer.pop(0)
     
     def _cleanup_audio_resources(self) -> bool:
         """Comprehensive audio resource cleanup."""
@@ -428,8 +622,9 @@ class WakeWordDetector(Component):
                 # Clear the reference
                 self.audio_stream = None
                 
-                # Wait for audio resources to be fully released
-                time.sleep(0.15)
+                # Wait longer for audio resources to be fully released by macOS
+                # This helps prevent PaMacCore errors when creating new streams
+                time.sleep(0.25)
                 
                 if config.DEBUG_MODE:
                     print("🔇 Audio stream cleanup completed")
@@ -442,12 +637,23 @@ class WakeWordDetector(Component):
     
     def is_healthy(self) -> bool:
         """Check if wake word detector is healthy."""
-        return (self.state == ComponentState.RUNNING and 
-                self.running and 
-                self.detection_thread and 
-                self.detection_thread.is_alive() and
-                self.audio_stream and
-                self.oww_model)
+        # Basic health checks
+        basic_health = (self.state == ComponentState.RUNNING and 
+                       self.running and 
+                       self.detection_thread and 
+                       self.detection_thread.is_alive() and
+                       self.oww_model)
+        
+        if not basic_health:
+            return False
+        
+        # Audio health check depends on mode
+        if self.using_shared_stream:
+            # In shared stream mode, check if we're subscribed
+            return self.audio_manager.is_subscribed(self.name)
+        else:
+            # In exclusive mode, check if we have an audio stream
+            return self.audio_stream is not None
     
     def _audio_callback(self, indata, frames, time_info, status):
         """Audio callback for SoundDevice stream."""
@@ -552,12 +758,35 @@ class WakeWordDetector(Component):
         # Initialize audio buffer
         self._audio_buffer = []
         
-        while self.running:
+        while self.running and not getattr(self, '_shutdown_event', threading.Event()).is_set():
             try:
+                # Check shutdown more frequently
+                if not self.running or getattr(self, '_shutdown_event', threading.Event()).is_set():
+                    break
+                
+                # Safety check: ensure model is properly initialized
+                if not self.oww_model or not hasattr(self.oww_model, 'prediction_buffer'):
+                    if config.DEBUG_MODE:
+                        print("⚠️ Wake word model not properly initialized, skipping iteration")
+                    # Use shorter sleep and check shutdown
+                    for _ in range(10):  # 10 x 0.01s = 0.1s total, but check shutdown every 0.01s
+                        if not self.running or getattr(self, '_shutdown_event', threading.Event()).is_set():
+                            break
+                        time.sleep(0.01)
+                    continue
+                
                 # Get audio frame from buffer
                 if not hasattr(self, '_audio_buffer') or not self._audio_buffer:
-                    time.sleep(0.01)  # Small delay if no audio data
+                    # Use very short sleep and check shutdown frequently
+                    for _ in range(2):  # 2 x 0.005s = 0.01s total
+                        if not self.running or getattr(self, '_shutdown_event', threading.Event()).is_set():
+                            break
+                        time.sleep(0.005)
                     continue
+                
+                # Check shutdown before processing
+                if not self.running or getattr(self, '_shutdown_event', threading.Event()).is_set():
+                    break
                 
                 # Get the oldest audio frame
                 audio_array = self._audio_buffer.pop(0)
@@ -568,12 +797,30 @@ class WakeWordDetector(Component):
                     if rms > 100:  # Only print when there's actual audio
                         print(f"Audio RMS: {rms:.0f}")
                 
+                # Check shutdown before expensive prediction
+                if not self.running or getattr(self, '_shutdown_event', threading.Event()).is_set():
+                    break
+                
                 # Process through OpenWakeWord
                 prediction = self.oww_model.predict(audio_array)
                 current_time = time.time()
                 
+                # Check shutdown after prediction
+                if not self.running or getattr(self, '_shutdown_event', threading.Event()).is_set():
+                    break
+                
                 # Check each model for detection
                 for model_name in self.oww_model.prediction_buffer.keys():
+                    # Check shutdown in inner loop too
+                    if not self.running or getattr(self, '_shutdown_event', threading.Event()).is_set():
+                        break
+                    
+                    # Ensure state dictionaries are properly initialized for this model
+                    if model_name not in self.previous_scores:
+                        self.previous_scores[model_name] = 0
+                    if model_name not in self.is_armed:
+                        self.is_armed[model_name] = True
+                    
                     scores = list(self.oww_model.prediction_buffer[model_name])
                     if not scores:  # Skip if no scores available
                         continue
@@ -588,7 +835,7 @@ class WakeWordDetector(Component):
                         print(f"[{model_name}] Score: {current_score:.3f} (threshold: {self.threshold})")
                     
                     # Rising edge detection with cooldown
-                    if (self.is_armed[model_name] and
+                    if (self.is_armed.get(model_name, True) and
                         previous_score <= self.threshold and 
                         current_score > self.threshold and 
                         time_since_last > self.cooldown_seconds):
@@ -609,14 +856,24 @@ class WakeWordDetector(Component):
                     self.previous_scores[model_name] = current_score
                     
                     # Re-arm after cooldown
-                    if not self.is_armed[model_name] and time_since_last > self.cooldown_seconds:
+                    if not self.is_armed.get(model_name, True) and time_since_last > self.cooldown_seconds:
                         self.is_armed[model_name] = True
-                
+                    
             except Exception as e:
                 print(f"❌ Error in detection loop: {e}")
-                if not self.running:
+                if config.DEBUG_MODE:
+                    import traceback
+                    traceback.print_exc()
+                if not self.running or getattr(self, '_shutdown_event', threading.Event()).is_set():
                     break
-                time.sleep(0.1)  # Prevent tight loop on error
+                # Shorter error sleep with shutdown check
+                for _ in range(10):  # 10 x 0.01s = 0.1s total
+                    if not self.running or getattr(self, '_shutdown_event', threading.Event()).is_set():
+                        break
+                    time.sleep(0.01)
+        
+        if config.DEBUG_MODE:
+            print("🔊 Wake word detection loop ended")
     
     def _play_greeting_audio(self):
         """Play a random greeting audio file."""
@@ -745,7 +1002,7 @@ class ConversationHandler(Component):
                 
                 # Save current conversation to database
                 if hasattr(self.chatbot, 'conversation') and self.chatbot.conversation:
-                    messages = self.chatbot.conversation.get_messages()
+                    messages = self.chatbot.conversation.get_chat_minus_sys_prompt()
                     if messages:
                         self.chatbot.send_to_db(messages)
                         if config.DEBUG_MODE:
@@ -790,7 +1047,7 @@ class ConversationHandler(Component):
             # Conversation ended normally
             if config.DEBUG_MODE:
                 print("💬 Conversation ended normally")
-            
+                
         except Exception as e:
             print(f"❌ Conversation error: {e}")
             if config.DEBUG_MODE:
@@ -847,10 +1104,26 @@ class ConversationHandler(Component):
                 traceback.print_exc()
 
 
+# Global orchestrator instance for cross-component access
+_global_orchestrator = None
+
+def get_global_orchestrator() -> Optional['ComponentOrchestrator']:
+    """Get the global orchestrator instance."""
+    return _global_orchestrator
+
+def set_global_orchestrator(orchestrator: 'ComponentOrchestrator'):
+    """Set the global orchestrator instance."""
+    global _global_orchestrator
+    _global_orchestrator = orchestrator
+
+
 class ComponentOrchestrator:
     """Central orchestrator for managing all system components."""
     
     def __init__(self):
+        global _global_orchestrator
+        _global_orchestrator = self
+        
         self.components: Dict[str, Component] = {}
         self.running = False
         self.mode = config.CONVERSATION_MODE
@@ -908,6 +1181,23 @@ class ComponentOrchestrator:
     def start_all(self) -> bool:
         """Start all components."""
         try:
+            # Ensure the shared microphone stream is running BEFORE any component starts
+            from core.components import SharedAudioManager
+            import numpy as np
+            audio_mgr = SharedAudioManager()
+            if not audio_mgr.create_shared_stream(
+                samplerate=config.SAMPLE_RATE,
+                blocksize=config.FRAME_SIZE,
+                channels=1,
+                dtype=np.int16,
+            ):
+                print("❌ Failed to create shared microphone stream")
+                return False
+            else:
+                if config.DEBUG_MODE:
+                    info = audio_mgr.get_stream_info()
+                    print(f"✅ Shared microphone stream active: {info['config']}")
+
             if config.STARTUP_SOUND:
                 self._play_startup_sound()
             
@@ -988,23 +1278,59 @@ class ComponentOrchestrator:
     
     def _on_wake_word_detected(self):
         """Callback when wake word is detected."""
-        if config.DEBUG_MODE:
-            print("🎯 Wake word detected - starting conversation")
-        
-        # Reset conversation ended flag
-        self._conversation_ended = False
-        
-        # Switch detector states: disable wake word, enable terminal word
-        self._switch_to_listening_mode()
-        
-        if self.conversation_handler:
-            self.conversation_handler.start_conversation()
+        try:
+            current_time = time.time()
+            
+            # Rate limiting: prevent too many rapid wake word activations
+            if hasattr(self, '_last_wake_word_activation'):
+                time_since_last = current_time - self._last_wake_word_activation
+                min_interval = 5.0  # Minimum 5 seconds between wake word activations
+                
+                if time_since_last < min_interval:
+                    if config.DEBUG_MODE:
+                        print(f"🚫 Wake word rate limited: {time_since_last:.1f}s < {min_interval}s minimum")
+                    return
+            
+            self._last_wake_word_activation = current_time
+            
+            if config.DEBUG_MODE:
+                print("🎯 Wake word detected - starting conversation")
+            
+            # Reset conversation ended flag
+            self._conversation_ended = False
+            
+            # Switch detector states: disable wake word, enable terminal word
+            self._switch_to_listening_mode()
+            
+            if self.conversation_handler:
+                # Add error handling for conversation start
+                try:
+                    success = self.conversation_handler.start_conversation()
+                    if not success:
+                        print("⚠️ Failed to start conversation - returning to wake word mode")
+                        self._switch_to_wake_word_mode()
+                except Exception as conv_error:
+                    print(f"❌ Error starting conversation: {conv_error}")
+                    self._switch_to_wake_word_mode()
+                    
+        except Exception as e:
+            print(f"❌ Error in wake word detection callback: {e}")
+            if config.DEBUG_MODE:
+                import traceback
+                traceback.print_exc()
     
     def _on_terminal_word_detected(self):
-        """Callback when terminal word is detected (not used with transcription-based approach)."""
-        # This callback is no longer used since we handle terminal phrases via transcription
-        # in the conversation handler itself for better reliability
-        pass
+        """Callback when terminal word is detected via OpenWakeWord (backup detection)."""
+        if config.DEBUG_MODE:
+            print("🛑 Terminal word detected via OpenWakeWord (backup) - ending conversation")
+        
+        # This provides backup terminal detection in case transcription-based detection fails
+        # End the conversation immediately
+        if self.conversation_handler:
+            self.conversation_handler.end_conversation_immediately()
+        
+        # Switch back to wake word mode
+        self._switch_to_wake_word_mode()
     
     def _on_conversation_end(self):
         """Callback when conversation ends."""
@@ -1123,35 +1449,49 @@ class ComponentOrchestrator:
                     print("❌ Failed to stop wake word detector before restart")
                     return
                 
-                # Brief pause to ensure cleanup
+                # Brief pause to ensure cleanup is complete
                 import time
-                time.sleep(0.2)
+                time.sleep(0.3)  # Increased from 0.2s
             
             # Verify audio access is available
             if not self._verify_audio_access_available():
                 print("❌ Audio access not available for wake word detector restart")
-                return
+                # Try to wait a bit longer and retry
+                import time
+                time.sleep(0.5)
+                if not self._verify_audio_access_available():
+                    print("❌ Audio access still not available after delay")
+                    return
             
-            # Attempt restart
+            # Attempt restart with more attempts and better error handling
             restart_success = False
-            max_attempts = 3
+            max_attempts = 5  # Increased from 3
             
             for attempt in range(max_attempts):
                 if config.DEBUG_MODE and attempt > 0:
                     print(f"🔄 Wake word restart attempt {attempt + 1}/{max_attempts}")
                 
-                if self.wake_word_detector.start():
-                    restart_success = True
-                    if config.DEBUG_MODE:
-                        print("🎤 Wake word detector restarted successfully")
-                    break
-                else:
-                    if attempt < max_attempts - 1:
-                        print(f"⚠️ Wake word restart attempt {attempt + 1} failed, retrying...")
-                        import time
-                        time.sleep(0.3)
+                try:
+                    if self.wake_word_detector.start():
+                        restart_success = True
+                        if config.DEBUG_MODE:
+                            print("🎤 Wake word detector restarted successfully")
+                        break
                     else:
-                        print("❌ Failed to restart wake word detector after multiple attempts")
+                        if attempt < max_attempts - 1:
+                            print(f"⚠️ Wake word restart attempt {attempt + 1} failed, retrying...")
+                            import time
+                            time.sleep(0.5)  # Increased delay between attempts
+                        else:
+                            print("❌ Failed to restart wake word detector after multiple attempts")
+                            
+                except Exception as start_error:
+                    print(f"⚠️ Exception during wake word start attempt {attempt + 1}: {start_error}")
+                    if attempt < max_attempts - 1:
+                        import time
+                        time.sleep(0.5)
+                    else:
+                        print("❌ All restart attempts failed with exceptions")
             
             if restart_success:
                 # Update state manager only on successful restart
@@ -1161,13 +1501,27 @@ class ComponentOrchestrator:
                 if config.DEBUG_MODE:
                     print("📝 State manager updated to 'asleep'")
             else:
-                print("💥 Wake word detector restart failed - system may not respond to wake words")
+                print("💥 Wake word detector restart failed - triggering emergency recovery")
+                # Don't immediately fail - try emergency recovery
+                try:
+                    self._emergency_wake_word_recovery()
+                except Exception as emergency_error:
+                    print(f"💥 Emergency recovery also failed: {emergency_error}")
+                    print("🚨 System may require manual restart, but continuing to try...")
             
         except Exception as e:
             print(f"⚠️ Error restarting wake word detector: {e}")
             import traceback
             if config.DEBUG_MODE:
                 traceback.print_exc()
+            
+            # Try emergency recovery even if restart function failed
+            try:
+                print("🔄 Attempting emergency recovery due to restart error...")
+                self._emergency_wake_word_recovery()
+            except Exception as emergency_error:
+                print(f"💥 Emergency recovery failed: {emergency_error}")
+                print("🚨 System may require manual restart, but continuing to try...")
     
     def _verify_audio_access_available(self) -> bool:
         """Verify that audio access is available for wake word detector."""
@@ -1235,12 +1589,15 @@ class ComponentOrchestrator:
                 
                 # Brief pause to ensure cleanup is complete
                 import time
-                time.sleep(0.1)
+                time.sleep(0.2)
             
-            # NOTE: Do NOT start terminal word detector here - let conversation handler manage audio
-            # The conversation handler needs exclusive microphone access
+            # Terminal word detector will be started by the StreamingChatbot after shared stream creation
+            # This avoids timing issues with shared stream availability
+            if config.DEBUG_MODE and config.TERMINAL_WORD_ENABLED:
+                print("ℹ️ Terminal word detection: will be started by conversation handler with shared stream")
+            
             if config.DEBUG_MODE:
-                print("💬 Audio resources freed for conversation")
+                print("💬 Audio resources configured for conversation")
                     
             # Update state manager
             from core.state_management.statemanager import StateManager
@@ -1257,6 +1614,11 @@ class ComponentOrchestrator:
         finally:
             self._switching_state = False
     
+    def _switch_to_wake_word_mode(self):
+        """Switch to wake word mode: stop terminal word detector, start wake word detector."""
+        # Use the same logic as asleep mode since both need to activate wake word detection
+        self._switch_to_asleep_mode()
+    
     def _switch_to_asleep_mode(self):
         """Switch to asleep mode: stop terminal word detector, start wake word detector."""
         if self._switching_state:
@@ -1269,15 +1631,13 @@ class ComponentOrchestrator:
             if config.DEBUG_MODE:
                 print("🔄 Switching to asleep mode...")
                 
-            # Set the running flag to false for terminal detector (safer than stop())
+            # Stop terminal detector (handles both exclusive and shared stream modes)
             if self.terminal_word_detector and self.terminal_word_detector.state == ComponentState.RUNNING:
-                self.terminal_word_detector.running = False
-                # Release audio access immediately to allow wake word detector to start
-                if self.terminal_word_detector.has_audio_access:
-                    self.terminal_word_detector.audio_manager.release_audio_access(self.terminal_word_detector.name)
-                    self.terminal_word_detector.has_audio_access = False
                 if config.DEBUG_MODE:
-                    print("🔇 Terminal word detector marked for stop")
+                    print("🛑 Stopping terminal word detector...")
+                self.terminal_word_detector.stop()
+                if config.DEBUG_MODE:
+                    print("🔇 Terminal word detector stopped")
             
             # Start wake word detector
             if self.wake_word_detector:
@@ -1334,14 +1694,52 @@ class ComponentOrchestrator:
         if not config.AUTO_RESTART:
             return
         
+        # Rate limiting for health check restarts to prevent restart loops
+        current_time = time.time()
+        if not hasattr(self, '_last_health_check_restart'):
+            self._last_health_check_restart = {}
+        
         for name, component in self.components.items():
-            if not component.is_healthy() and component.state == ComponentState.RUNNING:
+            try:
+                # Check if component is unhealthy while supposedly running
+                if component.state == ComponentState.RUNNING and not component.is_healthy():
+                    # Rate limit restarts - minimum 30 seconds between restarts per component
+                    last_restart = self._last_health_check_restart.get(name, 0)
+                    time_since_restart = current_time - last_restart
+                    min_restart_interval = 30.0  # 30 seconds minimum
+                    
+                    if time_since_restart < min_restart_interval:
+                        if config.DEBUG_MODE:
+                            print(f"⏭️ Health check restart rate limited for {name}: {time_since_restart:.1f}s < {min_restart_interval}s")
+                        continue
+                    
+                    if config.DEBUG_MODE:
+                        print(f"⚠️ {name} unhealthy, attempting restart...")
+                    
+                    # Record restart attempt time
+                    self._last_health_check_restart[name] = current_time
+                    
+                    # Attempt graceful restart
+                    try:
+                        if component.stop():
+                            time.sleep(1.0)
+                            if component.start():
+                                if config.DEBUG_MODE:
+                                    print(f"✅ {name} restarted successfully via health check")
+                            else:
+                                print(f"❌ Health check restart failed for {name}")
+                        else:
+                            print(f"❌ Health check stop failed for {name}")
+                    except Exception as restart_error:
+                        print(f"❌ Health check restart exception for {name}: {restart_error}")
+                        if config.DEBUG_MODE:
+                            import traceback
+                            traceback.print_exc()
+                            
+            except Exception as health_error:
                 if config.DEBUG_MODE:
-                    print(f"⚠️ {name} unhealthy, attempting restart...")
-                
-                component.stop()
-                time.sleep(1.0)
-                component.start()
+                    print(f"⚠️ Health check error for {name}: {health_error}")
+                continue
     
     def _play_startup_sound(self):
         """Play startup sound if available."""

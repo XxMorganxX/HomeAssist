@@ -222,6 +222,55 @@ class ConversationManager:
     def get_messages(self) -> List[Dict[str, str]]:
         """Get conversation history."""
         return self.messages
+    
+    def get_chat_minus_sys_prompt(self) -> List[Dict[str, str]]:
+        """Get conversation history minus the system prompt."""
+        return self.messages[1:]
+    
+    def get_tool_context(self, max_messages: int = 6) -> List[Dict[str, str]]:
+        """
+        Get focused context for tool selection - system prompt + recent messages.
+        
+        Args:
+            max_messages: Maximum number of recent messages to include (default: 6)
+            
+        Returns:
+            List of messages with system prompt + recent conversation
+        """
+        if len(self.messages) <= max_messages + 1:  # +1 for system prompt
+            return self.messages
+        
+        # Always include system prompt + recent messages
+        system_prompt = self.messages[0]
+        recent_messages = self.messages[-(max_messages):]
+        
+        return [system_prompt] + recent_messages
+    
+    def get_response_context(self) -> List[Dict[str, str]]:
+        """
+        Get full context for response generation - complete conversation history.
+        
+        Returns:
+            Complete conversation history including system prompt
+        """
+        return self.messages
+    
+    def get_recent_messages(self, count: int) -> List[Dict[str, str]]:
+        """
+        Get the last N messages from conversation.
+        
+        Args:
+            count: Number of recent messages to get
+            
+        Returns:
+            List of recent messages (excluding system prompt)
+        """
+        if len(self.messages) <= 1:  # Only system prompt
+            return []
+        
+        # Get recent messages (excluding system prompt)
+        user_messages = self.messages[1:]  # Skip system prompt
+        return user_messages[-count:] if count < len(user_messages) else user_messages
         
     def clear(self, system_prompt: str) -> None:
         """Clear conversation and reset with system prompt."""

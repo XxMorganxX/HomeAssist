@@ -7,6 +7,7 @@ import time
 import subprocess
 from enum import Enum
 from streaming_chatbot import main_wakeword
+from librosa import get_duration
 
 
 
@@ -100,6 +101,8 @@ class OpenWakeWordListener:
         # Start new audio process and track it
         audio_path = f"{self.opener_audio_dir}/{greeting_to_play}"
         os.system(f"afplay {audio_path}")
+        time.sleep(get_duration(audio_path))
+        print("Audio file played")
         main_wakeword()
         self.last_playback_time = time.time()
 

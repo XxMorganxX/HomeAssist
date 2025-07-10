@@ -154,8 +154,9 @@ class CalendarComponent:
                     if config.DEBUG_MODE:
                         print(f"💾 Saved calendar credentials for {self.user} to {token_path}")
 
-    # Build calendar service
-            self.service = build('calendar', 'v3', credentials=self.creds)
+    # Build calendar service with discovery cache disabled
+            # This prevents the "file_cache is only supported with oauth2client<4.0.0" message
+            self.service = build('calendar', 'v3', credentials=self.creds, cache_discovery=False)
             
             if config.DEBUG_MODE:
                 print(f"✅ Calendar service initialized for {self.user}")

@@ -422,8 +422,35 @@ class VADChunker:
         if self.aec_enabled and self.aec_processor is not None:
             processed_frame = self.aec_processor.process_frame(frame_bytes)
         
+        # Validate frame parameters for WebRTC VAD compatibility
+        frame_samples = len(processed_frame) // 2  # 16-bit = 2 bytes per sample
+        expected_samples = self.sample_rate * self.frame_ms // 1000
+        
+        # WebRTC VAD requires exact frame sizes
+        if frame_samples != expected_samples:
+            # Pad or truncate to expected size
+            if frame_samples < expected_samples:
+                # Pad with zeros
+                padding = (expected_samples - frame_samples) * 2
+                processed_frame = processed_frame + b'\x00' * padding
+            else:
+                # Truncate to expected size
+                processed_frame = processed_frame[:expected_samples * 2]
+        
+        # Ensure frame is properly aligned for int16
+        if len(processed_frame) % 2 != 0:
+            processed_frame = processed_frame[:-1]  # Remove odd byte
+        
         now = time.monotonic()
-        voiced = self.vad.is_speech(processed_frame, self.sample_rate)
+        
+        # Process with WebRTC VAD with error handling
+        try:
+            voiced = self.vad.is_speech(processed_frame, self.sample_rate)
+        except Exception as vad_error:
+            # If VAD fails, assume silence to prevent crashes
+            if config.DEBUG_MODE:
+                print(f"⚠️ VAD processing error: {vad_error}")
+            voiced = False
         
         if voiced:
             if not self.is_speaking:
@@ -458,7 +485,33 @@ class VADChunker:
     
     def is_speech(self, frame_bytes: bytes) -> bool:
         """Check if frame contains speech."""
-        return self.vad.is_speech(frame_bytes, self.sample_rate)
+        # Validate frame parameters for WebRTC VAD compatibility
+        frame_samples = len(frame_bytes) // 2  # 16-bit = 2 bytes per sample
+        expected_samples = self.sample_rate * self.frame_ms // 1000
+        
+        # WebRTC VAD requires exact frame sizes
+        if frame_samples != expected_samples:
+            # Pad or truncate to expected size
+            if frame_samples < expected_samples:
+                # Pad with zeros
+                padding = (expected_samples - frame_samples) * 2
+                frame_bytes = frame_bytes + b'\x00' * padding
+            else:
+                # Truncate to expected size
+                frame_bytes = frame_bytes[:expected_samples * 2]
+        
+        # Ensure frame is properly aligned for int16
+        if len(frame_bytes) % 2 != 0:
+            frame_bytes = frame_bytes[:-1]  # Remove odd byte
+        
+        # Process with WebRTC VAD with error handling
+        try:
+            return self.vad.is_speech(frame_bytes, self.sample_rate)
+        except Exception as vad_error:
+            # If VAD fails, assume silence to prevent crashes
+            if config.DEBUG_MODE:
+                print(f"⚠️ VAD is_speech error: {vad_error}")
+            return False
     
     def add_reference_audio_file(self, audio_file_path: str) -> None:
         """

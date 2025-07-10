@@ -31,6 +31,8 @@ class DBConnect:
     GENRE_COL_NAME="genre"
     CHAT_COL_NAME="chat"
     ID_COL_NAME="id"
+    ACCUMULATED_TRANSCRIPTION_LATENCY_COL_NAME="accumulated_transcription_latencies"
+    FINAL_TRANSCRIPTION_LATENCY_COL_NAME="final_transcription_latency"
 
     def __init__(self):
         self.conn = None
@@ -97,17 +99,32 @@ class DBConnect:
         # Return as Python list - psycopg2 will handle the conversion to PostgreSQL array
         return genres
 
-    def insert_new_chat(self, session_time, chat_data):
-        """Insert a new chat session into the 'session_logs' table."""
+    def insert_new_chat(self, session_time, chat_data, accumulated_latencies=None, final_latencies=None):
+        """Insert a new chat session into the 'session_logs' table with latency metrics."""
         try:
             self._ensure_connection()
             
-            # SQL insert statement (adapt to your table schema)
-            query = f"INSERT INTO {self.TABLE_NAME} ({self.TIMESTAMP_COL_NAME}, {self.CHAT_COL_NAME}) VALUES (%s, %s);"
-            self.cur.execute(query, (session_time, Json(chat_data)))
+            # SQL insert statement with latency columns
+            query = f"""INSERT INTO {self.TABLE_NAME} 
+                       ({self.TIMESTAMP_COL_NAME}, {self.CHAT_COL_NAME}, 
+                        {self.ACCUMULATED_TRANSCRIPTION_LATENCY_COL_NAME}, 
+                        {self.FINAL_TRANSCRIPTION_LATENCY_COL_NAME}) 
+                       VALUES (%s, %s, %s, %s);"""
+            
+            # Convert latency lists to PostgreSQL arrays (can be None)
+            accumulated_array = accumulated_latencies if accumulated_latencies else None
+            final_array = final_latencies if final_latencies else None
+            
+            self.cur.execute(query, (session_time, Json(chat_data), accumulated_array, final_array))
 
             self.conn.commit()
-            print("Chat session logged successfully!")
+            print("Chat session logged successfully with latency metrics!")
+            
+            if accumulated_latencies:
+                print(f"  - Accumulated latencies: {[f'{x:.3f}s' for x in accumulated_latencies]}")
+            if final_latencies:
+                print(f"  - Final latencies: {[f'{x:.3f}s' for x in final_latencies]}")
+                
         except Exception as e:
             print(f"Error inserting chat session: {e}")
             self.conn.rollback()  # Rollback on error

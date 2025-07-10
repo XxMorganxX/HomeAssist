@@ -56,7 +56,7 @@ class CalendarTool(BaseTool):
                             },
                             "user":{
                                 "type": "string",
-                                "description": "Which user the calendar request is about",
+                                "description": "Which user the calendar request is about. If not specified by user, ask until they provide a valid one.",
                                 "enum": ["morgan_personal","morgan_school", "spencer"]
                             },
                             "read_type": {
@@ -98,13 +98,6 @@ class CalendarTool(BaseTool):
         try:
             # Get calendar instance for user
             calendar = self._get_calendar(user)
-            
-            if not calendar.is_available():
-                return {
-                    "success": False,
-                    "error": f"Calendar not available for {user}. Check credentials.",
-                    "user": user
-                }
             
             # Handle different read types
             if read_type == "latest_event":

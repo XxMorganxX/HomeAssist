@@ -41,10 +41,14 @@ class ChatClassifier:
         """
     
         response = self.client.chat.completions.create(
-            model=config.RESPONSE_MODEL,
-            temperature=0.0,
-            messages=[{"role": "system", "content": SYSTEM_PROMPT}, {"role": "user", "content": chat}],
-            max_tokens=75
+            model="gpt-4.1-nano",
+            messages=[
+                {"role": "system", "content": SYSTEM_PROMPT},
+                {"role": "user", "content": chat}
+            ],
+            max_tokens=50,
+            temperature=config.TOOL_TEMPERATURE,  # Use lower temperature for deterministic classification
+            timeout=20.0
         )
         return response.choices[0].message.content
 
@@ -90,8 +94,8 @@ class ChatClassifier:
             try:
                 print(f"🔄 Processing batch of {len(batch)} chats...")
                 response = self.client.chat.completions.create(
-                    model=config.RESPONSE_MODEL,
-                    temperature=0.0,
+                    model="gpt-4.1-nano",
+                    temperature=config.TOOL_TEMPERATURE,  # Use lower temperature for deterministic classification
                     messages=[
                         {"role": "system", "content": SYSTEM_PROMPT},
                         {"role": "user", "content": batch_prompt}

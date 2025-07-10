@@ -74,6 +74,13 @@ class VoiceAssistantApp:
         
         self._shutdown_requested = True
         
+        # Save any active conversations before shutdown
+        try:
+            self._save_active_conversations()
+            self._conversations_saved = True  # Mark as saved to prevent duplicate saving
+        except Exception as e:
+            print(f"⚠️ Error saving conversations: {e}")
+        
         # Always try to shutdown gracefully first
         try:
             self.shutdown()
@@ -85,6 +92,64 @@ class VoiceAssistantApp:
             print("🛑 Force exit")
             import os
             os._exit(1)
+    
+    def _save_active_conversations(self):
+        """Save any active conversations to database before shutdown."""
+        print("💾 Checking for active conversations to save...")
+        
+        try:
+            # Check if orchestrator exists
+            if not self.orchestrator:
+                print("ℹ️ No orchestrator found - system may not have been fully initialized")
+                return
+            
+            # Check if conversation handler exists
+            if not hasattr(self.orchestrator, 'conversation_handler'):
+                print("ℹ️ Orchestrator has no conversation_handler attribute")
+                return
+            
+            conversation_handler = self.orchestrator.conversation_handler
+            if not conversation_handler:
+                print("ℹ️ No conversation handler instance found")
+                return
+            
+            # Check if chatbot exists
+            if not hasattr(conversation_handler, 'chatbot'):
+                print("ℹ️ Conversation handler has no chatbot attribute")
+                return
+            
+            chatbot = conversation_handler.chatbot
+            if not chatbot:
+                print("ℹ️ No chatbot instance found")
+                return
+            
+            # Check if conversation exists
+            if not hasattr(chatbot, 'conversation'):
+                print("ℹ️ Chatbot has no conversation attribute")
+                return
+            
+            conversation = chatbot.conversation
+            if not conversation:
+                print("ℹ️ No conversation instance found")
+                return
+            
+            # Try to get messages (excluding system prompt)
+            try:
+                messages = conversation.get_chat_minus_sys_prompt()
+                if messages and len(messages) > 0:
+                    print(f"💾 Saving active voice conversation ({len(messages)} messages)...")
+                    chatbot.send_to_db(messages)
+                    print("✅ Active voice conversation saved to database")
+                else:
+                    print("ℹ️ No active voice conversation messages to save")
+            except Exception as msg_error:
+                print(f"⚠️ Error getting conversation messages: {msg_error}")
+            
+        except Exception as e:
+            print(f"⚠️ Error saving active conversations: {e}")
+            import traceback
+            if config.DEBUG_MODE:
+                traceback.print_exc()
     
     def _print_system_info(self):
         """Print system configuration and status."""
@@ -327,8 +392,20 @@ class VoiceAssistantApp:
                     continue
                     
         except KeyboardInterrupt:
-            # Handle Ctrl+C gracefully
-            print("\n\n👋 Exiting terminal test mode")
+            # Handle Ctrl+C gracefully and save conversation
+            print("\n\n💾 Saving test conversation before exit...")
+            try:
+                # Save the current test conversation
+                messages = chatbot.conversation.get_chat_minus_sys_prompt()
+                if messages and len(messages) > 0:  # Any messages without system prompt
+                    chatbot.send_to_db(messages)
+                    print("✅ Test conversation saved to database")
+                else:
+                    print("ℹ️ No test conversation to save")
+            except Exception as save_error:
+                print(f"⚠️ Error saving test conversation: {save_error}")
+            
+            print("👋 Exiting terminal test mode")
         finally:
             # Restore the original running state
             self.running = original_running
@@ -378,6 +455,15 @@ class VoiceAssistantApp:
         
         # Set running to False first to stop any loops
         self.running = False
+        
+        # Save any active conversations before stopping components (failsafe)
+        if not hasattr(self, '_conversations_saved'):
+            try:
+                print("💾 Final check for unsaved conversations...")
+                self._save_active_conversations()
+                self._conversations_saved = True
+            except Exception as e:
+                print(f"⚠️ Error in final conversation save: {e}")
         
         # Stop orchestrator with timeout protection
         if self.orchestrator:
