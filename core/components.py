@@ -331,7 +331,22 @@ project_root = Path(__file__).parent.parent
 sys.path.insert(0, str(project_root))
 
 import config
-from core.streaming_chatbot import ToolEnabledStreamingChatbot
+
+# Conditionally import the appropriate chatbot based on configuration
+if config.USE_REALTIME_API and config.REALTIME_STREAMING_MODE:
+    try:
+        from core.streaming_chatbot_realtime import RealtimeStreamingChatbot as ToolEnabledStreamingChatbot
+        USING_REALTIME_CHATBOT = True
+        print("🚀 Using OpenAI Realtime API for conversations")
+    except ImportError as e:
+        print(f"⚠️ Failed to import realtime chatbot: {e}")
+        print("⚠️ Falling back to chunk-based streaming")
+        from core.streaming_chatbot import ToolEnabledStreamingChatbot
+        USING_REALTIME_CHATBOT = False
+else:
+    from core.streaming_chatbot import ToolEnabledStreamingChatbot
+    USING_REALTIME_CHATBOT = False
+
 from core.audio_processing import VADChunker
 
 
@@ -637,23 +652,42 @@ class WakeWordDetector(Component):
     
     def is_healthy(self) -> bool:
         """Check if wake word detector is healthy."""
-        # Basic health checks
-        basic_health = (self.state == ComponentState.RUNNING and 
-                       self.running and 
-                       self.detection_thread and 
-                       self.detection_thread.is_alive() and
-                       self.oww_model)
-        
-        if not basic_health:
+        try:
+            # Basic health checks
+            basic_health = (self.state == ComponentState.RUNNING and 
+                           self.running and 
+                           self.detection_thread and 
+                           self.detection_thread.is_alive() and
+                           self.oww_model)
+            
+            if not basic_health:
+                if config.DEBUG_MODE:
+                    print(f"🔍 Wake word detector basic health check failed:")
+                    print(f"   State: {self.state.value}")
+                    print(f"   Running: {self.running}")
+                    print(f"   Thread exists: {self.detection_thread is not None}")
+                    print(f"   Thread alive: {self.detection_thread.is_alive() if self.detection_thread else 'N/A'}")
+                    print(f"   Model loaded: {self.oww_model is not None}")
+                return False
+            
+            # Audio health check depends on mode
+            if self.using_shared_stream:
+                # In shared stream mode, check if we're subscribed
+                audio_healthy = self.audio_manager.is_subscribed(self.name)
+                if not audio_healthy and config.DEBUG_MODE:
+                    print(f"🔍 Wake word detector audio health check failed: not subscribed to shared stream")
+                return audio_healthy
+            else:
+                # In exclusive mode, check if we have an audio stream
+                audio_healthy = self.audio_stream is not None
+                if not audio_healthy and config.DEBUG_MODE:
+                    print(f"🔍 Wake word detector audio health check failed: no exclusive audio stream")
+                return audio_healthy
+                
+        except Exception as e:
+            if config.DEBUG_MODE:
+                print(f"❌ Error checking wake word detector health: {e}")
             return False
-        
-        # Audio health check depends on mode
-        if self.using_shared_stream:
-            # In shared stream mode, check if we're subscribed
-            return self.audio_manager.is_subscribed(self.name)
-        else:
-            # In exclusive mode, check if we have an audio stream
-            return self.audio_stream is not None
     
     def _audio_callback(self, indata, frames, time_info, status):
         """Audio callback for SoundDevice stream."""
@@ -964,7 +998,20 @@ class ConversationHandler(Component):
     
     def is_healthy(self) -> bool:
         """Check if conversation handler is healthy."""
-        return (self.state == ComponentState.RUNNING and self.chatbot is not None)
+        try:
+            healthy = (self.state == ComponentState.RUNNING and self.chatbot is not None)
+            
+            if not healthy and config.DEBUG_MODE:
+                print(f"🔍 Conversation handler health check failed:")
+                print(f"   State: {self.state.value}")
+                print(f"   Chatbot exists: {self.chatbot is not None}")
+                
+            return healthy
+            
+        except Exception as e:
+            if config.DEBUG_MODE:
+                print(f"❌ Error checking conversation handler health: {e}")
+            return False
     
     def start_conversation(self) -> bool:
         """Start a new conversation session."""
@@ -1041,8 +1088,18 @@ class ConversationHandler(Component):
             if config.DEBUG_MODE:
                 print("💬 Starting conversation loop...")
             
-            # Run the chatbot
-            self.chatbot.run()
+            # Check if we're using realtime chatbot
+            if USING_REALTIME_CHATBOT and hasattr(self.chatbot, 'start_realtime_session'):
+                if config.DEBUG_MODE:
+                    print("🎯 Using realtime streaming mode")
+                # For realtime chatbot, we need to handle it differently
+                # The realtime chatbot has its own run method that handles everything
+                self.chatbot.run()
+            else:
+                if config.DEBUG_MODE:
+                    print("📦 Using chunk-based streaming mode")
+                # Run the standard chatbot
+                self.chatbot.run()
             
             # Conversation ended normally
             if config.DEBUG_MODE:
@@ -1082,7 +1139,16 @@ class ConversationHandler(Component):
             if self.chatbot:
                 self.chatbot.session_ended = True
                 
-                # Clear accumulated chunks and reset state
+                # Handle realtime-specific cleanup
+                if USING_REALTIME_CHATBOT and hasattr(self.chatbot, 'stop_realtime_session'):
+                    try:
+                        if config.DEBUG_MODE:
+                            print("🔌 Stopping realtime session...")
+                        self.chatbot.stop_realtime_session()
+                    except Exception as e:
+                        print(f"⚠️ Error stopping realtime session: {e}")
+                
+                # Clear accumulated chunks and reset state (for chunk-based mode)
                 if hasattr(self.chatbot, 'accumulated_chunks'):
                     self.chatbot.accumulated_chunks.clear()
                 if hasattr(self.chatbot, 'last_speech_activity'):
@@ -1295,29 +1361,110 @@ class ComponentOrchestrator:
             
             if config.DEBUG_MODE:
                 print("🎯 Wake word detected - starting conversation")
+                print(f"🔍 System state check:")
+                print(f"   Conversation ended: {self._conversation_ended}")
+                print(f"   Switching state: {self._switching_state}")
+                if self.conversation_handler:
+                    print(f"   Conversation handler state: {self.conversation_handler.state.value}")
+                    print(f"   Conversation handler healthy: {self.conversation_handler.is_healthy()}")
+                    print(f"   Conversation running: {getattr(self.conversation_handler, 'running', 'N/A')}")
             
-            # Reset conversation ended flag
+            # Validate and fix system state before proceeding
+            if config.DEBUG_MODE:
+                print("🔧 Validating and fixing system state...")
+            self._validate_and_fix_system_state()
+            
+            # Force reset any stuck states before starting conversation
             self._conversation_ended = False
+            self._switching_state = False
+            
+            # Check if conversation handler is stuck in running state
+            if self.conversation_handler and self.conversation_handler.running:
+                if config.DEBUG_MODE:
+                    print("⚠️ Conversation handler stuck in running state, forcing reset...")
+                try:
+                    self.conversation_handler.running = False
+                    if self.conversation_handler.conversation_thread and self.conversation_handler.conversation_thread.is_alive():
+                        if config.DEBUG_MODE:
+                            print("🛑 Forcefully ending stuck conversation thread...")
+                        # Signal the chatbot to end if it exists
+                        if self.conversation_handler.chatbot:
+                            self.conversation_handler.chatbot.session_ended = True
+                        # Wait briefly for natural termination
+                        self.conversation_handler.conversation_thread.join(timeout=0.1)
+                    # Clear thread reference
+                    self.conversation_handler.conversation_thread = None
+                except Exception as reset_error:
+                    if config.DEBUG_MODE:
+                        print(f"⚠️ Error resetting conversation handler: {reset_error}")
             
             # Switch detector states: disable wake word, enable terminal word
             self._switch_to_listening_mode()
             
             if self.conversation_handler:
+                # Ensure conversation handler is ready
+                if not self.conversation_handler.is_healthy():
+                    if config.DEBUG_MODE:
+                        print("⚠️ Conversation handler not healthy, attempting to fix...")
+                    
+                    # Try to reset conversation handler state
+                    try:
+                        if self.conversation_handler.state != ComponentState.RUNNING:
+                            if config.DEBUG_MODE:
+                                print("🔄 Restarting conversation handler...")
+                            self.conversation_handler.stop()
+                            time.sleep(0.1)
+                            if not self.conversation_handler.start():
+                                print("❌ Failed to restart conversation handler")
+                                self._switch_to_wake_word_mode()
+                                return
+                    except Exception as restart_error:
+                        print(f"❌ Error restarting conversation handler: {restart_error}")
+                        self._switch_to_wake_word_mode()
+                        return
+                
                 # Add error handling for conversation start
                 try:
+                    if config.DEBUG_MODE:
+                        print("🚀 Attempting to start conversation...")
                     success = self.conversation_handler.start_conversation()
                     if not success:
                         print("⚠️ Failed to start conversation - returning to wake word mode")
+                        if config.DEBUG_MODE:
+                            print("🔍 Conversation start failure details:")
+                            print(f"   Handler state: {self.conversation_handler.state.value}")
+                            print(f"   Handler healthy: {self.conversation_handler.is_healthy()}")
+                            print(f"   Chatbot exists: {self.conversation_handler.chatbot is not None}")
+                            self._debug_system_state()
                         self._switch_to_wake_word_mode()
+                    else:
+                        if config.DEBUG_MODE:
+                            print("✅ Conversation started successfully")
                 except Exception as conv_error:
                     print(f"❌ Error starting conversation: {conv_error}")
+                    if config.DEBUG_MODE:
+                        import traceback
+                        traceback.print_exc()
+                        self._debug_system_state()
                     self._switch_to_wake_word_mode()
+            else:
+                print("❌ No conversation handler available")
+                if config.DEBUG_MODE:
+                    self._debug_system_state()
+                self._switch_to_wake_word_mode()
                     
         except Exception as e:
             print(f"❌ Error in wake word detection callback: {e}")
             if config.DEBUG_MODE:
                 import traceback
                 traceback.print_exc()
+            # Force reset state on any error
+            try:
+                self._conversation_ended = False
+                self._switching_state = False
+                self._switch_to_wake_word_mode()
+            except Exception as recovery_error:
+                print(f"❌ Error in wake word callback recovery: {recovery_error}")
     
     def _on_terminal_word_detected(self):
         """Callback when terminal word is detected via OpenWakeWord (backup detection)."""
@@ -1345,6 +1492,26 @@ class ComponentOrchestrator:
             
             if config.DEBUG_MODE:
                 print("💬 Conversation ended - returning to wake word detection")
+                print(f"🔍 Pre-restart state check:")
+                if self.conversation_handler:
+                    print(f"   Conversation handler state: {self.conversation_handler.state.value}")
+                    print(f"   Conversation running: {getattr(self.conversation_handler, 'running', 'N/A')}")
+                    print(f"   Conversation thread alive: {self.conversation_handler.conversation_thread.is_alive() if self.conversation_handler.conversation_thread else 'No thread'}")
+                if self.wake_word_detector:
+                    print(f"   Wake word detector state: {self.wake_word_detector.state.value}")
+            
+            # Force cleanup of conversation handler state
+            if self.conversation_handler:
+                try:
+                    # Ensure conversation handler is properly reset
+                    self.conversation_handler.running = False
+                    if hasattr(self.conversation_handler, 'conversation_thread'):
+                        self.conversation_handler.conversation_thread = None
+                    if config.DEBUG_MODE:
+                        print("🧹 Conversation handler state cleaned up")
+                except Exception as cleanup_error:
+                    if config.DEBUG_MODE:
+                        print(f"⚠️ Error cleaning conversation handler: {cleanup_error}")
             
             # Add a small delay to ensure conversation resources are fully released
             import time
@@ -1371,12 +1538,27 @@ class ComponentOrchestrator:
             # Ensure state is reset even if restart fails
             self._conversation_ended = True
             
+            # Force reset switching state to prevent getting stuck
+            self._switching_state = False
+            
             # Attempt emergency recovery
             try:
                 self._emergency_wake_word_recovery()
             except Exception as recovery_error:
                 print(f"💥 Emergency recovery also failed: {recovery_error}")
                 print("🚨 System may require manual restart")
+                
+                # Final fallback - force reset all states
+                try:
+                    self._conversation_ended = True
+                    self._switching_state = False
+                    if self.conversation_handler:
+                        self.conversation_handler.running = False
+                        self.conversation_handler.conversation_thread = None
+                    print("🔄 Forced state reset completed")
+                except Exception as final_error:
+                    print(f"💥 Final fallback also failed: {final_error}")
+                    print("🚨 System requires immediate restart")
     
     def _emergency_wake_word_recovery(self):
         """Emergency recovery procedure when normal wake word restart fails."""
@@ -1403,6 +1585,8 @@ class ComponentOrchestrator:
                 try:
                     # Force stop current detector
                     self.wake_word_detector.running = False
+                    if hasattr(self.wake_word_detector, '_shutdown_event'):
+                        self.wake_word_detector._shutdown_event.set()
                     if hasattr(self.wake_word_detector, 'audio_stream') and self.wake_word_detector.audio_stream:
                         try:
                             self.wake_word_detector.audio_stream.stop()
@@ -1429,6 +1613,130 @@ class ComponentOrchestrator:
         except Exception as e:
             print(f"💥 Emergency recovery procedure failed: {e}")
             print("🚨 System requires manual restart")
+    
+    def _validate_and_fix_system_state(self) -> bool:
+        """Validate system state and fix any inconsistencies."""
+        try:
+            if config.DEBUG_MODE:
+                print("🔍 Validating system state...")
+            
+            state_issues = []
+            fixes_applied = []
+            
+            # Check if switching state is stuck
+            if self._switching_state:
+                state_issues.append("Switching state stuck")
+                self._switching_state = False
+                fixes_applied.append("Reset switching state")
+            
+            # Check conversation handler state
+            if self.conversation_handler:
+                # Check for stuck running state without active thread
+                if (self.conversation_handler.running and 
+                    (not self.conversation_handler.conversation_thread or 
+                     not self.conversation_handler.conversation_thread.is_alive())):
+                    state_issues.append("Conversation handler stuck in running state")
+                    self.conversation_handler.running = False
+                    self.conversation_handler.conversation_thread = None
+                    fixes_applied.append("Reset conversation handler state")
+                
+                # Check for unhealthy state when it should be running
+                if (self.conversation_handler.state == ComponentState.RUNNING and 
+                    not self.conversation_handler.is_healthy()):
+                    state_issues.append("Conversation handler unhealthy")
+                    try:
+                        self.conversation_handler.stop()
+                        time.sleep(0.1)
+                        self.conversation_handler.start()
+                        fixes_applied.append("Restarted conversation handler")
+                    except Exception as e:
+                        state_issues.append(f"Failed to restart conversation handler: {e}")
+            
+            # Check wake word detector state
+            if self.wake_word_detector:
+                # Check for stuck detection thread
+                if (self.wake_word_detector.detection_thread and 
+                    self.wake_word_detector.detection_thread.is_alive() and 
+                    not self.wake_word_detector.running):
+                    state_issues.append("Wake word detection thread stuck")
+                    if hasattr(self.wake_word_detector, '_shutdown_event'):
+                        self.wake_word_detector._shutdown_event.set()
+                    fixes_applied.append("Signaled shutdown to stuck detection thread")
+                
+                # Check for unhealthy state when it should be running
+                if (self.wake_word_detector.state == ComponentState.RUNNING and 
+                    not self.wake_word_detector.is_healthy()):
+                    state_issues.append("Wake word detector unhealthy")
+                    try:
+                        self.wake_word_detector.stop()
+                        time.sleep(0.1)
+                        self.wake_word_detector.start()
+                        fixes_applied.append("Restarted wake word detector")
+                    except Exception as e:
+                        state_issues.append(f"Failed to restart wake word detector: {e}")
+            
+            if config.DEBUG_MODE:
+                if state_issues:
+                    print(f"🔧 State issues found: {', '.join(state_issues)}")
+                    print(f"✅ Fixes applied: {', '.join(fixes_applied)}")
+                else:
+                    print("✅ System state validation passed")
+            
+            return len(state_issues) == 0
+            
+        except Exception as e:
+            print(f"❌ Error validating system state: {e}")
+            if config.DEBUG_MODE:
+                import traceback
+                traceback.print_exc()
+            return False
+    
+    def _debug_system_state(self):
+        """Print comprehensive system state for debugging."""
+        try:
+            print("🔍 === SYSTEM STATE DEBUG ===")
+            print(f"Orchestrator running: {self.running}")
+            print(f"Mode: {self.mode}")
+            print(f"Switching state: {self._switching_state}")
+            print(f"Conversation ended: {self._conversation_ended}")
+            
+            if self.conversation_handler:
+                print(f"ConversationHandler:")
+                print(f"  State: {self.conversation_handler.state.value}")
+                print(f"  Running: {getattr(self.conversation_handler, 'running', 'N/A')}")
+                print(f"  Healthy: {self.conversation_handler.is_healthy()}")
+                print(f"  Chatbot exists: {self.conversation_handler.chatbot is not None}")
+                print(f"  Thread exists: {self.conversation_handler.conversation_thread is not None}")
+                print(f"  Thread alive: {self.conversation_handler.conversation_thread.is_alive() if self.conversation_handler.conversation_thread else 'N/A'}")
+            
+            if self.wake_word_detector:
+                print(f"WakeWordDetector:")
+                print(f"  State: {self.wake_word_detector.state.value}")
+                print(f"  Running: {self.wake_word_detector.running}")
+                print(f"  Healthy: {self.wake_word_detector.is_healthy()}")
+                print(f"  Model loaded: {self.wake_word_detector.oww_model is not None}")
+                print(f"  Detection thread exists: {self.wake_word_detector.detection_thread is not None}")
+                print(f"  Detection thread alive: {self.wake_word_detector.detection_thread.is_alive() if self.wake_word_detector.detection_thread else 'N/A'}")
+                print(f"  Using shared stream: {self.wake_word_detector.using_shared_stream}")
+                print(f"  Audio access: {self.wake_word_detector.has_audio_access}")
+                if self.wake_word_detector.using_shared_stream:
+                    print(f"  Subscribed to shared stream: {self.wake_word_detector.audio_manager.is_subscribed(self.wake_word_detector.name)}")
+            
+            if self.terminal_word_detector:
+                print(f"TerminalWordDetector:")
+                print(f"  State: {self.terminal_word_detector.state.value}")
+                print(f"  Running: {self.terminal_word_detector.running}")
+                print(f"  Healthy: {self.terminal_word_detector.is_healthy()}")
+                print(f"  Detection thread exists: {self.terminal_word_detector.detection_thread is not None}")
+                print(f"  Detection thread alive: {self.terminal_word_detector.detection_thread.is_alive() if self.terminal_word_detector.detection_thread else 'N/A'}")
+            
+            print("🔍 === END DEBUG ===")
+            
+        except Exception as e:
+            print(f"❌ Error printing debug state: {e}")
+            if config.DEBUG_MODE:
+                import traceback
+                traceback.print_exc()
     
     def _restart_wake_word_detector(self):
         """Restart the wake word detector after conversation ends."""

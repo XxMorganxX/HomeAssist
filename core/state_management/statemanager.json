@@ -1,7 +1,7 @@
 {
   "autonomous_state": {
     "current_spotify_playlist": "https://open.spotify.com/playlist/37i9dQZF1DX9wCBDkixAu6?si=1234567890",
-    "chat_phase": "asleep"
+    "chat_phase": "listening (active)"
   },
   "chat_controlled_state": {
     "current_spotify_user": "Spencer",

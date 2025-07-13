@@ -168,6 +168,10 @@ class VoiceAssistantApp:
         if config.CHAT_PROVIDER == "openai":
             print(f"   OpenAI Model: {config.OPENAI_CHAT_MODEL}")
             print(f"   TTS Voice: {config.TTS_VOICE}")
+            print(f"   Realtime API: {'✓' if config.USE_REALTIME_API else '✗'}")
+            if config.USE_REALTIME_API:
+                print(f"   Realtime Mode: {'Streaming' if config.REALTIME_STREAMING_MODE else 'Chunk-based'}")
+                print(f"   Realtime Model: {config.REALTIME_MODEL}")
         elif config.CHAT_PROVIDER == "gemini":
             print(f"   Gemini Model: {config.GEMINI_CHAT_MODEL}")
         
@@ -246,12 +250,15 @@ class VoiceAssistantApp:
         if not self.mcp_server:
             return
             
+        # Create separate flag for MCP server lifecycle
+        self._mcp_server_running = True
+            
         def run_mcp_server():
             try:
                 print("🚀 Starting MCP server in background...")
                 # Note: In a real implementation, this would start the MCP protocol handler
                 # For now, it just keeps the server instance alive and ready for tool calls
-                while self.running:
+                while self._mcp_server_running:  # Use dedicated MCP flag
                     time.sleep(1)
                 print("🛑 MCP server background thread stopped")
             except Exception as e:
@@ -481,6 +488,10 @@ class VoiceAssistantApp:
             print("🛑 Stopping MCP server...")
             mcp_start = time.time()
             try:
+                # Signal MCP server to stop using dedicated flag
+                if hasattr(self, '_mcp_server_running'):
+                    self._mcp_server_running = False
+                
                 timeout = 0.3 if config.FAST_SHUTDOWN else 1.0
                 self.mcp_server_thread.join(timeout=timeout)
                 mcp_time = time.time() - mcp_start
@@ -530,42 +541,45 @@ Examples:
         help="AI chat provider (default: from config)"
     )
     
-    parser.add_argument(
+    # Wake word arguments - mutually exclusive group
+    wake_group = parser.add_mutually_exclusive_group()
+    wake_group.add_argument(
         "--wake-word", 
         action="store_true", 
         dest="wake_word_enabled",
         help="Enable wake word detection"
     )
-    
-    parser.add_argument(
+    wake_group.add_argument(
         "--no-wake-word", 
         action="store_false", 
         dest="wake_word_enabled",
         help="Disable wake word detection"
     )
     
-    parser.add_argument(
+    # TTS arguments - mutually exclusive group
+    tts_group = parser.add_mutually_exclusive_group()
+    tts_group.add_argument(
         "--tts", 
         action="store_true", 
         dest="tts_enabled",
         help="Enable text-to-speech"
     )
-    
-    parser.add_argument(
+    tts_group.add_argument(
         "--no-tts", 
         action="store_false", 
         dest="tts_enabled",
         help="Disable text-to-speech"
     )
     
-    parser.add_argument(
+    # AEC arguments - mutually exclusive group
+    aec_group = parser.add_mutually_exclusive_group()
+    aec_group.add_argument(
         "--aec", 
         action="store_true", 
         dest="aec_enabled",
         help="Enable acoustic echo cancellation"
     )
-    
-    parser.add_argument(
+    aec_group.add_argument(
         "--no-aec", 
         action="store_false", 
         dest="aec_enabled",
@@ -611,6 +625,28 @@ Examples:
         help="Run in terminal test mode for testing MCP tools via text input"
     )
     
+    # Realtime API arguments
+    parser.add_argument(
+        "--realtime",
+        action="store_true",
+        dest="use_realtime_api",
+        help="Force enable realtime API mode"
+    )
+    
+    parser.add_argument(
+        "--no-realtime",
+        action="store_false",
+        dest="use_realtime_api",
+        help="Disable realtime API mode"
+    )
+    
+    parser.add_argument(
+        "--realtime-debug",
+        action="store_true",
+        dest="realtime_debug",
+        help="Enable verbose realtime API debugging"
+    )
+    
     return parser.parse_args()
 
 
@@ -627,11 +663,25 @@ def build_config_overrides(args) -> dict:
         'aec_enabled': 'AEC_ENABLED',
         'debug': 'DEBUG_MODE',
         'auto_restart': 'AUTO_RESTART',
-        'startup_sound': 'STARTUP_SOUND'
+        'startup_sound': 'STARTUP_SOUND',
+        'use_realtime_api': 'USE_REALTIME_API',
+        'realtime_debug': 'REALTIME_DEBUG'
     }
+    
+    # For boolean flags that use store_true/store_false, we need special handling
+    # because argparse sets a default value even when not specified
+    boolean_flags = ['wake_word_enabled', 'tts_enabled', 'aec_enabled']
     
     for arg_name, config_name in arg_mapping.items():
         value = getattr(args, arg_name, None)
+        
+        # Skip boolean flags that weren't explicitly set
+        if arg_name in boolean_flags:
+            # Check if the argument was actually provided
+            if f'--{arg_name.replace("_", "-")}' not in sys.argv and \
+               f'--no-{arg_name.replace("_", "-").replace("-enabled", "")}' not in sys.argv:
+                continue
+        
         if value is not None:
             overrides[config_name] = value
     
@@ -646,6 +696,10 @@ def main():
         
         # Build configuration overrides
         config_overrides = build_config_overrides(args)
+        
+        # Apply configuration overrides before creating the app
+        for config_name, value in config_overrides.items():
+            setattr(config, config_name, value)
         
         # Create and initialize the application
         enable_mcp_server = getattr(args, 'enable_mcp_server', True)

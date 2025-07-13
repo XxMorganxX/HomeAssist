@@ -9,6 +9,23 @@ WHISPER_MODEL = "whisper-1"  # OpenAI Whisper for STT (currently only option)
 # Chat Provider Selection - "openai" or "gemini"
 CHAT_PROVIDER = "openai"  # Change to "openai" to use OpenAI instead
 
+USE_REALTIME_API = True # True = real-time API, False = traditional API
+
+# Real-time API Configuration
+REALTIME_STREAMING_MODE = True  # True = continuous streaming, False = chunk-based (even with realtime API)
+REALTIME_MODEL = "gpt-4o-realtime-preview-2024-12-17"  # Latest realtime model
+REALTIME_VOICE = "alloy"  # Voice for realtime responses
+REALTIME_VAD_THRESHOLD = 0.5  # Voice activity detection threshold (0.0-1.0)
+REALTIME_VAD_SILENCE_MS = 300  # Milliseconds of silence to end turn
+REALTIME_MAX_RESPONSE_TOKENS = 200  # Max tokens for realtime responses
+
+# Realtime fallback configuration
+REALTIME_FALLBACK_ENABLED = True  # Allow fallback to chunk mode if realtime fails
+REALTIME_CONNECTION_TIMEOUT = 10.0  # Timeout in seconds for establishing realtime connection
+REALTIME_DEBUG = False  # Enable verbose realtime debugging output
+REALTIME_API_DEBUG = False  # Enable verbose debugging for speech_services_realtime WebSocket messages
+REALTIME_STREAM_TRANSCRIPTION = True  # Stream partial transcriptions to console in real-time
+
 # OpenAI Models
 OPENAI_CHAT_MODEL = "gpt-4.1-nano"
 RESPONSE_MODEL = "gpt-4.1-nano"  # Alias for backward compatibility
@@ -142,7 +159,7 @@ Be prepared to repeat information if needed.
 MAX_TOKENS = 150             # Keep responses concise
 
 # Temperature Configuration
-TOOL_TEMPERATURE = 0.1      # Lower temperature for more deterministic tool selection
+TOOL_TEMPERATURE = 0.6      # Lower temperature for more deterministic tool selection (minimum 0.6 for Realtime API)
 RESPONSE_TEMPERATURE = 0.7  # Higher temperature for more creative responses
 
 # Context Configuration

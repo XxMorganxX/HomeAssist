@@ -33,8 +33,25 @@ os.chdir(project_root)
 sys.path.insert(0, str(project_root))
 
 from core.audio_processing import VADChunker, wav_bytes_from_frames
-from core.speech_services import SpeechServices, ConversationManager
 import config
+
+# Conditionally import speech services based on config
+if config.USE_REALTIME_API:
+    try:
+        from core.speech_services_realtime import SpeechServices, ConversationManager
+        USING_REALTIME_API = True
+        if getattr(config, 'REALTIME_STREAMING_MODE', False):
+            print("🚀 Using OpenAI Real-time API with continuous streaming")
+        else:
+            print("🚀 Using OpenAI Real-time API with chunk-based mode")
+    except ImportError as e:
+        print(f"⚠️ Real-time API not available ({e}), falling back to traditional API")
+        from core.speech_services import SpeechServices, ConversationManager
+        USING_REALTIME_API = False
+else:
+    from core.speech_services import SpeechServices, ConversationManager
+    USING_REALTIME_API = False
+    print("📡 Using traditional API for speech services")
 
 load_dotenv()
 
@@ -54,16 +71,29 @@ class StreamingChatbot:
     
     def __init__(self):
         """Initialize streaming chatbot."""
+        # Use realtime model if realtime API is enabled
+        chat_model = config.OPENAI_CHAT_MODEL
+        if USING_REALTIME_API and config.CHAT_PROVIDER == "openai":
+            chat_model = getattr(config, 'REALTIME_MODEL', 'gpt-4o-realtime-preview-2024-12-17')
+        elif config.CHAT_PROVIDER == "gemini":
+            chat_model = config.GEMINI_CHAT_MODEL
+            
         self.speech_services = SpeechServices(
             openai_api_key=os.getenv("OPENAI_KEY"),
             whisper_model=config.WHISPER_MODEL,
             chat_provider=config.CHAT_PROVIDER,
-            chat_model=config.OPENAI_CHAT_MODEL if config.CHAT_PROVIDER == "openai" else config.GEMINI_CHAT_MODEL,
+            chat_model=chat_model,
             gemini_api_key=os.getenv("GOOGLE_API_KEY"),
             tts_enabled=config.TTS_ENABLED,
             tts_model=config.TEXT_TO_SPEECH_MODEL,
             tts_voice=config.TTS_VOICE
         )
+        
+        # Check if we're using continuous streaming mode
+        self.use_streaming_mode = (USING_REALTIME_API and 
+                                  getattr(config, 'REALTIME_STREAMING_MODE', False) and
+                                  hasattr(self.speech_services, 'use_realtime') and
+                                  self.speech_services.use_realtime)
         
         self.conversation = ConversationManager(config.SYSTEM_PROMPT)
         self.chunker = VADChunker(
@@ -87,6 +117,20 @@ class StreamingChatbot:
         # Latency tracking
         self.transcription_latencies = []  # Track individual chunk transcription times
         self.conversation_latencies = []   # Track conversation processing times
+        
+        # Streaming mode setup
+        if self.use_streaming_mode:
+            print("🌊 Continuous streaming mode enabled")
+            # Set up real-time callbacks
+            self.speech_services.set_callbacks(
+                partial_transcript_callback=self._handle_partial_transcript,
+                response_delta_callback=self._handle_response_delta,
+                audio_response_callback=self._handle_audio_response
+            )
+            self.current_partial_transcript = ""
+            self.streaming_active = False
+        else:
+            print("📦 Chunk-based mode enabled")
         
     def audio_callback(self, indata, frames, time_info, status):
         """Callback for audio stream."""
@@ -119,6 +163,39 @@ class StreamingChatbot:
                 accumulated_latencies=accumulated_latencies,
                 final_latencies=final_latencies
             )
+    
+    def _handle_partial_transcript(self, delta: str):
+        """Handle partial transcription updates in streaming mode."""
+        self.current_partial_transcript += delta
+        print(f"🎤  Partial: {self.current_partial_transcript}", end='\r')
+    
+    def _handle_response_delta(self, delta: str):
+        """Handle partial response updates in streaming mode."""
+        print(delta, end='', flush=True)
+    
+    def _handle_audio_response(self, audio_b64: str):
+        """Handle audio response chunks in streaming mode."""
+        if self.speech_services.tts_enabled:
+            # Could decode and play audio chunks in real-time here
+            pass
+    
+    def _start_streaming_if_needed(self):
+        """Start streaming mode if voice activity is detected."""
+        if self.use_streaming_mode and not self.streaming_active:
+            if self.speech_services.start_streaming():
+                self.streaming_active = True
+                print("\n🌊 Started streaming...")
+            else:
+                print("⚠️ Failed to start streaming, falling back to chunk mode")
+    
+    def _stop_streaming_if_needed(self):
+        """Stop streaming mode and process the accumulated audio."""
+        if self.use_streaming_mode and self.streaming_active:
+            self.speech_services.stop_streaming()
+            self.streaming_active = False
+            # The transcription will come through the message handler
+            print(f"\n⏹️ Stopped streaming. Final: {self.current_partial_transcript}")
+            self.current_partial_transcript = ""
 
     def process_chunk(self, chunk: bytes) -> None:
         """Process a speech chunk through Whisper."""
@@ -371,19 +448,33 @@ class StreamingChatbot:
                 if frame_has_speech:
                     self.last_speech_activity = current_time
                 
-                # Process frame for chunks
-                chunk = self.chunker.process(frame)
-                if chunk:
-                    self.process_chunk(chunk)
-                    # Exit immediately if session ended during chunk processing
-                    if self.session_ended:
-                        break
-                
-                # Check for end of complete message
-                if (self.accumulated_chunks and 
-                    self.last_speech_activity and 
-                    current_time - self.last_speech_activity > config.COMPLETE_SILENCE_SEC):
-                    self.process_complete_message()
+                # Handle streaming mode vs chunk mode
+                if self.use_streaming_mode:
+                    # Continuous streaming mode
+                    if frame_has_speech:
+                        self._start_streaming_if_needed()
+                        # Stream the frame directly
+                        if self.streaming_active:
+                            self.speech_services.send_audio_frame(frame)
+                    else:
+                        # No speech detected, check if we should stop streaming
+                        if (self.streaming_active and self.last_speech_activity and 
+                            current_time - self.last_speech_activity > (config.REALTIME_VAD_SILENCE_MS / 1000.0)):
+                            self._stop_streaming_if_needed()
+                else:
+                    # Traditional chunk-based mode
+                    chunk = self.chunker.process(frame)
+                    if chunk:
+                        self.process_chunk(chunk)
+                        # Exit immediately if session ended during chunk processing
+                        if self.session_ended:
+                            break
+                    
+                    # Check for end of complete message
+                    if (self.accumulated_chunks and 
+                        self.last_speech_activity and 
+                        current_time - self.last_speech_activity > config.COMPLETE_SILENCE_SEC):
+                        self.process_complete_message()
                     
         except KeyboardInterrupt:
             print("\n\n✋ Finished. Bye!")
@@ -692,8 +783,50 @@ class ToolEnabledStreamingChatbot(StreamingChatbot):
 
         
         if response:
-            # Handle new tool_calls format (multiple tools)
-            if response.get("tool_calls") and self.mcp_server:
+            # Handle Realtime API function calls
+            if response.get("function_call") and response.get("call_id") and self.mcp_server and USING_REALTIME_API:
+                # Realtime API function call
+                func_name = response["function_call"]["name"]
+                func_args = json.loads(response["function_call"]["arguments"])
+                call_id = response["call_id"]
+                
+                print(f"🔧 [Realtime Tool: {func_name}]")
+                
+                # Execute tool
+                tool_result = self.mcp_server.execute_tool(func_name, func_args)
+                
+                # Send result back to Realtime session
+                if hasattr(self.speech_services, 'execute_function_call_realtime'):
+                    self.speech_services.execute_function_call_realtime({
+                        "name": func_name,
+                        "arguments": response["function_call"]["arguments"],
+                        "call_id": call_id
+                    }, self.mcp_server)
+                
+                # Trigger response generation to get final answer
+                if hasattr(self.speech_services, 'trigger_response'):
+                    self.speech_services.trigger_response()
+                
+                # Wait for final response
+                try:
+                    final_response = self.speech_services.response_queue.get(timeout=15.0)
+                    if final_response and final_response.get("content"):
+                        self.conversation.add_assistant_message(final_response["content"])
+                        print(f"🤖  GPT: {final_response['content']}\n")
+                        
+                        # Convert response to speech if TTS is enabled
+                        if self.speech_services.tts_enabled:
+                            audio_file = self.speech_services.text_to_speech(final_response["content"])
+                            if audio_file and hasattr(self, 'chunker') and self.chunker.aec_enabled:
+                                # Add TTS audio as reference for AEC
+                                self.chunker.add_reference_audio_file(audio_file)
+                        
+                        print("─" * 50)
+                except queue.Empty:
+                    print("⚠️ No response after function execution")
+            
+            # Handle new tool_calls format (multiple tools) - Traditional API
+            elif response.get("tool_calls") and self.mcp_server:
                 # Add assistant message with tool calls
                 self.conversation.messages.append({
                     "role": "assistant",
