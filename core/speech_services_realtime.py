@@ -19,6 +19,8 @@ import tempfile
 from typing import List, Dict, Optional, Callable, Any
 import queue
 import logging
+import config
+from config import SYSTEM_PROMPT
 
 # Set up logging
 logging.basicConfig(level=logging.WARNING)  # Reduce noise
@@ -266,11 +268,15 @@ class SpeechServices:
         
         debug_log("Configuring real-time session")
         
+        # Debug: Print first 200 chars of system prompt to verify it's correct
+        if DEBUG_REALTIME:
+            logger.warning(f"[REALTIME DEBUG] System prompt preview: {SYSTEM_PROMPT[:200]}...")
+        
         session_config = {
             "type": "session.update",
             "session": {
                 "modalities": ["text"],
-                "instructions": getattr(config, 'SYSTEM_PROMPT', "You are a helpful assistant. Provide clear, concise responses."),
+                "instructions": SYSTEM_PROMPT,
                 "voice": getattr(config, 'REALTIME_VOICE', self.tts_voice),
                 "input_audio_format": "pcm16",
                 "output_audio_format": "pcm16",
@@ -346,6 +352,9 @@ class SpeechServices:
             
         elif msg_type == "input_audio_buffer.speech_started":
             logger.debug("Speech started")
+            cb = getattr(self, 'speech_started_callback', None)
+            if callable(cb):
+                cb()
             debug_log("Speech activity started")
             
         elif msg_type == "input_audio_buffer.speech_stopped":
@@ -625,13 +634,14 @@ class SpeechServices:
         self._send_audio_data(audio_frame)
     
     def set_callbacks(self, partial_transcript_callback=None, response_delta_callback=None, 
-                      audio_response_callback=None, speech_stopped_callback=None):
+                      audio_response_callback=None, speech_stopped_callback=None, speech_started_callback=None):
         """Set callback functions for real-time events."""
         debug_log("Setting callbacks")
         self.partial_transcript_callback = partial_transcript_callback
         self.response_delta_callback = response_delta_callback
         self.audio_response_callback = audio_response_callback
         self.speech_stopped_callback = speech_stopped_callback
+        self.speech_started_callback = speech_started_callback
         debug_log("Callbacks set successfully")
     
     def start_streaming(self):
@@ -772,9 +782,64 @@ class SpeechServices:
         except Exception as e:
             logger.error(f"Error triggering response: {e}")
     
-    def _sync_conversation_to_session(self, messages: List[Dict[str, str]], functions: Optional[List[Dict[str, Any]]] = None):
-        """Sync conversation history to Realtime session."""
+    def _manage_context_updates(self, conversation_manager) -> None:
+        """
+        Manage context updates and summary generation decisions.
+        This is where all context strategy decisions are made.
+        """
+        from core.context_manager import ContextManager
+        
         try:
+            # Decision: Should we update the summary?
+            if self._should_update_summary(conversation_manager):
+                debug_log(f"Updating conversation summary")
+                context_manager = ContextManager()
+                context_manager.update_summary(conversation_manager)
+                debug_log(f"Summary updated successfully")
+        except Exception as e:
+            debug_log(f"Error managing context updates: {e}")
+    
+    def _should_update_summary(self, conversation_manager) -> bool:
+        """
+        Decision logic: Should we update the conversation summary?
+        """
+        messages = conversation_manager.get_messages()
+        min_messages = getattr(config, 'CONTEXT_SUMMARY_MIN_MESSAGES', 5)
+        frequency = getattr(config, 'CONTEXT_SUMMARY_FREQUENCY', 5)
+        
+        # Only generate summaries if frequency is enabled (> 0)
+        if frequency <= 0:
+            return False
+        
+        # Check if conversation is long enough and at frequency interval
+        # Trigger at min_messages threshold, then every frequency messages after that
+        return (len(messages) >= min_messages and 
+                (len(messages) == min_messages or (len(messages) - min_messages) % frequency == 0))
+
+    def _sync_conversation_to_session(self, messages: List[Dict[str, str]], functions: Optional[List[Dict[str, Any]]] = None):
+        """Sync conversation history to Realtime session with intelligent context management."""
+        try:
+            import config
+            
+            # Apply intelligent context management using new ContextManager interface
+            if getattr(config, 'REALTIME_COST_OPTIMIZATION', True):
+                # Create a temporary conversation manager for the context manager
+                from core.context_manager import ContextManager
+                
+                class TempConversationManager:
+                    def __init__(self, messages, system_prompt):
+                        self.messages = messages
+                        self.system_prompt = system_prompt
+                    def get_messages(self):
+                        return self.messages
+                    def get_chat_minus_sys_prompt(self):
+                        return self.messages
+                
+                temp_conv = TempConversationManager(messages, config.SYSTEM_PROMPT)
+                context_manager = ContextManager()
+                messages = context_manager.get_context_for_response(temp_conv, use_summary=True)
+                debug_log(f"Using intelligent context: {len(messages)} messages")
+            
             # Clear any existing conversation items first
             # According to OpenAI Realtime API, we need to truncate to a specific item
             # If we have conversation items, truncate to the system message (first item)
@@ -832,15 +897,33 @@ class SpeechServices:
             logger.error(f"Error syncing conversation to session: {e}")
     
     def _convert_functions_to_tools(self, functions: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
-        """Convert OpenAI function format to Realtime API tools format."""
+        """Convert OpenAI function format to Realtime API tools format with compression."""
+        import config
         tools = []
+        
         for func in functions:
-            tool = {
-                "type": "function",
-                "name": func["name"],
-                "description": func["description"],
-                "parameters": func["parameters"]
-            }
+            # Cost optimization: Compress tool descriptions
+            if getattr(config, 'REALTIME_COST_OPTIMIZATION', True):
+                # Shorten description to first sentence or 50 chars
+                desc = func["description"]
+                if '.' in desc:
+                    desc = desc.split('.')[0] + '.'
+                elif len(desc) > 50:
+                    desc = desc[:50] + '...'
+                
+                tool = {
+                    "type": "function",
+                    "name": func["name"],
+                    "description": desc,
+                    "parameters": func["parameters"]
+                }
+            else:
+                tool = {
+                    "type": "function",
+                    "name": func["name"],
+                    "description": func["description"],
+                    "parameters": func["parameters"]
+                }
             tools.append(tool)
         return tools
     
@@ -959,11 +1042,11 @@ class SpeechServices:
             debug_log(f"Temperature adjusted from {temperature} to {safe_temperature}")
 
             # Create response with proper configuration
+            
             response_config = {
                 "type": "response.create",
                 "response": {
                     "modalities": ["text"],
-                    "instructions": "Respond helpfully based on the conversation context.",
                     "voice": self.tts_voice,
                     "output_audio_format": "pcm16",
                     "temperature": safe_temperature,
@@ -1164,13 +1247,25 @@ class SpeechServices:
 
 
 class ConversationManager:
-    """Manages conversation history and message flow (unchanged for compatibility)."""
+    """
+    Pure conversation oracle. Stores and manages conversation data only.
+    
+    Responsibilities:
+    - Store conversation messages
+    - Provide data access methods
+    - Manage conversation metadata (interruptions, etc.)
+    
+    Does NOT:
+    - Make context decisions
+    - Trigger context updates
+    - Implement context strategies
+    """
     
     def __init__(self, system_prompt: str):
         """Initialize conversation manager."""
-        self.messages: List[Dict[str, str]] = [
-            {"role": "system", "content": system_prompt}
-        ]
+        # For Realtime API, system prompt is set at session level, not as message
+        self.messages: List[Dict[str, str]] = []
+        self.system_prompt = system_prompt  # Store for reference but don't add to messages
         
     def add_user_message(self, content: str) -> None:
         """Add user message to conversation."""
@@ -1186,30 +1281,59 @@ class ConversationManager:
     
     def get_chat_minus_sys_prompt(self) -> List[Dict[str, str]]:
         """Get conversation history minus the system prompt."""
-        return self.messages[1:]
-    
-    def get_tool_context(self, max_messages: int = 6) -> List[Dict[str, str]]:
-        """Get focused context for tool selection."""
-        if len(self.messages) <= max_messages + 1:
-            return self.messages
-        
-        system_prompt = self.messages[0]
-        recent_messages = self.messages[-(max_messages):]
-        
-        return [system_prompt] + recent_messages
-    
-    def get_response_context(self) -> List[Dict[str, str]]:
-        """Get full context for response generation."""
+        # For Realtime API, no system prompt in messages, so return all messages
         return self.messages
+    
     
     def get_recent_messages(self, count: int) -> List[Dict[str, str]]:
         """Get the last N messages from conversation."""
-        if len(self.messages) <= 1:
+        # For Realtime API, no system prompt in messages, so return recent messages directly
+        if len(self.messages) == 0:
             return []
         
-        user_messages = self.messages[1:]
-        return user_messages[-count:] if count < len(user_messages) else user_messages
+        return self.messages[-count:] if count < len(self.messages) else self.messages
         
     def clear(self, system_prompt: str) -> None:
         """Clear conversation and reset with system prompt."""
-        self.messages = [{"role": "system", "content": system_prompt}] 
+        # For Realtime API, system prompt is set at session level, not as message
+        self.messages = []
+        self.system_prompt = system_prompt
+    
+    def mark_response_as_interrupted(self, assistant_message_id: str = None) -> None:
+        """Mark the last assistant response as interrupted."""
+        # Find the last assistant message and mark it as interrupted
+        for i in range(len(self.messages) - 1, -1, -1):
+            if self.messages[i].get("role") == "assistant":
+                # Add metadata to indicate this response was interrupted
+                if "metadata" not in self.messages[i]:
+                    self.messages[i]["metadata"] = {}
+                self.messages[i]["metadata"]["interrupted"] = True
+                self.messages[i]["metadata"]["interrupted_at"] = time.time()
+                break
+    
+    def remove_incomplete_response(self) -> Optional[str]:
+        """Remove the last assistant message if it was incomplete/interrupted. Returns the removed content."""
+        for i in range(len(self.messages) - 1, -1, -1):
+            if self.messages[i].get("role") == "assistant":
+                # Check if this response was marked as interrupted
+                metadata = self.messages[i].get("metadata", {})
+                if metadata.get("interrupted", False):
+                    removed_message = self.messages.pop(i)
+                    return removed_message.get("content", "")
+                break
+        return None
+    
+    def get_conversation_state_before_interruption(self) -> List[Dict]:
+        """Get conversation state before the last interruption."""
+        # Return all messages except interrupted assistant responses
+        clean_messages = []
+        for message in self.messages:
+            if message.get("role") == "assistant":
+                metadata = message.get("metadata", {})
+                if not metadata.get("interrupted", False):
+                    clean_messages.append(message)
+            else:
+                clean_messages.append(message)
+        return clean_messages
+    
+ 

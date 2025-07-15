@@ -175,15 +175,28 @@ class CalendarComponent:
         Args:
             num_events: Maximum number of events to retrieve
             time_min: Minimum time for events (ISO format). If None, uses current time
+            time_max: Maximum time for events (ISO format). If None, no upper limit
             calendar_id: Calendar ID to query (default: 'primary')
             
         Returns:
             List of event dictionaries
         """
         try:
-            calendar_list =self.service.calendarList().list().execute()
+            if not self.service:
+                print(f"❌ Calendar service not initialized for {self.user}")
+                return []
+            
+            # If specific calendar_id is requested, only query that calendar
+            if calendar_id != 'primary':
+                calendars_to_query = [{'id': calendar_id}]
+            else:
+                # Query all calendars
+                calendar_list = self.service.calendarList().list().execute()
+                calendars_to_query = calendar_list.get('items', [])
+            
             all_events = []
-            for cal in calendar_list['items']:
+            
+            for cal in calendars_to_query:
                 cal_id = cal['id']
                 
                 now = datetime.now(timezone.utc).isoformat() if time_min is None else time_min
@@ -201,24 +214,20 @@ class CalendarComponent:
                 events = events_result.get('items', [])
                 for event in events:
                     event['calendar_id'] = cal_id
-            
-                all_events.append(events)
+                
+                all_events.extend(events)
             
             if config.DEBUG_MODE:
-                print(f"📅 Retrieved {len(all_events)} calendars for {self.user}")
-            
-            # Combine all events and sort by start time
-            combined_events = [event for calendars in all_events for event in calendars]
+                print(f"📅 Retrieved {len(all_events)} events from {len(calendars_to_query)} calendars for {self.user}")
             
             # Sort by start time
-            combined_events.sort(key=lambda x: x['start'].get('dateTime', x['start'].get('date')))
+            all_events.sort(key=lambda x: x['start'].get('dateTime', x['start'].get('date')))
             
             # Limit to requested number of events
-            limited_events = combined_events[:num_events]
+            limited_events = all_events[:num_events]
             
             if config.DEBUG_MODE:
-                print(f"📅 Returning {len(limited_events)} events (limited from {len(combined_events)} total)")
-            
+                print(f"📅 Returning {len(limited_events)} events (limited from {len(all_events)} total)")
             
             return limited_events
             
@@ -232,7 +241,6 @@ class CalendarComponent:
             self.error_message = error_msg
             print(f"❌ {error_msg}")
             return []
-        return []
     
     def get_formatted_events(self, num_events: int = 10, time_min: str = None) -> List[Dict]:
         """Get events with formatting applied."""
@@ -292,11 +300,6 @@ class CalendarComponent:
                 'status': '',
                 'all_day': False
             }
-    
-    def get_formatted_events(self, num_events: int = 10, time_min: str = None) -> List[Dict]:
-        """Get events with formatting applied."""
-        raw_events = self.get_events(num_events, time_min)
-        return [self.format_event(event) for event in raw_events]
     
     def display_events_details(self, events_list: List[Dict]) -> None:
         """

@@ -8,6 +8,19 @@ from pathlib import Path
 STATE_DIR = Path(__file__).parent.absolute()
 STATE_FILE = STATE_DIR / "statemanager.json"
 
+class Notification:
+    def __init__(self, intended_recipient, notification_content, relevancy):
+        self.intended_recipient = intended_recipient
+        self.notification_content = notification_content
+        self.relevancy = relevancy
+     
+    def to_dict(self):
+        return {
+            "intended_recipient": self.intended_recipient,
+            "notification_content": self.notification_content,
+            "relevant_when": self.relevancy
+        }
+
 
 class StateManager:
     def __init__(self, filepath=None):
@@ -43,8 +56,18 @@ class StateManager:
                 self.state = json.load(f)
         else:
             print(f"State manager file not found at {self.filepath}")
-        
-
+    
+    def add_to_notification_queue(self, notification, intended_recipient):
+        self.load()
+        self.state["autonomous_state"]["notification_queue"][intended_recipient]["notifications"].append(notification)
+        self.save()
+    
+    def get_notification_queue(self, intended_recipient):
+        self.load()
+        return self.state["autonomous_state"]["notification_queue"][intended_recipient]["notifications"]
+    
+    
+    
 
 # Usage
 state = StateManager()

@@ -226,7 +226,7 @@ class ConversationManager:
     def get_chat_minus_sys_prompt(self) -> List[Dict[str, str]]:
         """Get conversation history minus the system prompt."""
         return self.messages[1:]
-    
+        
     def get_tool_context(self, max_messages: int = 6) -> List[Dict[str, str]]:
         """
         Get focused context for tool selection - system prompt + recent messages.

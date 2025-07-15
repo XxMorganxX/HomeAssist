@@ -7,12 +7,13 @@ conversation handling, and system orchestration.
 import os
 import sys
 import time
+import json
 import random
 import threading
 import subprocess
 import platform
 from abc import ABC, abstractmethod
-from typing import Optional, Callable, Dict, Any
+from typing import Optional, Callable, Dict, Any, List
 from pathlib import Path
 
 import numpy as np
@@ -73,7 +74,7 @@ class SharedAudioManager:
             # Check audio device availability on macOS
             if platform.system() == 'Darwin':
                 try:
-                    from core.macos_audio_fix import check_audio_device_availability
+                    from core.fixes.macos_audio_fix import check_audio_device_availability
                     if not check_audio_device_availability():
                         print("⚠️ Audio device not available, attempting recovery...")
                         # Try to reset any stuck audio streams
@@ -121,7 +122,7 @@ class SharedAudioManager:
                         extra_settings = {}
                         if platform.system() == 'Darwin':
                             try:
-                                from core.macos_audio_fix import get_macos_audio_config
+                                from core.fixes.macos_audio_fix import get_macos_audio_config
                                 extra_settings = get_macos_audio_config()
                             except ImportError:
                                 pass
@@ -879,12 +880,16 @@ class WakeWordDetector(Component):
                         self.last_activation_time = current_time
                         self.is_armed[model_name] = False
                         
-                        # Play greeting audio
-                        self._play_greeting_audio()
+                        # Play greeting audio and get masking duration
+                        mask_duration = self._play_greeting_with_mic_masking()
                         
-                        # Trigger callback
+                        # Trigger callback immediately with masking info
                         if self.wake_word_callback:
-                            self.wake_word_callback()
+                            # Pass masking duration so conversation can ignore mic input for this time
+                            if hasattr(self.wake_word_callback, '__code__') and self.wake_word_callback.__code__.co_argcount > 1:
+                                self.wake_word_callback(mask_duration)
+                            else:
+                                self.wake_word_callback()
                     
                     # Update previous score
                     self.previous_scores[model_name] = current_score
@@ -910,7 +915,7 @@ class WakeWordDetector(Component):
             print("🔊 Wake word detection loop ended")
     
     def _play_greeting_audio(self):
-        """Play a random greeting audio file."""
+        """Play a random greeting audio file and wait for it to finish."""
         try:
             if not os.path.exists(self.opener_audio_dir):
                 return
@@ -925,14 +930,96 @@ class WakeWordDetector(Component):
                 if config.DEBUG_MODE:
                     print(f"🎵 Playing greeting: {greeting_file}")
                 
-                # Play audio in background
-                subprocess.Popen(['afplay', audio_path], 
-                               stdout=subprocess.DEVNULL, 
-                               stderr=subprocess.DEVNULL)
+                # Play audio and wait for it to finish
+                try:
+                    result = subprocess.run(['afplay', audio_path], 
+                                          stdout=subprocess.DEVNULL, 
+                                          stderr=subprocess.DEVNULL,
+                                          timeout=10.0)  # Maximum 10 second timeout
+                    
+                    if config.DEBUG_MODE:
+                        print("✅ Greeting audio finished")
+                        
+                except subprocess.TimeoutExpired:
+                    if config.DEBUG_MODE:
+                        print("⏰ Greeting audio timed out")
+                except Exception as audio_error:
+                    if config.DEBUG_MODE:
+                        print(f"⚠️ Audio playback error: {audio_error}")
                 
         except Exception as e:
             if config.DEBUG_MODE:
                 print(f"⚠️ Greeting audio error: {e}")
+    
+    def _play_greeting_audio_async(self):
+        """Play greeting audio and return when safe to start recording."""
+        def play_audio_and_signal():
+            # Play the greeting audio and wait for it to finish
+            self._play_greeting_audio()
+            # Add extra buffer time for audio system to settle
+            time.sleep(0.5)
+            # Set flag that it's safe to start recording
+            self._greeting_finished = True
+        
+        # Reset the flag
+        self._greeting_finished = False
+        
+        # Start audio in background thread
+        audio_thread = threading.Thread(target=play_audio_and_signal, daemon=True)
+        audio_thread.start()
+        
+        return audio_thread  # Return thread so caller can wait if needed
+    
+    def _play_greeting_with_mic_masking(self):
+        """Play greeting audio while masking microphone input for exact duration."""
+        try:
+            if not os.path.exists(self.opener_audio_dir):
+                return 0
+            
+            audio_files = [f for f in os.listdir(self.opener_audio_dir) 
+                          if f.endswith(('.wav', '.mp3', '.mov'))]
+            
+            if audio_files:
+                greeting_file = random.choice(audio_files)
+                audio_path = os.path.join(self.opener_audio_dir, greeting_file)
+                
+                if config.DEBUG_MODE:
+                    print(f"🎵 Playing greeting: {greeting_file}")
+                
+                # Get audio duration first (for precise masking)
+                try:
+                    import subprocess
+                    result = subprocess.run(['afinfo', audio_path], 
+                                          capture_output=True, text=True, timeout=5.0)
+                    
+                    # Parse duration from afinfo output
+                    duration = 0
+                    for line in result.stdout.split('\n'):
+                        if 'estimated duration:' in line.lower():
+                            duration_str = line.split(':')[-1].strip().split()[0]
+                            duration = float(duration_str)
+                            break
+                    
+                    if duration == 0:
+                        duration = 2.0  # Fallback duration
+                        
+                except Exception:
+                    duration = 2.0  # Fallback duration
+                
+                # Start audio playback in background
+                audio_process = subprocess.Popen(['afplay', audio_path], 
+                                               stdout=subprocess.DEVNULL, 
+                                               stderr=subprocess.DEVNULL)
+                
+                if config.DEBUG_MODE:
+                    print(f"🔇 Masking microphone for {duration:.1f}s during greeting")
+                
+                return duration  # Return exact duration for masking
+                
+        except Exception as e:
+            if config.DEBUG_MODE:
+                print(f"⚠️ Greeting audio error: {e}")
+            return 0
 
 
 class ConversationHandler(Component):
@@ -959,6 +1046,12 @@ class ConversationHandler(Component):
             
             # Create chatbot instance
             self.chatbot = ToolEnabledStreamingChatbot()
+            
+            # Pre-warm realtime connection to reduce wake word to recording latency
+            if USING_REALTIME_CHATBOT and hasattr(self.chatbot, 'speech_services'):
+                if config.DEBUG_MODE:
+                    print("🔄 Pre-warming realtime connection...")
+                self.chatbot.speech_services._ensure_connected()
             
             self.state = ComponentState.RUNNING
             if config.DEBUG_MODE:
@@ -1013,7 +1106,7 @@ class ConversationHandler(Component):
                 print(f"❌ Error checking conversation handler health: {e}")
             return False
     
-    def start_conversation(self) -> bool:
+    def start_conversation(self, mask_duration=0) -> bool:
         """Start a new conversation session."""
         if not self.is_healthy():
             print("❌ ConversationHandler not ready")
@@ -1023,10 +1116,11 @@ class ConversationHandler(Component):
             if config.DEBUG_MODE:
                 print("💬 Starting conversation...")
             
-            # Start conversation in separate thread
+            # Start conversation in separate thread with masking info
             self.running = True
             self.conversation_thread = threading.Thread(
-                target=self._conversation_loop, 
+                target=self._conversation_loop,
+                args=(mask_duration,),
                 daemon=True
             )
             self.conversation_thread.start()
@@ -1082,7 +1176,7 @@ class ConversationHandler(Component):
         except Exception as e:
             print(f"❌ Error ending conversation immediately: {e}")
     
-    def _conversation_loop(self):
+    def _conversation_loop(self, mask_duration=0):
         """Run conversation until it ends."""
         try:
             if config.DEBUG_MODE:
@@ -1092,9 +1186,13 @@ class ConversationHandler(Component):
             if USING_REALTIME_CHATBOT and hasattr(self.chatbot, 'start_realtime_session'):
                 if config.DEBUG_MODE:
                     print("🎯 Using realtime streaming mode")
-                # For realtime chatbot, we need to handle it differently
-                # The realtime chatbot has its own run method that handles everything
-                self.chatbot.run()
+                
+                # Start realtime session (connection should already be pre-warmed)
+                print("🎤  Listening...")
+                
+                # Pass mask duration to chatbot for smart audio masking
+                self.chatbot.run(mask_duration)
+                    
             else:
                 if config.DEBUG_MODE:
                     print("📦 Using chunk-based streaming mode")
@@ -1168,7 +1266,14 @@ class ConversationHandler(Component):
             if config.DEBUG_MODE:
                 import traceback
                 traceback.print_exc()
-
+    
+    def submit_conversation_to_file(self, conversation: List[Dict[str, Any]]):
+        """Submit conversation to file."""
+        try:
+            with open(config.CONVERSATION_FILE, 'a') as f:
+                json.dump(conversation, f)
+        except Exception as e:
+            print(f"❌ Error submitting conversation to file: {e}")
 
 # Global orchestrator instance for cross-component access
 _global_orchestrator = None
@@ -1181,6 +1286,9 @@ def set_global_orchestrator(orchestrator: 'ComponentOrchestrator'):
     """Set the global orchestrator instance."""
     global _global_orchestrator
     _global_orchestrator = orchestrator
+    
+
+
 
 
 class ComponentOrchestrator:
@@ -1342,7 +1450,7 @@ class ComponentOrchestrator:
             print("\n👋 Shutting down...")
             self.stop_all()
     
-    def _on_wake_word_detected(self):
+    def _on_wake_word_detected(self, mask_duration=0):
         """Callback when wake word is detected."""
         try:
             current_time = time.time()
@@ -1427,7 +1535,7 @@ class ComponentOrchestrator:
                 try:
                     if config.DEBUG_MODE:
                         print("🚀 Attempting to start conversation...")
-                    success = self.conversation_handler.start_conversation()
+                    success = self.conversation_handler.start_conversation(mask_duration)
                     if not success:
                         print("⚠️ Failed to start conversation - returning to wake word mode")
                         if config.DEBUG_MODE:
@@ -1489,6 +1597,13 @@ class ComponentOrchestrator:
                 return
                 
             self._conversation_ended = True
+            
+            # Clear session summary when conversation ends
+            try:
+                from main import clear_session_summary
+                clear_session_summary()
+            except Exception as e:
+                print(f"⚠️ Error clearing session summary: {e}")
             
             if config.DEBUG_MODE:
                 print("💬 Conversation ended - returning to wake word detection")

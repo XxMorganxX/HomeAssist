@@ -12,7 +12,7 @@ import platform
 # Import macOS audio fixes if on macOS
 if platform.system() == 'Darwin':
     try:
-        from core.macos_audio_fix import suppress_auhal_errors, configure_macos_audio
+        from core.fixes.macos_audio_fix import suppress_auhal_errors, configure_macos_audio
     except ImportError:
         # If running from a different directory structure
         try:

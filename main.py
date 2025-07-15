@@ -13,11 +13,12 @@ import time
 import signal
 import argparse
 import threading
+import json
 from pathlib import Path
 from typing import Optional
 
 # Suppress common warnings from dependencies
-from core.suppress_warnings import suppress_common_warnings
+from core.fixes.suppress_warnings import suppress_common_warnings
 
 from core.state_management.statemanager import StateManager
 
@@ -33,6 +34,19 @@ except ImportError as e:
     print(f"❌ Failed to import required modules: {e}")
     print("Make sure you're running from the project root directory")
     sys.exit(1)
+
+
+def clear_session_summary():
+    """Clear the session summary file."""
+    try:
+        replace = {"conversation": {}}
+        session_file = Path(config.session_summary_file)
+        # Create empty JSON object
+        with open(session_file, 'w') as f:
+            json.dump(replace, f)
+        print(f"🧹 Cleared session summary: {session_file}")
+    except Exception as e:
+        print(f"⚠️ Error clearing session summary: {e}")
 
 
 class VoiceAssistantApp:
@@ -52,6 +66,8 @@ class VoiceAssistantApp:
         self.enable_mcp_server = enable_mcp_server
         self.running = False
         
+        # Clear session summary on startup
+        clear_session_summary()
 
         # Set up signal handlers for graceful shutdown
         signal.signal(signal.SIGINT, self._signal_handler)
@@ -61,6 +77,7 @@ class VoiceAssistantApp:
         if enable_mcp_server:
             print("🔧 With Integrated MCP Tool Server")
         print("=" * 50)
+
     
     def _signal_handler(self, signum, frame):
         """Handle shutdown signals gracefully."""
@@ -501,6 +518,9 @@ class VoiceAssistantApp:
                     print(f"   MCP server stopped in {mcp_time:.2f}s")
             except Exception as e:
                 print(f"⚠️ Error stopping MCP server: {e}")
+        
+        # Clear session summary on shutdown
+        clear_session_summary()
         
         total_time = time.time() - start_time
         print(f"✅ Voice assistant stopped in {total_time:.2f}s")

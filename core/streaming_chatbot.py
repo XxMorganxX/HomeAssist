@@ -16,7 +16,7 @@ from datetime import datetime
 import numpy as np
 
 # Suppress common warnings from dependencies
-from core.suppress_warnings import suppress_common_warnings
+from core.fixes.suppress_warnings import suppress_common_warnings
 suppress_common_warnings()
 
 # Add parent directory to path for imports
@@ -77,7 +77,7 @@ class StreamingChatbot:
             chat_model = getattr(config, 'REALTIME_MODEL', 'gpt-4o-realtime-preview-2024-12-17')
         elif config.CHAT_PROVIDER == "gemini":
             chat_model = config.GEMINI_CHAT_MODEL
-            
+        
         self.speech_services = SpeechServices(
             openai_api_key=os.getenv("OPENAI_KEY"),
             whisper_model=config.WHISPER_MODEL,
@@ -469,12 +469,12 @@ class StreamingChatbot:
                         # Exit immediately if session ended during chunk processing
                         if self.session_ended:
                             break
-                    
-                    # Check for end of complete message
-                    if (self.accumulated_chunks and 
-                        self.last_speech_activity and 
-                        current_time - self.last_speech_activity > config.COMPLETE_SILENCE_SEC):
-                        self.process_complete_message()
+                
+                # Check for end of complete message
+                if (self.accumulated_chunks and 
+                    self.last_speech_activity and 
+                    current_time - self.last_speech_activity > config.COMPLETE_SILENCE_SEC):
+                    self.process_complete_message()
                     
         except KeyboardInterrupt:
             print("\n\n✋ Finished. Bye!")
@@ -595,9 +595,9 @@ class StreamingChatbot:
                 samplerate=config.SAMPLE_RATE,
                 blocksize=config.FRAME_SIZE,
                 dtype="int16",
-            channels=1,
-            callback=self.audio_callback,
-        ):
+                channels=1,
+                callback=self.audio_callback,
+            ):
                 print("✅ Exclusive audio stream created successfully")
                 print("ℹ️ Note: Terminal word detection limited to transcription only in this mode")
                 
@@ -759,9 +759,6 @@ class ToolEnabledStreamingChatbot(StreamingChatbot):
             role = msg.get('role', 'unknown')
             content = msg.get('content', 'no content')[:100]  # First 100 chars
             print(f"   {i}: {role}: {content}")
-        
-        # Start conversation processing timer
-        conversation_start_time = time.time()
         
         # First, check if we need to use tools (use focused context and lower temperature)
         if self.functions:
