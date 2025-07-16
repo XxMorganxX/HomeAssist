@@ -13,9 +13,9 @@ USE_REALTIME_API = True # True = real-time API, False = traditional API
 
 CONTEXT_SUMMARY_MODEL = "gpt-4o-mini"
 DISPLAY_CONTEXT = False  # Enable/disable context summary display and updates
-CONTEXT_SUMMARY_MIN_MESSAGES = 3  # Start AI summaries after N messages
-CONTEXT_SUMMARY_FREQUENCY = 3  # Generate AI summary every N messages (set to 0 to disable)
-CONTEXT_NUMBER_OF_MESSAGES = 3  # Number of messages to use for context summary
+CONTEXT_SUMMARY_MIN_MESSAGES = 5  # Start AI summaries after N messages
+CONTEXT_SUMMARY_FREQUENCY = 5  # Generate AI summary every N messages (set to 0 to disable)
+CONTEXT_NUMBER_OF_MESSAGES = 5  # Number of messages to use for context summary
 
 # Realtime API Context Management
 REALTIME_USE_SUMMARY_CONTEXT = True  # Enable summary + sliding window for Realtime API
