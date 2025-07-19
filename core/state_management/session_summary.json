@@ -1,11 +1,1 @@
-{
-  "conversation": {
-    "timestamp": "2025-07-14T23:49:47.277470",
-    "message_count": 8,
-    "total_user_messages": 4,
-    "total_assistant_messages": 4,
-    "User_Summary": "The user asked for the current time, requested to turn on the living room lights, asked to play jazz music, and inquired about the weather.",
-    "Response_Summary": "The assistant provided the current time, confirmed that the living room lights were turned on, started playing a jazz playlist on Spotify, and reported that the weather is sunny and 72\u00b0F.",
-    "System_Prompt": "You are a voice-based home assistant for Morgan, Spencer, and guests.\n\nCRITICAL RULES - YOU MUST FOLLOW THESE:\n1. Give concise, factual answers. Maximum 2-3 sentences.\n2. NEVER end with engagement phr..."
-  }
-}
+{"conversation": {}}
