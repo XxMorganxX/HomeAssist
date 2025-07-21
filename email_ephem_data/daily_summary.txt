@@ -1,0 +1,110 @@
+
+Daily Email Summary:
+- Total emails processed: 2
+- Emails requiring action: 0
+- Priority breakdown: High=0, Medium=2, Low=0
+- Categories: unknown(2)
+
+Key emails requiring attention:
+
+
+🎯 DESIGNATED KEY POINTS:
+==================================================
+
+🎯 Handshake Job Opportunities:
+----------------------------------------
+
+📧 Summer Career Tips: Update Your Resume & Cover Letter
+   From: Elaine Lu <handshake@mail.joinhandshake.com>
+   • ```json { "summary": "The email provides career tips focused on updating resumes and cover letters, encouraging recipients to effectively tell their story and highlight their...
+
+
+📧 Hot job at SignalFire—worth a look 🔥
+   From: Handshake <handshake@notifications.joinhandshake.com>
+   • ```json { "summary": "SignalFire is hiring for a Data & Research Analyst Intern position that may align with your preferences. The role is remote and...
+
+
+
+Email Summaries:
+==================================================
+
+🎯 HANDSHAKE JOB OPPORTUNITIES:
+----------------------------------------
+
+📧 Summer Career Tips: Update Your Resume & Cover Letter
+   Priority: MEDIUM
+   Summary: ```json
+{
+    "summary": "The email provides career tips focused on updating resumes and cover letters, encouraging recipients to effectively tell their story and highlight their value. It aims to assist individuals in tailoring their applications, whether starting from scratch or refining existing documents.",
+    "key_points": [
+        "Learn how to tell your story in your resume and cover letter.",
+        "Highlight your value to stand out in applications.",
+        "Tailor your application to specific job opportunities."
+    ],
+    "category": "newsletter",
+    "priority": "medium",
+    "dates_deadlines": [],
+    "action_required": false
+}
+```
+
+
+📧 Hot job at SignalFire—worth a look 🔥
+   Priority: MEDIUM
+   Summary: ```json
+{
+    "summary": "SignalFire is hiring for a Data & Research Analyst Intern position that may align with your preferences. The role is remote and offers a pay of $30 per hour, with applications due by September 2 at 9 AM EDT.",
+    "key_points": [
+        "Job Title: Data & Research Analyst Intern",
+        "Company: SignalFire",
+        "Salary: $30/hr",
+        "Location: Remote (San Francisco, CA)",
+        "Application Deadline: September 02 at 9 AM EDT"
+    ],
+    "category": "job opportunity",
+    "priority": "high",
+    "dates_deadlines": ["September 02, 2025"],
+    "action_required": true
+}
+```
+
+
+1. 🎯 Summer Career Tips: Update Your Resume & Cover Letter
+   From: Elaine Lu <handshake@mail.joinhandshake.com> | Priority: MEDIUM
+   Summary: ```json
+{
+    "summary": "The email provides career tips focused on updating resumes and cover letters, encouraging recipients to effectively tell their story and highlight their value. It aims to assist individuals in tailoring their applications, whether starting from scratch or refining existing documents.",
+    "key_points": [
+        "Learn how to tell your story in your resume and cover letter.",
+        "Highlight your value to stand out in applications.",
+        "Tailor your application to specific job opportunities."
+    ],
+    "category": "newsletter",
+    "priority": "medium",
+    "dates_deadlines": [],
+    "action_required": false
+}
+```
+   Key Points: None identified
+----------------------------------------
+
+2. 🎯 Hot job at SignalFire—worth a look 🔥
+   From: Handshake <handshake@notifications.joinhandshake.com> | Priority: MEDIUM
+   Summary: ```json
+{
+    "summary": "SignalFire is hiring for a Data & Research Analyst Intern position that may align with your preferences. The role is remote and offers a pay of $30 per hour, with applications due by September 2 at 9 AM EDT.",
+    "key_points": [
+        "Job Title: Data & Research Analyst Intern",
+        "Company: SignalFire",
+        "Salary: $30/hr",
+        "Location: Remote (San Francisco, CA)",
+        "Application Deadline: September 02 at 9 AM EDT"
+    ],
+    "category": "job opportunity",
+    "priority": "high",
+    "dates_deadlines": ["September 02, 2025"],
+    "action_required": true
+}
+```
+   Key Points: None identified
+----------------------------------------

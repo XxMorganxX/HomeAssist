@@ -1,0 +1,22 @@
+{
+  "last_processed_email_id": "19826c363a2bf50e",
+  "last_processed_date": "2025-07-20T03:36:58.757073",
+  "total_emails_processed": 1,
+  "processing_history": [
+    {
+      "last_processed_email_id": "19826b78497fa671",
+      "last_processed_date": "2025-07-19T03:30:06.834483",
+      "total_emails_processed": 1
+    },
+    {
+      "last_processed_email_id": "19826b78497fa671",
+      "last_processed_date": "2025-07-20T03:30:21.494190",
+      "total_emails_processed": 1
+    },
+    {
+      "last_processed_email_id": "19826c363a2bf50e",
+      "last_processed_date": "2025-07-20T03:36:58.757073",
+      "total_emails_processed": 1
+    }
+  ]
+}

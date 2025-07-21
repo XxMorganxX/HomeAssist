@@ -1,0 +1,30 @@
+[
+  {
+    "summary": "```json\n{\n    \"summary\": \"The email provides career tips focused on updating resumes and cover letters, encouraging recipients to effectively tell their story and highlight their value. It aims to assist individuals in tailoring their applications, whether starting from scratch or refining existing documents.\",\n    \"key_points\": [\n        \"Learn how to tell your story in your resume and cover letter.\",\n        \"Highlight your value to stand out in applications.\",\n        \"Tailor your application to specific job opportunities.\"\n    ],\n    \"category\": \"newsletter\",\n    \"priority\": \"medium\",\n    \"dates_deadlines\": [],\n    \"action_required\": false\n}\n```",
+    "key_points": [],
+    "category": "unknown",
+    "priority": "medium",
+    "dates_deadlines": [],
+    "action_required": false,
+    "raw_response": "```json\n{\n    \"summary\": \"The email provides career tips focused on updating resumes and cover letters, encouraging recipients to effectively tell their story and highlight their value. It aims to assist individuals in tailoring their applications, whether starting from scratch or refining existing documents.\",\n    \"key_points\": [\n        \"Learn how to tell your story in your resume and cover letter.\",\n        \"Highlight your value to stand out in applications.\",\n        \"Tailor your application to specific job opportunities.\"\n    ],\n    \"category\": \"newsletter\",\n    \"priority\": \"medium\",\n    \"dates_deadlines\": [],\n    \"action_required\": false\n}\n```",
+    "original_email_id": "1981e455e9101c7e",
+    "original_subject": "Summer Career Tips: Update Your Resume & Cover Letter",
+    "original_sender": "Elaine Lu <handshake@mail.joinhandshake.com>",
+    "original_date": "Fri, 18 Jul 2025 16:01:39 +0000",
+    "processed_at": "2025-07-20T01:21:24.205184"
+  },
+  {
+    "summary": "```json\n{\n    \"summary\": \"SignalFire is hiring for a Data & Research Analyst Intern position that may align with your preferences. The role is remote and offers a pay of $30 per hour, with applications due by September 2 at 9 AM EDT.\",\n    \"key_points\": [\n        \"Job Title: Data & Research Analyst Intern\",\n        \"Company: SignalFire\",\n        \"Salary: $30/hr\",\n        \"Location: Remote (San Francisco, CA)\",\n        \"Application Deadline: September 02 at 9 AM EDT\"\n    ],\n    \"category\": \"job opportunity\",\n    \"priority\": \"high\",\n    \"dates_deadlines\": [\"September 02, 2025\"],\n    \"action_required\": true\n}\n```",
+    "key_points": [],
+    "category": "unknown",
+    "priority": "medium",
+    "dates_deadlines": [],
+    "action_required": false,
+    "raw_response": "```json\n{\n    \"summary\": \"SignalFire is hiring for a Data & Research Analyst Intern position that may align with your preferences. The role is remote and offers a pay of $30 per hour, with applications due by September 2 at 9 AM EDT.\",\n    \"key_points\": [\n        \"Job Title: Data & Research Analyst Intern\",\n        \"Company: SignalFire\",\n        \"Salary: $30/hr\",\n        \"Location: Remote (San Francisco, CA)\",\n        \"Application Deadline: September 02 at 9 AM EDT\"\n    ],\n    \"category\": \"job opportunity\",\n    \"priority\": \"high\",\n    \"dates_deadlines\": [\"September 02, 2025\"],\n    \"action_required\": true\n}\n```",
+    "original_email_id": "1981a0e4e223a6bd",
+    "original_subject": "Hot job at SignalFire—worth a look 🔥",
+    "original_sender": "Handshake <handshake@notifications.joinhandshake.com>",
+    "original_date": "Thu, 17 Jul 2025 20:23:19 +0000",
+    "processed_at": "2025-07-20T01:21:26.641908"
+  }
+]
