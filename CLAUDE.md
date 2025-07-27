@@ -71,7 +71,7 @@ RESPONSE_TEMPERATURE = 0.6  # Minimum for Realtime API
 
 ### 3. Session State Management
 - Session summary stored in `core/state_management/session_summary.json`
-- State management file: `core/state_management/statemanager.json`
+- State management file: `core/state_management/app_state.json`
 - Only User_Summary and Response_Summary are passed to Realtime API
 
 ## Common Development Tasks
@@ -131,7 +131,7 @@ core/
 ├── components.py                   # Tool implementations
 ├── state_management/
 │   ├── session_summary.json        # AI-generated conversation summaries
-│   └── statemanager.json          # System state persistence
+│   └── app_state.json          # System state persistence
 └── __init__.py
 
 config.py                           # Complete system configuration

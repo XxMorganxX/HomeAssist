@@ -1,0 +1,39 @@
+{
+  "autonomous_state": {
+    "current_spotify_playlist": "https://open.spotify.com/playlist/37i9dQZF1DX9wCBDkixAu6?si=1234567890",
+    "chat_phase": "listening (active)",
+    "notification_queue": {
+      "Morgan": {
+        "notifications": [
+          {
+            "intended_recipient": "Morgan",
+            "notification_content": "\ud83d\udcf0 Tech News: OpenAI\u2019s most capable AI model, GPT-5, may be coming in August\nOpenAI is reportedly preparing to launch its next-generation AI model, GPT-5, potentially as soon as...\nKey insights:\n\u2022 GPT-5 aims to unify various AI capabilities in a single model.\n\u2022 The model will feature both conventional LLM and simulated reasoning.",
+            "relevant_when": "next_24_hours"
+          },
+          {
+            "intended_recipient": "Morgan",
+            "notification_content": "\ud83d\udcf0 Tech News: Meta's wristband breakthrough lets you use digital devices without touching them\nMeta has introduced a novel wristband that enables hands-free control of digital devices by interpre...\nKey insights:\n\u2022 The wristband translates hand gestures into digital commands without physical touch.\n\u2022 Utilizes AI for rapid adaptation to user patterns without extensive training.",
+            "relevant_when": "next_24_hours"
+          },
+          {
+            "intended_recipient": "Morgan",
+            "notification_content": "\ud83d\udcf0 Tech News: Quantum Scientists Have Built a New Math of Cryptography\nResearchers have developed a new mathematical framework for quantum cryptography that does not rest ...\nKey insights:\n\u2022 New approach to quantum cryptography overcomes limitations of previous methods.\n\u2022 The research provides a proof of concept for more standard methods of quantum cryptography.",
+            "relevant_when": "next_24_hours"
+          },
+          {
+            "intended_recipient": "Morgan",
+            "notification_content": "\ud83d\udcf0 Tech News: AMD Ryzen Threadripper 9000X for enthusiasts launches July 31, 64-core 9980X costs $5000\nAMD's launch of the Ryzen Threadripper 9000X series marks a major advancement in the High-End Deskto...\nKey insights:\n\u2022 Introduction of high-performance CPUs targeted at content creators and enthusiasts\n\u2022 Comparison of pricing models between AMD and Intel's offerings",
+            "relevant_when": "next_24_hours"
+          }
+        ]
+      },
+      "Spencer": {
+        "notifications": []
+      }
+    }
+  },
+  "chat_controlled_state": {
+    "current_spotify_user": "Spencer",
+    "lighting_scene": "all_off"
+  }
+}

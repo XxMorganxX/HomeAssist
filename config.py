@@ -327,7 +327,7 @@ CHAT_CLASSIFICATION_RATE_LIMIT_DELAY = 0.5  # Seconds between individual API cal
 ALL_CHAT_CONTROLLED_STATES = ["Morgan", "Spencer", "mood", "party", "movie"]
 
 
-STATE_MANAGER_FILE = "core/state_management/statemanager.json"
+STATE_MANAGER_FILE = "core/state_management/app_state.json"
 """
   "chat_controlled_state": {
     "current_spotify_user": "Morgan", /* Morgan or Spencer */

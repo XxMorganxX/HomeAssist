@@ -6,7 +6,7 @@ from pathlib import Path
 
 # Get the absolute path to the state management directory
 STATE_DIR = Path(__file__).parent.absolute()
-STATE_FILE = STATE_DIR / "statemanager.json"
+STATE_FILE = STATE_DIR / "app_state.json"
 
 class Notification:
     def __init__(self, intended_recipient, notification_content, relevancy):
