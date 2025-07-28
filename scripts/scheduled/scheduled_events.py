@@ -28,7 +28,7 @@ logging.basicConfig(
 
 def cleanup_ephemeral_data():
     """Clean up ephemeral data directories before running scripts"""
-    logging.info("Cleaning up ephemeral data directories...")
+    logging.info("🧹 Cleaning up ephemeral data directories...")
     
     # Define ephemeral data directories
     ephemeral_dirs = [
@@ -48,13 +48,13 @@ def cleanup_ephemeral_data():
                         if os.path.isfile(file_path):
                             os.remove(file_path)
                             logging.debug(f"Removed: {file_path}")
-                    logging.info(f"Cleaned {dir_path}")
+                    logging.info(f"✅ Cleaned {dir_path}")
                 else:
-                    logging.info(f"No files to clean in {dir_path}")
+                    logging.info(f"📁 No files to clean in {dir_path}")
             except Exception as e:
                 logging.error(f"Error cleaning {dir_path}: {e}")
         else:
-            logging.info(f"Directory does not exist, creating: {dir_path}")
+            logging.info(f"📁 Directory does not exist, creating: {dir_path}")
             os.makedirs(dir_path, exist_ok=True)
 
 def run_email_summarizer():
@@ -62,28 +62,62 @@ def run_email_summarizer():
     script_path = os.path.join(os.path.dirname(__file__), 'email_summarizer', 'main.py')
     
     logging.info("Starting email summarizer...")
+    logging.info(f"Script path: {script_path}")
     
     try:
-        result = subprocess.run(
+        start_time = datetime.now()
+        
+        # Run with real-time output
+        process = subprocess.Popen(
             [sys.executable, script_path],
-            capture_output=True,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
             text=True,
-            cwd=os.path.dirname(script_path)
+            cwd=os.path.dirname(script_path),
+            bufsize=1,
+            universal_newlines=True
         )
         
-        if result.returncode == 0:
-            logging.info("Email summarizer completed successfully")
-            if result.stdout:
-                logging.info(f"Output:\n{result.stdout}")
+        # Collect output
+        stdout_lines = []
+        stderr_lines = []
+        
+        # Read output in real-time
+        for line in process.stdout:
+            line = line.rstrip()
+            stdout_lines.append(line)
+            # Add prefix to distinguish email summarizer output
+            logging.info(f"[EMAIL] {line}")
+        
+        # Wait for process to complete
+        process.wait()
+        
+        # Read any stderr
+        stderr = process.stderr.read()
+        if stderr:
+            stderr_lines = stderr.strip().split('\n')
+            for line in stderr_lines:
+                logging.error(f"[EMAIL ERROR] {line}")
+        
+        duration = (datetime.now() - start_time).total_seconds()
+        
+        if process.returncode == 0:
+            logging.info(f"✅ Email summarizer completed successfully in {duration:.1f}s")
+            
+            # Check for generated files
+            ephemeral_dir = os.path.join(os.path.dirname(script_path), 'ephemeral_data')
+            if os.path.exists(ephemeral_dir):
+                files = os.listdir(ephemeral_dir)
+                if files:
+                    logging.info(f"📁 Generated {len(files)} files: {', '.join(files)}")
+            
             return True
         else:
-            logging.error(f"Email summarizer failed with code {result.returncode}")
-            if result.stderr:
-                logging.error(f"Error:\n{result.stderr}")
+            logging.error(f"❌ Email summarizer failed with code {process.returncode} after {duration:.1f}s")
             return False
             
     except Exception as e:
-        logging.error(f"Exception running email summarizer: {e}")
+        logging.error(f"❌ Exception running email summarizer: {type(e).__name__}: {e}")
         return False
 
 def run_news_summary():
@@ -91,28 +125,62 @@ def run_news_summary():
     script_path = os.path.join(os.path.dirname(__file__), 'news_summary', 'main.py')
     
     logging.info("Starting news summary...")
+    logging.info(f"Script path: {script_path}")
     
     try:
-        result = subprocess.run(
+        start_time = datetime.now()
+        
+        # Run with real-time output
+        process = subprocess.Popen(
             [sys.executable, script_path],
-            capture_output=True,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
             text=True,
-            cwd=os.path.dirname(script_path)
+            cwd=os.path.dirname(script_path),
+            bufsize=1,
+            universal_newlines=True
         )
         
-        if result.returncode == 0:
-            logging.info("News summary completed successfully")
-            if result.stdout:
-                logging.info(f"Output:\n{result.stdout}")
+        # Collect output
+        stdout_lines = []
+        stderr_lines = []
+        
+        # Read output in real-time
+        for line in process.stdout:
+            line = line.rstrip()
+            stdout_lines.append(line)
+            # Add prefix to distinguish news summary output
+            logging.info(f"[NEWS] {line}")
+        
+        # Wait for process to complete
+        process.wait()
+        
+        # Read any stderr
+        stderr = process.stderr.read()
+        if stderr:
+            stderr_lines = stderr.strip().split('\n')
+            for line in stderr_lines:
+                logging.error(f"[NEWS ERROR] {line}")
+        
+        duration = (datetime.now() - start_time).total_seconds()
+        
+        if process.returncode == 0:
+            logging.info(f"✅ News summary completed successfully in {duration:.1f}s")
+            
+            # Check for generated files
+            ephemeral_dir = os.path.join(os.path.dirname(script_path), 'ephemeral_data')
+            if os.path.exists(ephemeral_dir):
+                files = os.listdir(ephemeral_dir)
+                if files:
+                    logging.info(f"📁 Generated {len(files)} files: {', '.join(files)}")
+            
             return True
         else:
-            logging.error(f"News summary failed with code {result.returncode}")
-            if result.stderr:
-                logging.error(f"Error:\n{result.stderr}")
+            logging.error(f"❌ News summary failed with code {process.returncode} after {duration:.1f}s")
             return False
             
     except Exception as e:
-        logging.error(f"Exception running news summary: {e}")
+        logging.error(f"❌ Exception running news summary: {type(e).__name__}: {e}")
         return False
 
 def export_notifications():
@@ -271,6 +339,7 @@ def main():
     logging.info("=" * 60)
     
     # Clean up ephemeral data before running scripts
+    logging.info("\n[SETUP] PREPARING ENVIRONMENT")
     cleanup_ephemeral_data()
     
     # Track results
@@ -280,20 +349,30 @@ def main():
     }
     
     # Run email summarizer
-    logging.info("\n[1/2] EMAIL SUMMARIZER")
+    logging.info("\n" + "-" * 60)
+    logging.info("[1/2] EMAIL SUMMARIZER")
+    logging.info("-" * 60)
     results['email'] = run_email_summarizer()
     
     # Run news summary
-    logging.info("\n[2/2] NEWS SUMMARY")
+    logging.info("\n" + "-" * 60)
+    logging.info("[2/2] NEWS SUMMARY")
+    logging.info("-" * 60)
     results['news'] = run_news_summary()
     
     # Export notifications if both tasks succeeded
     if results['email'] and results['news']:
-        logging.info("\n[3/3] EXPORTING NOTIFICATIONS")
+        logging.info("\n" + "-" * 60)
+        logging.info("[3/3] EXPORTING NOTIFICATIONS")
+        logging.info("-" * 60)
         notifications_count = export_notifications()
         results['notifications'] = notifications_count > 0
+        if results['notifications']:
+            logging.info(f"✅ Exported {notifications_count} notifications successfully")
+        else:
+            logging.info("⚠️  No notifications exported")
     else:
-        logging.info("\nSkipping notification export due to failed tasks")
+        logging.info("\n⚠️  Skipping notification export due to failed tasks")
         results['notifications'] = False
     
     # Summary

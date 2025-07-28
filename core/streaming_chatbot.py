@@ -832,13 +832,17 @@ class ToolEnabledStreamingChatbot(StreamingChatbot):
                 })
                 
                 # Execute each tool call in sequence
-                print(f"🔧 [Executing {len(response['tool_calls'])} tool(s)]")
+                # Tool execution header (only if multiple tools)
+                if len(response['tool_calls']) > 1:
+                    print(f"🔧 [Executing {len(response['tool_calls'])} tools]")
                 for tool_call in response["tool_calls"]:
                     func_name = tool_call["function"]["name"]
                     func_args = json.loads(tool_call["function"]["arguments"])
                     tool_call_id = tool_call["id"]
                     
-                    print(f"  → Tool: {func_name}")
+                    print(f"\n🔧 TOOL INVOKED: {func_name}")
+                if func_args:
+                    print(f"   └─ Args: {func_args}")
                     
                     # Execute tool
                     tool_result = self.mcp_server.execute_tool(func_name, func_args)
@@ -992,17 +996,21 @@ class ToolEnabledStreamingChatbot(StreamingChatbot):
                 })
                 
                 # Execute each tool call in sequence
-                print(f"🔧 [Executing {len(response['tool_calls'])} tool(s)]")
+                # Tool execution header (only if multiple tools)
+                if len(response['tool_calls']) > 1:
+                    print(f"🔧 [Executing {len(response['tool_calls'])} tools]")
                 for tool_call in response["tool_calls"]:
                     func_name = tool_call["function"]["name"]
                     func_args = json.loads(tool_call["function"]["arguments"])
                     tool_call_id = tool_call["id"]
                     
-                    print(f"  → Tool: {func_name} with args: {func_args}")
+                    print(f"\n🔧 TOOL INVOKED: {func_name}")
+                if func_args:
+                    print(f"   └─ Args: {func_args}")
                     
                     # Execute tool
                     tool_result = self.mcp_server.execute_tool(func_name, func_args)
-                    print(f"  → Result: {tool_result}")
+                    # Don't print raw result here - MCP server already logs success/failure
                     
                     # Add tool result to conversation
                     self.conversation.messages.append({

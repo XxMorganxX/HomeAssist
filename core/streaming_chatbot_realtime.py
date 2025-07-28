@@ -190,10 +190,10 @@ class RealtimeStreamingChatbot:
                 "response": {
                     "modalities": ["text"],
                     "temperature": safe_temperature,
-                    "max_output_tokens": getattr(config, 'REALTIME_MAX_RESPONSE_TOKENS', 150),
-                    "tools": self.speech_services._convert_functions_to_tools(self.functions)
+                    "max_output_tokens": getattr(config, 'REALTIME_MAX_RESPONSE_TOKENS', 150)
                 }
             }
+            # Note: Tools are configured at session level, not per response for Realtime API
             
             if self.speech_services.loop:
                 future = asyncio.run_coroutine_threadsafe(
@@ -202,6 +202,7 @@ class RealtimeStreamingChatbot:
                 )
             
             print(f"🔧 Triggered response with {len(self.functions)} tools available")
+            print(f"   Tools: {[f['name'] for f in self.functions]}")
             
         except Exception as e:
             print(f"⚠️ Error triggering response with tools: {e}")
@@ -276,8 +277,7 @@ class RealtimeStreamingChatbot:
                 return
             else:
                 # Mask period just ended, log it once
-                if config.DEBUG_MODE:
-                    print("✅ Audio masking ended - now listening")
+                # Audio masking ended
                 self._audio_mask_until = 0  # Reset to avoid repeated checks
         
         # Cost optimization: Track audio duration to filter out very short sounds
@@ -371,12 +371,7 @@ class RealtimeStreamingChatbot:
                     self._vad_stats['last_state_change'] = current_time
                     speech_state_changed = True
                 
-                # Only log when speech state changes
-                if speech_state_changed:
-                    if is_speech:
-                        print("🎤 Speech detected")
-                    else:
-                        print("🔇 Speech ended")
+                # Speech state changed but no logging to reduce spam
                 
                 if not is_speech:
                     # No speech detected - don't send to API to save costs
@@ -511,17 +506,12 @@ class RealtimeStreamingChatbot:
         if self.speech_end_time:
             processing_latency = current_time - self.speech_end_time
             self.session_processing_latencies.append(processing_latency)
-            print(f"⏱️  Processing latency (speech end → transcription): {processing_latency:.3f}s")
-        elif self.frame_timestamps:
-            # Fallback to old method if we don't have speech end time
-            total_duration = current_time - self.frame_timestamps[0]
-            print(f"⏱️  Total duration (first frame → transcription): {total_duration:.3f}s")
+            # Removed per-message latency logging to reduce spam
         
-        # Calculate and log audio duration for this turn
+        # Calculate audio duration for this turn (no logging)
         if self.audio_session_start_time:
             audio_duration = current_time - self.audio_session_start_time
             self.audio_duration_per_turn.append(audio_duration)
-            print(f"🎵 Audio duration sent to STT: {audio_duration:.2f}s")
             # Reset for next turn
             self.audio_session_start_time = current_time
         
@@ -605,8 +595,26 @@ class RealtimeStreamingChatbot:
             self._using_realtime_api = True
             if config.DEBUG_MODE:
                 print("🤖  Waiting for response... (Realtime API)")
-            self.awaiting_response = True
-            self._response_start_time = time.time()  # Track when we start waiting for response
+            
+            # Only trigger response if not already waiting for one
+            if not self.awaiting_response:
+                self.awaiting_response = True
+                self._response_start_time = time.time()  # Track when we start waiting for response
+                
+                # Temporary debug flag (bypassing config)
+                TEMP_DEBUG = True
+                
+                if TEMP_DEBUG:
+                    print(f"🤖  Triggering response with {len(self.functions) if self.functions else 0} tools")
+                
+                # Trigger response generation with tools
+                if self.functions:
+                    self._trigger_response_with_tools()
+                else:
+                    # Trigger response without tools
+                    self.speech_services.trigger_response()
+            else:
+                print("⚠️  Already waiting for response, skipping duplicate trigger")
         else:
             # Fall back to traditional API with 4o-mini
             self._using_realtime_api = False
@@ -667,7 +675,7 @@ class RealtimeStreamingChatbot:
             
             # Provide acknowledgment if enabled
             if getattr(config, 'INTERRUPTION_ACKNOWLEDGMENT_ENABLED', True):
-                print("🎤 Got it")
+                print("🎤 Voice detected, listening...")
             
             # Reset awaiting response flag since we cancelled
             self.awaiting_response = False
@@ -707,10 +715,9 @@ class RealtimeStreamingChatbot:
             item_id=self.current_item_id
         )
         
-        # Calculate final latency
+        # Calculate final latency (no logging)
         final_latency = time.time() - final_latency_start
         self.session_final_latencies.append(final_latency)
-        print(f"⏱️  Final processing latency: {final_latency:.3f}s")
         
         if response and response.get("content"):
             self.conversation.add_assistant_message(response["content"])
@@ -911,7 +918,7 @@ class RealtimeStreamingChatbot:
                         try:
                             function_call = self.speech_services.check_for_function_calls(timeout=0.05)  # Faster polling
                             if function_call and self.mcp_server:
-                                print(f"🔧 Executing tool: {function_call.get('name')}")
+                                print(f"\n🔧 TOOL INVOKED: {function_call.get('name')}")
                                 result = self.speech_services.execute_function_call_realtime(function_call, self.mcp_server)
                                 if result:
                                     print(f"✅ Tool executed successfully")

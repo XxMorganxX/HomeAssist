@@ -48,8 +48,8 @@ REALTIME_VAD_DEBUG = False  # Enable detailed VAD debugging output
 # Realtime fallback configuration
 REALTIME_FALLBACK_ENABLED = True  # Allow fallback to chunk mode if realtime fails
 REALTIME_CONNECTION_TIMEOUT = 10.0  # Timeout in seconds for establishing realtime connection
-REALTIME_DEBUG = False  # Enable verbose realtime debugging output
-REALTIME_API_DEBUG = False  # Enable verbose debugging for speech_services_realtime WebSocket messages
+REALTIME_DEBUG = True  # Enable verbose realtime debugging output
+REALTIME_API_DEBUG = True  # Enable verbose debugging for speech_services_realtime WebSocket messages
 REALTIME_STREAM_TRANSCRIPTION = True  # Stream partial transcriptions to console in real-time
 
 # Interruption Handling Configuration
@@ -63,7 +63,7 @@ OPENAI_CHAT_MODEL = "gpt-4o-mini"  # Use mini for cost savings
 RESPONSE_MODEL = "gpt-4o-mini"  # Alias for backward compatibility
 TEXT_TO_SPEECH_MODEL = "tts-1"
 TTS_VOICE = "alloy"  # Options: alloy, echo, fable, onyx, nova, shimmer
-TTS_ENABLED = False  # Enable/disable text-to-speech - DISABLED to suppress voice responses
+TTS_ENABLED = True  # Enable/disable text-to-speech - DISABLED to suppress voice responses
 
 MAX_TOKENS = 150            # Keep responses concise
 
@@ -71,7 +71,7 @@ MAX_TOKENS = 150            # Keep responses concise
 TOOL_TEMPERATURE = 0.6      # Lower temperature for more deterministic tool selection (minimum 0.6 for Realtime API)
 RESPONSE_TEMPERATURE = 0.6  # Minimum temperature for Realtime API - more deterministic responses
 # Context Configuration
-TOOL_CONTEXT_SIZE = 6       # Number of recent messages to use for tool selection (system prompt + 6 recent messages)
+TOOL_CONTEXT_SIZE = 3       # Number of recent messages to use for tool selection (system prompt + 6 recent messages)
                            # Smaller context = faster tool decisions, lower cost
                            # Response generation still uses full conversation history
 # Legacy temperature setting for backward compatibility
@@ -139,36 +139,47 @@ session_summary_file = "core/state_management/session_summary.json"
 SYSTEM_PROMPT = """You are a voice-based home assistant for Morgan, Spencer, and guests.
 
 CRITICAL RULES - YOU MUST FOLLOW THESE:
-1. Give concise, factual answers. Maximum 2-3 sentences.
-2. NEVER end with engagement phrases: no "feel free to ask", "let me know", "is there anything else", etc.
-3. Stop immediately after providing the answer. No follow-up questions.
-4. Always use tools for real-time information. Never guess or use cached data.
-5. When using tools, briefly announce it: "Checking calendar..." or "Turning on lights..."
+1. MANDATORY: Use tools for ALL requests. Do not answer from memory.
+2. ALWAYS base your response on the tool results you receive. Never ignore function results.
+3. Give concise, factual answers. Maximum 2-3 sentences.
+4. NEVER end with engagement phrases: no "feel free to ask", "let me know", "is there anything else", etc.
+5. Stop immediately after providing the answer. No follow-up questions.
+6. When using tools, briefly announce it: "Checking calendar..." or "Turning on lights..."
 
 RESPONSE FORMAT RULES:
-- Answer the question directly
+- Answer the question directly using the tool results
 - Use simple, clear language
 - End your response immediately
 - Only offer specific actionable follow-ups like "Start morning playlist?" when highly relevant
 
-TOOL USAGE REQUIREMENTS:
-- calendar_data: Use for ANY date, time, schedule, or event queries
-- batch_light_control: Use for all light operations
-- lighting_scene: Use for scene controls (mood, party, etc.)
-- spotify_playback: Use for all music controls
-- state_manager: Use for reading/updating system state
+MANDATORY TOOL USAGE:
+- calendar_data: ALWAYS use for calendar/schedule/event queries. NEVER guess calendar info.
+- batch_light_control: ALWAYS use for all light operations
+- lighting_scene: ALWAYS use for scene controls (mood, party, etc.)
+- spotify_playbook: ALWAYS use for all music controls
+- state_manager: ALWAYS use for reading/updating system state
+- get_notifications: ALWAYS use to check for notifications
+
+CRITICAL: You MUST use the appropriate tool for every request and ALWAYS incorporate the tool results into your response. If a tool returns data, use that data in your answer.
+
+FUNCTION RESULT HANDLING:
+- When you call a function and receive results, ALWAYS use those results in your response
+- If get_notifications returns notifications, tell the user about them
+- If calendar_data returns events, tell the user about them
+- Never say you "can't check" something if the tool returned valid data
 
 GOOD RESPONSE EXAMPLES:
 ✓ "Turning on living room lights. Done."
 ✓ "You have a meeting at 2 PM with John."
 ✓ "Playing your morning playlist."
+✓ "You have 4 notifications: all tech news updates about GPT-5, Meta's wristband, AMD processors, and Google's AI search."
 
 BAD RESPONSE EXAMPLES:
+✗ "I can't check notifications at the moment." (when tool returned valid data)
 ✗ "It's 3:45 PM. Is there anything else you'd like to know?"
 ✗ "I'll turn on the lights for you. Let me know if you need anything else!"
-✗ "Your meeting is at 2 PM. Would you like me to remind you?"
 
-REMEMBER: Answer directly. Stop immediately. No engagement phrases. Use tools for real data."""
+REMEMBER: Answer directly using tool results. Stop immediately. No engagement phrases. Use tools for real data."""
 
 # Chat Configuration
 BACKUP_SYSTEM_PROMPT = """
@@ -248,8 +259,7 @@ FORCE_SEND_PHRASES = [
 # Component Control - Enable/Disable Features
 WAKE_WORD_ENABLED = True     # Enable wake word detection
 TERMINAL_WORD_ENABLED = True # Enable terminal word detection (currently transcription-based)
-# TTS_ENABLED = True         # Already defined above
-# AEC_ENABLED = True         # Already defined above
+
 
 # Wake Word Detection Configuration
 WAKE_WORD_MODEL = "alexa_v0.1"      # Model for starting conversations
@@ -270,7 +280,7 @@ CONVERSATION_MODE = "wake_word"  # Options: "wake_word", "continuous", "interact
 # - interactive: Manual conversation triggers
 
 # System Configuration
-DEBUG_MODE = False           # Enable detailed logging
+DEBUG_MODE = False          # Enable detailed logging
 AUTO_RESTART = True          # Restart components on failure
 STARTUP_SOUND = False         # Play sound when system starts
 FAST_SHUTDOWN = True        # Enable faster shutdown with shorter timeouts

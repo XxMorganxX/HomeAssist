@@ -1,0 +1,414 @@
+2025-07-27 19:29:37,177 - INFO - ============================================================
+2025-07-27 19:29:37,177 - INFO - SCHEDULED EVENTS STARTING
+2025-07-27 19:29:37,177 - INFO - Time: 2025-07-27 19:29:37
+2025-07-27 19:29:37,177 - INFO - ============================================================
+2025-07-27 19:29:37,177 - INFO - Cleaning up ephemeral data directories...
+2025-07-27 19:29:37,177 - INFO - No files to clean in /Users/morgannstuart/Desktop/RasPi_Smart_Home/scripts/scheduled/email_summarizer/ephemeral_data
+2025-07-27 19:29:37,177 - INFO - Removing 4 files from /Users/morgannstuart/Desktop/RasPi_Smart_Home/scripts/scheduled/news_summary/ephemeral_data
+2025-07-27 19:29:37,179 - INFO - Cleaned /Users/morgannstuart/Desktop/RasPi_Smart_Home/scripts/scheduled/news_summary/ephemeral_data
+2025-07-27 19:29:37,179 - INFO - 
+[1/2] EMAIL SUMMARIZER
+2025-07-27 19:29:37,179 - INFO - Starting email summarizer...
+2025-07-27 19:29:39,338 - INFO - Email summarizer completed successfully
+2025-07-27 19:29:39,338 - INFO - Output:
+============================================================
+📧 EMAIL SUMMARIZER
+============================================================
+Started at: 2025-07-27 19:29:37
+============================================================
+
+==================== CHECKING CREDENTIALS ====================
+🔍 Checking OAuth credentials...
+✅ OAuth credentials file found!
+✅ Credentials check passed
+
+==================== FETCHING EMAILS ====================
+📧 Fetching emails from Gmail...
+📧 Fetching up to 100 recent emails from Gmail...
+📅 Fetching emails after 2025/07/27 (precise: 2025-07-27T15:56:26)
+📬 Found 6 potential email(s) to check.
+ℹ️ No new emails to process.
+✅ No new emails to process
+
+🎉 Email processing is up to date!
+
+2025-07-27 19:29:39,338 - INFO - 
+[2/2] NEWS SUMMARY
+2025-07-27 19:29:39,338 - INFO - Starting news summary...
+2025-07-27 19:30:38,291 - INFO - News summary completed successfully
+2025-07-27 19:30:38,291 - INFO - Output:
+=== Step 1: Headline Scraping ===
+API key 1 is not working, trying next...
+API key 2 is not working, trying next...
+Now using API key 3
+Fetching headlines for 'artificial intelligence'
+  ✗ No articles found for 'artificial intelligence'
+Fetching headlines for 'AI'
+  ✓ Found 2 articles (total available: 23)
+    1. The Greek Small-Town Doctor Who Knows AI’s Secrets - Gizmodo
+    2. AMD Confirms Ryzen Threadripper 9000 “HEDT” CPU Prices: Avai...
+Fetching headlines for 'machine learning'
+  ✗ No articles found for 'machine learning'
+Fetching headlines for 'deep learning'
+  ✗ No articles found for 'deep learning'
+Fetching headlines for 'generative AI'
+  ✗ No articles found for 'generative AI'
+Fetching headlines for 'large language models'
+  ✗ No articles found for 'large language models'
+Fetching headlines for 'LLM'
+  ✗ No articles found for 'LLM'
+Fetching headlines for 'neural networks'
+  ✗ No articles found for 'neural networks'
+Fetching headlines for 'computer vision'
+  ✗ No articles found for 'computer vision'
+Fetching headlines for 'NLP'
+  ✗ No articles found for 'NLP'
+Fetching headlines for 'ChatGPT'
+  ✗ No articles found for 'ChatGPT'
+Fetching headlines for 'Claude AI'
+  ✗ No articles found for 'Claude AI'
+Fetching headlines for 'Gemini AI'
+  ✗ No articles found for 'Gemini AI'
+Fetching headlines for 'openAI'
+  ✓ Found 2 articles (total available: 2)
+    1. OpenAI’s most capable AI model, GPT-5, may be coming in Augu...
+    2. What OpenAI's push for independence ultimately means for Mic...
+Fetching headlines for 'Anthropic'
+  ✗ No articles found for 'Anthropic'
+Fetching headlines for 'stability AI'
+  ✗ No articles found for 'stability AI'
+Fetching headlines for 'Apple'
+  ✓ Found 3 articles (total available: 3)
+    1. iPhone 17 Pro Launching in Two Months With These 16 New Feat...
+    2. How to make your iPhone homescreen icons clear using iOS 26 ...
+    3. All-New 'AppleCare One' Plan Compatible With iPhone Upgrade ...
+Fetching headlines for 'Google'
+  ✓ Found 3 articles (total available: 3)
+    1. Google makes great apps, but these aren't it if you ask me -...
+    2. Google Might Have Made an AI Search Product I Actually Like ...
+    3. Pixel Buds Pro 2 and Pixel Watch 4 Leaks Just Spoiled Google...
+Fetching headlines for 'Meta'
+  ✓ Found 1 articles (total available: 1)
+    1. Meta's wristband breakthrough lets you use digital devices w...
+Fetching headlines for 'Amazon'
+  ✓ Found 2 articles (total available: 2)
+    1. Amazon's newest Kindle has people reading "hundreds more pag...
+    2. Amazon’s Clearing Out This Wireless CarPlay Adapter Like It’...
+Fetching headlines for 'Microsoft'
+  ✓ Found 3 articles (total available: 4)
+    1. Sony is hiring to expand "PlayStation Studios games beyond P...
+    2. What OpenAI's push for independence ultimately means for Mic...
+    3. Microsoft’s Surface Laptop 7 is what happens when PC hardwar...
+Fetching headlines for 'Nvidia'
+  ✗ No articles found for 'Nvidia'
+Fetching headlines for 'Tesla'
+  ✗ No articles found for 'Tesla'
+Fetching headlines for 'Alphabet'
+  ✓ Found 1 articles (total available: 1)
+    1. Alphabet Stock (GOOGL) Climbs Despite Samsung’s Galactical S...
+Fetching headlines for 'tech layoffs'
+  ✗ No articles found for 'tech layoffs'
+Fetching headlines for 'earnings report'
+  ✗ No articles found for 'earnings report'
+Fetching headlines for 'big tech'
+  ✗ No articles found for 'big tech'
+Fetching headlines for 'Silicon Valley'
+  ✗ No articles found for 'Silicon Valley'
+Fetching headlines for 'JavaScript'
+  ✗ No articles found for 'JavaScript'
+Fetching headlines for 'TypeScript'
+  ✗ No articles found for 'TypeScript'
+Fetching headlines for 'React'
+  ✗ No articles found for 'React'
+Fetching headlines for 'Node.js'
+  ✗ No articles found for 'Node.js'
+Fetching headlines for 'Web3'
+  ✗ No articles found for 'Web3'
+Fetching headlines for 'frontend'
+  ✗ No articles found for 'frontend'
+Fetching headlines for 'backend'
+  ✗ No articles found for 'backend'
+Fetching headlines for 'full stack'
+  ✗ No articles found for 'full stack'
+Fetching headlines for 'open source'
+  ✗ No articles found for 'open source'
+Fetching headlines for 'GitHub'
+  ✗ No articles found for 'GitHub'
+Fetching headlines for 'API'
+  ✗ No articles found for 'API'
+Fetching headlines for 'cloud computing'
+  ✗ No articles found for 'cloud computing'
+Fetching headlines for 'DevOps'
+  ✗ No articles found for 'DevOps'
+Fetching headlines for 'SaaS'
+  ✗ No articles found for 'SaaS'
+Fetching headlines for 'cybersecurity'
+  ✗ No articles found for 'cybersecurity'
+Fetching headlines for 'data breach'
+  ✗ No articles found for 'data breach'
+Fetching headlines for 'ransomware'
+  ✗ No articles found for 'ransomware'
+Fetching headlines for 'phishing'
+  ✗ No articles found for 'phishing'
+Fetching headlines for 'encryption'
+  ✓ Found 1 articles (total available: 1)
+    1. Quantum Scientists Have Built a New Math of Cryptography - Q...
+Fetching headlines for 'VPN'
+  ✗ No articles found for 'VPN'
+Fetching headlines for 'zero trust'
+  ✗ No articles found for 'zero trust'
+Fetching headlines for 'dark web'
+  ✗ No articles found for 'dark web'
+Fetching headlines for 'malware'
+  ✗ No articles found for 'malware'
+Fetching headlines for 'cybersecurity threat'
+  ✗ No articles found for 'cybersecurity threat'
+Fetching headlines for 'information security'
+  ✗ No articles found for 'information security'
+Fetching headlines for 'iPhone'
+  ✓ Found 3 articles (total available: 4)
+    1. iPhone 17 Pro Launching in Two Months With These 16 New Feat...
+    2. iPhone Fold leaker just spilled the beans on screen sizes — ...
+    3. How to make your iPhone homescreen icons clear using iOS 26 ...
+Fetching headlines for 'Android'
+  ✓ Found 3 articles (total available: 6)
+    1. Google makes great apps, but these aren't it if you ask me -...
+    2. 5G promised a revolution, but here's what we actually got - ...
+    3. FBI Warning To 10 Million Android Users — Disconnect Your De...
+Fetching headlines for 'smartphone'
+  ✗ No articles found for 'smartphone'
+Fetching headlines for 'wearable tech'
+  ✗ No articles found for 'wearable tech'
+Fetching headlines for 'Apple Watch'
+  ✗ No articles found for 'Apple Watch'
+Fetching headlines for 'AR glasses'
+  ✗ No articles found for 'AR glasses'
+Fetching headlines for 'VR headset'
+  ✗ No articles found for 'VR headset'
+Fetching headlines for 'Meta Quest'
+  ✗ No articles found for 'Meta Quest'
+Fetching headlines for 'foldable phone'
+  ✗ No articles found for 'foldable phone'
+Fetching headlines for 'earbuds'
+  ✗ No articles found for 'earbuds'
+Fetching headlines for 'M3 chip'
+  ✗ No articles found for 'M3 chip'
+Fetching headlines for 'Snapdragon'
+  ✗ No articles found for 'Snapdragon'
+Fetching headlines for 'quantum computing'
+  ✗ No articles found for 'quantum computing'
+Fetching headlines for 'blockchain'
+  ✗ No articles found for 'blockchain'
+Fetching headlines for 'augmented reality'
+  ✗ No articles found for 'augmented reality'
+Fetching headlines for 'virtual reality'
+  ✗ No articles found for 'virtual reality'
+Fetching headlines for 'mixed reality'
+  ✗ No articles found for 'mixed reality'
+Fetching headlines for 'spatial computing'
+  ✗ No articles found for 'spatial computing'
+Fetching headlines for 'robotics'
+  ✗ No articles found for 'robotics'
+Fetching headlines for 'drones'
+  ✗ No articles found for 'drones'
+Fetching headlines for 'IoT'
+  ✓ Found 1 articles (total available: 1)
+    1. Minions, Servers, and Progression – The Tech Behind Swarm - ...
+Fetching headlines for '5G'
+  ✓ Found 1 articles (total available: 1)
+    1. 5G promised a revolution, but here's what we actually got - ...
+Fetching headlines for 'edge computing'
+  ✗ No articles found for 'edge computing'
+Fetching headlines for 'tech IPO'
+  ✗ No articles found for 'tech IPO'
+Fetching headlines for 'startup funding'
+  ✗ No articles found for 'startup funding'
+Fetching headlines for 'venture capital'
+  ✗ No articles found for 'venture capital'
+Fetching headlines for 'angel investing'
+  ✗ No articles found for 'angel investing'
+Fetching headlines for 'Series A'
+  ✓ Found 2 articles (total available: 2)
+    1. Fresh Pixel 10 leak shows off the series in more than just M...
+    2. Massive Elden Ring Sales Boost Kadokawa Stock (9468) - TipRa...
+Fetching headlines for 'seed round'
+  ✗ No articles found for 'seed round'
+Fetching headlines for 'unicorn startup'
+  ✗ No articles found for 'unicorn startup'
+Fetching headlines for 'pitch deck'
+  ✗ No articles found for 'pitch deck'
+Fetching headlines for 'tech accelerator'
+  ✗ No articles found for 'tech accelerator'
+Fetching headlines for 'EU tech regulation'
+  ✗ No articles found for 'EU tech regulation'
+Fetching headlines for 'China AI'
+  ✗ No articles found for 'China AI'
+Fetching headlines for 'US chip ban'
+  ✗ No articles found for 'US chip ban'
+Fetching headlines for 'semiconductors'
+  ✗ No articles found for 'semiconductors'
+Fetching headlines for 'global tech summit'
+  ✗ No articles found for 'global tech summit'
+Fetching headlines for 'CES'
+  ✓ Found 3 articles (total available: 10)
+    1. iPhone 17 Pro Launching in Two Months With These 16 New Feat...
+    2. FBI Warning To 10 Million Android Users — Disconnect Your De...
+    3. AMD Confirms Ryzen Threadripper 9000 “HEDT” CPU Prices: Avai...
+Fetching headlines for 'WWDC'
+  ✗ No articles found for 'WWDC'
+Fetching headlines for 'MWC'
+  API quota exceeded: {'status': 'error', 'code': 'rateLimited', 'message': 'You have made too many requests recently. Developer accounts are limited to 100 requests over a 24 hour period (50 requests available every 12 hours). Please upgrade to a paid plan if you need more requests.'}
+API key 3 quota exhausted
+Now using API key 4
+  Retrying 'MWC' with new API key...
+Fetching headlines for 'MWC'
+  ✗ No articles found for 'MWC'
+Fetching headlines for 'tech trade war'
+  ✗ No articles found for 'tech trade war'
+
+=== Scraping Summary ===
+Total articles found: 31
+Keywords searched: 90
+Keywords with results: 15
+
+Successful keywords: Microsoft, IoT, openAI, encryption, Apple, 5G, CES, Alphabet, AI, Android, Google, Series A, Amazon, Meta, iPhone
+
+=== Step 2: Headline Analysis ===
+Analyzing 31 headlines...
+- The Greek Small-Town Doctor Who Knows AI’s Secrets - Gizmodo
+- AMD Confirms Ryzen Threadripper 9000 “HEDT” CPU Prices: Available on 31st July, $1499 For 24 Cores, $2499 For 32 Cores & $4999 For 64 Cores - Wccftech
+- OpenAI’s most capable AI model, GPT-5, may be coming in August - Ars Technica
+- What OpenAI's push for independence ultimately means for Microsoft's $14 billion investment - CNBC
+- iPhone 17 Pro Launching in Two Months With These 16 New Features - MacRumors
+- How to make your iPhone homescreen icons clear using iOS 26 - The Verge
+- All-New 'AppleCare One' Plan Compatible With iPhone Upgrade Program - MacRumors
+- Google makes great apps, but these aren't it if you ask me - Android Authority
+- Google Might Have Made an AI Search Product I Actually Like - Lifehacker
+- Pixel Buds Pro 2 and Pixel Watch 4 Leaks Just Spoiled Google’s Whole Party - Gizmodo
+- Meta's wristband breakthrough lets you use digital devices without touching them - Tech Xplore
+- Amazon's newest Kindle has people reading "hundreds more pages" of their books - clear the shelves - Woman & Home
+- Amazon’s Clearing Out This Wireless CarPlay Adapter Like It’s Black Friday in July - Gizmodo
+- Sony is hiring to expand "PlayStation Studios games beyond PlayStation hardware" — partners including Xbox, Steam, Nintendo Switch, and more - Windows Central
+- What OpenAI's push for independence ultimately means for Microsoft's $14 billion investment - CNBC
+- Microsoft’s Surface Laptop 7 is what happens when PC hardware wears its software like a glove - Creative Bloq
+- Alphabet Stock (GOOGL) Climbs Despite Samsung’s Galactical Search for New AI Agents - TipRanks
+- Quantum Scientists Have Built a New Math of Cryptography - Quanta Magazine
+- iPhone 17 Pro Launching in Two Months With These 16 New Features - MacRumors
+- iPhone Fold leaker just spilled the beans on screen sizes — and it's worse than we thought - Tom's Guide
+- How to make your iPhone homescreen icons clear using iOS 26 - The Verge
+- Google makes great apps, but these aren't it if you ask me - Android Authority
+- 5G promised a revolution, but here's what we actually got - Android Authority
+- FBI Warning To 10 Million Android Users — Disconnect Your Devices Now - Forbes
+- Minions, Servers, and Progression – The Tech Behind Swarm - Riot Games
+- 5G promised a revolution, but here's what we actually got - Android Authority
+- Fresh Pixel 10 leak shows off the series in more than just Moonstone - Android Authority
+- Massive Elden Ring Sales Boost Kadokawa Stock (9468) - TipRanks
+- iPhone 17 Pro Launching in Two Months With These 16 New Features - MacRumors
+- FBI Warning To 10 Million Android Users — Disconnect Your Devices Now - Forbes
+- AMD Confirms Ryzen Threadripper 9000 “HEDT” CPU Prices: Available on 31st July, $1499 For 24 Cores, $2499 For 32 Cores & $4999 For 64 Cores - Wccftech
+
+=== Top 5 Headlines Analysis ===
+
+#1: OpenAI’s most capable AI model, GPT-5, may be coming in August
+URL: https://arstechnica.com/ai/2025/07/openais-most-capable-ai-model-gpt-5-may-be-coming-in-august/
+Reasoning: This headline discusses the upcoming release of OpenAI's GPT-5, which is significant in the realm of artificial intelligence. As prior versions like GPT-3 and GPT-4 have already changed the landscape of natural language processing, the introduction of GPT-5 could represent a leap in technological capabilities. With new improvements, it can enhance machine understanding and interaction, paving the way for more sophisticated AI applications in various industries. Such advancements have the potential to transform how businesses utilize AI, thereby driving innovation in technology.
+
+#2: Meta's wristband breakthrough lets you use digital devices without touching them
+URL: https://techxplore.com/news/2025-07-meta-wristband-breakthrough-digital-devices.html
+Reasoning: This headline highlights a significant breakthrough in interaction technology from Meta. The ability to interact with digital devices without physical contact represents a major step forward in user interface design and virtual reality applications. Such technology could enhance accessibility and create more immersive experiences in gaming and professional environments. The implications of such developments extend towards improving user experience across various devices, aligning with the ongoing push towards more intuitive technology in AI and the digital landscape.
+
+#3: What OpenAI's push for independence ultimately means for Microsoft's $14 billion investment
+URL: https://www.cnbc.com/2025/07/25/what-openais-push-for-independence-ultimately-means-for-microsofts-14-billion-investment-.html
+Reasoning: This article addresses the strategic moves by OpenAI and how its independence affects Microsoft's substantial investment. As companies vie for leadership in AI, understanding these dynamics offers insights into the broader tech sector. OpenAI's operational independence could influence innovation trajectories in AI and drive competitive strategies among tech giants, showcasing how investments shape but can also reshape collaborative dynamics. Such developments are pertinent for stakeholders in AI and technology sectors as they navigate the evolving landscape amidst major strategic partnerships.
+
+#4: AMD Confirms Ryzen Threadripper 9000 “HEDT” CPU Prices: Available on 31st July, $1499 For 24 Cores, $2499 For 32 Cores & $4999 For 64 Cores
+URL: https://wccftech.com/amd-confirms-ryzen-threadripper-9000-hedt-cpu-prices-available-31st-july/
+Reasoning: This headline discusses AMD's release of the Ryzen Threadripper 9000 series, which is critical in the landscape of high-performance computing. As these CPUs are designed for advanced processing tasks, their introduction can drive innovation in AI applications that require extensive computation, such as machine learning, data analysis, and simulations. The pricing and availability details signal a competitive landscape, which could lead to advancements in technology, optimized for professional environments boosting the entire tech ecosystem.
+
+#5: Google Might Have Made an AI Search Product I Actually Like
+URL: https://lifehacker.com/tech/google-ai-search-web-guide
+Reasoning: This headline addresses Google's innovations in AI-driven search technology, highlighting an important aspect of how AI can improve user experience in information retrieval. The evolution of search engines with integrated AI capabilities signifies a shift in the user experience, enhancing relevance and efficiency of results. This innovation could reshape the way we access and interact with vast amounts of information online, impacting industries relying on data extraction and research. The ongoing enhancement of search technology through AI remains a crucial trend in tech innovation.
+
+Analysis saved to ephemeral_data/top_headlines.json
+
+=== Step 3: Article Scraping ===
+
+==================================================
+Article 1: Fetching content from https://arstechnica.com/ai/2025/07/opena
+==================================================
+
+==================================================
+Article 2: Fetching content from https://techxplore.com/news/2025-07-meta
+==================================================
+
+==================================================
+Article 3: Fetching content from https://www.cnbc.com/2025/07/25/what-ope
+==================================================
+
+==================================================
+Article 4: Fetching content from https://wccftech.com/amd-confirms-ryzen-
+==================================================
+
+==================================================
+Article 5: Fetching content from https://lifehacker.com/tech/google-ai-se
+==================================================
+
+=== Step 4: Full Article Analysis ===
+
+Analyzing 5 full articles...
+
+Analyzing article 1: OpenAI’s most capable AI model, GPT-5, may be coming in Augu...
+  Innovation Score: 8.5/10
+  Categories: AI, Machine Learning, Software
+  Key Insights: 3 found
+
+Analyzing article 2: Meta's wristband breakthrough lets you use digital devices w...
+  Innovation Score: 8.5/10
+  Categories: AI, Consumer Tech, Research
+  Key Insights: 3 found
+
+Analyzing article 3: What OpenAI's push for independence ultimately means for Mic...
+  Innovation Score: 6.5/10
+  Categories: AI, Enterprise, Investment
+  Key Insights: 3 found
+
+Analyzing article 4: AMD Confirms Ryzen Threadripper 9000 “HEDT” CPU Prices: Avai...
+  Innovation Score: 7.5/10
+  Categories: Hardware, Enterprise, Consumer Tech
+  Key Insights: 3 found
+
+Analyzing article 5: Google Might Have Made an AI Search Product I Actually Like...
+  Innovation Score: 7.5/10
+  Categories: AI, Consumer Tech, Software
+  Key Insights: 3 found
+
+=== Full Article Analysis Complete ===
+Successfully analyzed 5 out of 5 articles
+Average Innovation Score: 7.7/10
+Analysis saved to ephemeral_data/full_article_analysis.json
+
+🎉 Complete analysis pipeline finished!
+Check the following files for results:
+  - ephemeral_data/headlines.json (scraped headlines)
+  - ephemeral_data/top_headlines.json (best headlines)
+  - ephemeral_data/news.json (article content)
+  - ephemeral_data/full_article_analysis.json (detailed analysis)
+
+2025-07-27 19:30:38,292 - INFO - 
+[3/3] EXPORTING NOTIFICATIONS
+2025-07-27 19:30:38,292 - INFO - Starting notification export...
+2025-07-27 19:30:38,292 - INFO - Added news notification for Morgan: OpenAI’s most capable AI model, GPT-5, may be coming in August
+2025-07-27 19:30:38,292 - INFO - Added news notification for Morgan: Meta's wristband breakthrough lets you use digital devices without touching them
+2025-07-27 19:30:38,292 - INFO - Added news notification for Morgan: AMD Confirms Ryzen Threadripper 9000 “HEDT” CPU Prices: Available on 31st July, $1499 For 24 Cores, $2499 For 32 Cores & $4999 For 64 Cores
+2025-07-27 19:30:38,292 - INFO - Added news notification for Morgan: Google Might Have Made an AI Search Product I Actually Like
+2025-07-27 19:30:38,293 - INFO - Successfully saved app_state.json with 4 new notifications
+2025-07-27 19:30:38,293 - INFO - Notification export complete. Added 4 notifications.
+2025-07-27 19:30:38,293 - INFO - 
+============================================================
+2025-07-27 19:30:38,293 - INFO - SCHEDULED EVENTS COMPLETE
+2025-07-27 19:30:38,293 - INFO - Email Summarizer: ✅ SUCCESS
+2025-07-27 19:30:38,293 - INFO - News Summary: ✅ SUCCESS
+2025-07-27 19:30:38,293 - INFO - Notifications Export: ✅ SUCCESS
+2025-07-27 19:30:38,293 - INFO - Time: 2025-07-27 19:30:38
+2025-07-27 19:30:38,293 - INFO - ============================================================
+2025-07-27 19:30:38,293 - INFO - All tasks completed successfully!

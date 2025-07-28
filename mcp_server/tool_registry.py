@@ -10,6 +10,15 @@ from typing import Dict, List, Type, Any
 from pathlib import Path
 import logging
 
+try:
+    from .tools_config import is_tool_enabled, get_tool_config
+except ImportError:
+    # Fallback if config doesn't exist
+    def is_tool_enabled(tool_name: str) -> bool:
+        return True
+    def get_tool_config(tool_name: str) -> dict:
+        return {}
+
 logger = logging.getLogger(__name__)
 
 
@@ -68,6 +77,12 @@ class ToolRegistry:
             for name, obj in inspect.getmembers(module, inspect.isclass):
                 if self._is_tool_class(obj) and obj.__module__ == module_path:
                     tool_name = getattr(obj, 'name', name.lower())
+                    
+                    # Check if tool is enabled
+                    if not is_tool_enabled(tool_name):
+                        logger.info(f"Tool '{tool_name}' is disabled in configuration")
+                        continue
+                    
                     self.registered_tools[tool_name] = obj
                     logger.info(f"Registered tool: {tool_name} from {module_name}")
                     
@@ -100,13 +115,44 @@ class ToolRegistry:
                 raise ValueError(f"Tool '{tool_name}' not found")
             
             tool_class = self.registered_tools[tool_name]
-            self.tool_instances[tool_name] = tool_class()
+            # Pass tool configuration if the tool accepts it
+            try:
+                tool_config = get_tool_config(tool_name)
+                if tool_config:
+                    self.tool_instances[tool_name] = tool_class(config=tool_config)
+                else:
+                    self.tool_instances[tool_name] = tool_class()
+            except TypeError:
+                # Tool doesn't accept config parameter
+                self.tool_instances[tool_name] = tool_class()
             
         return self.tool_instances[tool_name]
     
     def get_available_tools(self) -> List[str]:
         """Get list of available tool names."""
         return list(self.registered_tools.keys())
+    
+    def get_all_tools_status(self) -> Dict[str, bool]:
+        """
+        Get status of all discovered tools (enabled/disabled).
+        
+        Returns:
+            Dict mapping tool names to their enabled status
+        """
+        all_tools = {}
+        
+        # Check all Python files in tools directory
+        if self.tools_directory.exists():
+            for file_path in self.tools_directory.glob("*.py"):
+                if file_path.name.startswith("_"):
+                    continue
+                    
+                module_name = file_path.stem
+                # For simplicity, assume tool name matches module name
+                # In practice, we'd need to load the module to get the actual tool name
+                all_tools[module_name] = is_tool_enabled(module_name)
+        
+        return all_tools
     
     def get_tool_schema(self, tool_name: str) -> Dict:
         """Get JSON schema for a tool."""

@@ -30,12 +30,9 @@ logger = logging.getLogger(__name__)
 DEBUG_REALTIME = False
 
 def debug_log(message: str, data: dict = None):
-    """Helper function for debug logging."""
-    if DEBUG_REALTIME:
-        if data:
-            logger.warning(f"[REALTIME DEBUG] {message}: {json.dumps(data, indent=2)}")
-        else:
-            logger.warning(f"[REALTIME DEBUG] {message}")
+    """Helper function for debug logging - DISABLED to reduce spam."""
+    # Completely disabled to clean up console output
+    pass
 
 try:
     import websockets
@@ -296,10 +293,13 @@ class SpeechServices:
         
         # Add tools to session if provided
         if tools:
-            session_config["session"]["tools"] = self._convert_functions_to_tools(tools)
+            converted_tools = self._convert_functions_to_tools(tools)
+            session_config["session"]["tools"] = converted_tools
             debug_log(f"Adding {len(tools)} tools to session")
+            print(f"🔧 Session tools format: {json.dumps(converted_tools, indent=2)}")
         
         debug_log("Session configuration payload", session_config)
+        print(f"📋 Full session config: {json.dumps(session_config, indent=2)}")
         
         await self.websocket.send(json.dumps(session_config))
         logger.info("Real-time session configured")
@@ -450,10 +450,21 @@ class SpeechServices:
             
         elif msg_type == "response.function_call_arguments.done":
             # Function call ready to execute
-            function_call = data.get("call", {})
-            if function_call:
+            print(f"🔍 Raw function call data: {json.dumps(data, indent=2)}")
+            
+            # Extract function call data from the event
+            function_call = {
+                "call_id": data.get("call_id"),
+                "name": data.get("name"),
+                "arguments": data.get("arguments", "{}")
+            }
+            
+            if function_call.get("name") and function_call.get("call_id"):
                 self.function_call_queue.put(function_call)
+                print(f"📞 Function call received: {function_call.get('name')}")
                 logger.debug(f"Function call ready: {function_call}")
+            else:
+                print("⚠️ No function call found in response.function_call_arguments.done")
             debug_log(f"Function call ready: {function_call}")
                 
         elif msg_type == "response.audio.delta":
@@ -500,8 +511,19 @@ class SpeechServices:
             
         elif msg_type == "error":
             error_msg = data.get("error", {}).get("message", "Unknown error")
-            logger.error(f"API Error: {error_msg}")
-            debug_log(f"API Error received: {error_msg}", data)
+            error_code = data.get("error", {}).get("code", "")
+            
+            # Special handling for response.cancel errors when no response is active
+            if "no active response found" in error_msg.lower() or error_code == "no_active_response":
+                logger.debug(f"Response cancellation info: {error_msg}")
+                debug_log(f"Response cancellation - no active response to cancel", data)
+            # Special handling for duplicate response errors
+            elif "already has an active response" in error_msg.lower():
+                logger.debug(f"Response already active: {error_msg}")
+                debug_log(f"Ignoring duplicate response trigger", data)
+            else:
+                logger.error(f"API Error: {error_msg}")
+                debug_log(f"API Error received: {error_msg}", data)
             
         else:
             logger.debug(f"Unhandled message type: {msg_type}")
@@ -600,7 +622,7 @@ class SpeechServices:
     def _send_audio_data(self, audio_data: bytes):
         """Send audio to real-time API."""
         try:
-            debug_log(f"Sending audio data: {len(audio_data)} bytes")
+            # No audio logging to prevent spam
             
             if not self.is_connected or not self.websocket:
                 debug_log("Not connected, skipping audio send")
@@ -608,14 +630,14 @@ class SpeechServices:
                 
             # Convert raw PCM16 audio to base64
             audio_base64 = base64.b64encode(audio_data).decode('utf-8')
-            debug_log(f"Audio encoded to base64: {len(audio_base64)} chars")
+            # No base64 encoding logs
             
             message = {
                 "type": "input_audio_buffer.append",
                 "audio": audio_base64
             }
             
-            debug_log("Sending audio buffer append message")
+            # No audio buffer append logs
             
             if self.loop:
                 future = asyncio.run_coroutine_threadsafe(
@@ -630,7 +652,7 @@ class SpeechServices:
     
     def send_audio_frame(self, audio_frame: bytes):
         """Public method to send audio frame (alias for _send_audio_data)."""
-        debug_log(f"send_audio_frame called: {len(audio_frame)} bytes")
+        # No audio frame logging to reduce spam
         self._send_audio_data(audio_frame)
     
     def set_callbacks(self, partial_transcript_callback=None, response_delta_callback=None, 
@@ -734,7 +756,12 @@ class SpeechServices:
     
     def cancel_active_response(self):
         """Cancel any active response generation."""
-        if not self.use_realtime or not self.is_connected or not self.active_response_id:
+        if not self.use_realtime or not self.is_connected:
+            return
+            
+        # Only send cancel if we actually have an active response
+        if not self.active_response_id:
+            logger.debug("No active response to cancel")
             return
             
         try:
@@ -897,7 +924,7 @@ class SpeechServices:
             logger.error(f"Error syncing conversation to session: {e}")
     
     def _convert_functions_to_tools(self, functions: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
-        """Convert OpenAI function format to Realtime API tools format with compression."""
+        """Convert OpenAI function format to Realtime API tools format."""
         import config
         tools = []
         
@@ -910,20 +937,16 @@ class SpeechServices:
                     desc = desc.split('.')[0] + '.'
                 elif len(desc) > 50:
                     desc = desc[:50] + '...'
-                
-                tool = {
-                    "type": "function",
-                    "name": func["name"],
-                    "description": desc,
-                    "parameters": func["parameters"]
-                }
             else:
-                tool = {
-                    "type": "function",
-                    "name": func["name"],
-                    "description": func["description"],
-                    "parameters": func["parameters"]
-                }
+                desc = func["description"]
+                
+            # Realtime API expects direct tool format (no function wrapper)
+            tool = {
+                "type": "function",
+                "name": func["name"],
+                "description": desc,
+                "parameters": func["parameters"]
+            }
             tools.append(tool)
         return tools
     
@@ -945,8 +968,14 @@ class SpeechServices:
                 logger.error(f"Invalid function arguments JSON: {e}")
                 return None
             
+            # Log tool invocation
+            print(f"\n🔧 TOOL INVOKED: {func_name}")
+            if func_args:
+                print(f"   └─ Args: {func_args}")
+            
             # Execute the function using MCP server
             tool_result = mcp_server.execute_tool(func_name, func_args)
+            print(f"🔧 Tool result: {tool_result}")
             
             # Send function result back to Realtime session
             function_result = {
@@ -957,17 +986,36 @@ class SpeechServices:
                     "output": json.dumps(tool_result)
                 }
             }
+            print(f"📤 Sending function result to session: {json.dumps(function_result, indent=2)}")
             
             if self.loop:
                 try:
+                    # Send function result to session
                     asyncio.run_coroutine_threadsafe(
                         self.websocket.send(json.dumps(function_result)),
                         self.loop
                     )
                     debug_log(f"Function result sent successfully: {call_id}")
+                    
+                    # Trigger a new response generation to incorporate the function result
+                    response_trigger = {
+                        "type": "response.create",
+                        "response": {
+                            "modalities": ["text"],
+                            "temperature": max(0.6, getattr(config, 'RESPONSE_TEMPERATURE', 0.7))
+                        }
+                    }
+                    
+                    asyncio.run_coroutine_threadsafe(
+                        self.websocket.send(json.dumps(response_trigger)),
+                        self.loop
+                    )
+                    print(f"🔄 Triggered response generation with function result")
+                    debug_log(f"Response generation triggered after function result")
+                    
                 except Exception as e:
-                    logger.error(f"Error sending function result: {e}")
-                    debug_log(f"Function result send error: {str(e)}")
+                    logger.error(f"Error sending function result or triggering response: {e}")
+                    debug_log(f"Function result/response trigger error: {str(e)}")
             
             logger.debug(f"Executed function {func_name} and sent result to session")
             return {"call_id": call_id, "result": tool_result}
@@ -1058,10 +1106,10 @@ class SpeechServices:
             # They are used in server events that the API sends back to us
             # The API will automatically respond to the conversation context
             
-            # Add tools/functions if provided
+            # Note: Tools are configured at session level for Realtime API, not per response
+            # Functions parameter is ignored for response.create in Realtime API
             if functions:
-                debug_log(f"Adding {len(functions)} functions to response")
-                response_config["response"]["tools"] = self._convert_functions_to_tools(functions)
+                debug_log(f"Tools available at session level: {len(functions)} functions")
             
             # Debug: Log the payload being sent
             debug_log("Sending real-time API payload", response_config)
