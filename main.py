@@ -155,7 +155,7 @@ class VoiceAssistantApp:
                 messages = conversation.get_chat_minus_sys_prompt()
                 if messages and len(messages) > 0:
                     print(f"💾 Saving active voice conversation ({len(messages)} messages)...")
-                    chatbot.send_to_db(messages)
+                    chatbot.send_to_db(messages, conversation.get_system_prompt())
                     print("✅ Active voice conversation saved to database")
                 else:
                     print("ℹ️ No active voice conversation messages to save")
@@ -422,7 +422,7 @@ class VoiceAssistantApp:
                 # Save the current test conversation
                 messages = chatbot.conversation.get_chat_minus_sys_prompt()
                 if messages and len(messages) > 0:  # Any messages without system prompt
-                    chatbot.send_to_db(messages)
+                    chatbot.send_to_db(messages, conversation.get_system_prompt())
                     print("✅ Test conversation saved to database")
                 else:
                     print("ℹ️ No test conversation to save")

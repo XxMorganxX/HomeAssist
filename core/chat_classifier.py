@@ -16,18 +16,45 @@ import config
 
 load_dotenv()
 
-GENRES = ["music/spotify request", "weather inquiry", "light control", "calendar/reminder", "other/general conversation"]
+GENRES = [
+    "music/spotify control",      # Spotify playback commands (play, pause, volume, search, etc.)
+    "light control",              # Individual light on/off/brightness adjustments
+    "lighting scene",             # Scene-based lighting (mood, party, movie, etc.)
+    "calendar/schedule inquiry",  # Checking calendar events, appointments, schedules
+    "notification check",         # Checking notifications, messages, emails, news
+    "system state management",    # Reading/updating system states (users, scenes, etc.)
+    "weather inquiry",            # Weather-related questions
+    "greeting/farewell",          # Hello, goodbye, good morning/night interactions
+    "general conversation",       # General chat, questions, or discussions
+    "home automation query",      # Questions about home automation capabilities
+    "multiple/combined"           # Conversations that involve multiple categories
+]
 
 
 SYSTEM_PROMPT = f"""
-You are a chat classifier. You are given a chat between a user and a home automation assistant. 
-You need to classify it into one or more genres The genres are: {", ".join(GENRES)}.
+You are a chat classifier for a home automation system. Analyze conversations between users and their voice assistant to classify them into appropriate genres.
 
-If no genre is applicable, return "other/general conversation".
+Available genres:
+{chr(10).join(f"- {genre}" for genre in GENRES)}
+
+Classification guidelines:
+1. "music/spotify control" - Any Spotify commands (play, pause, next, search artist/song, volume)
+2. "light control" - Direct light commands (turn on/off specific lights, set brightness)
+3. "lighting scene" - Scene-based lighting (mood lighting, party mode, movie mode)
+4. "calendar/schedule inquiry" - Checking events, appointments, what's on the schedule
+5. "notification check" - Asking about notifications, messages, emails, or news updates
+6. "system state management" - Changing system settings (current user, active scenes)
+7. "weather inquiry" - Weather-related questions
+8. "greeting/farewell" - Hello, goodbye, good morning/night interactions
+9. "general conversation" - General questions or chat not fitting other categories
+10. "home automation query" - Questions about what the system can do
+11. "multiple/combined" - Conversations spanning multiple categories
 
 Response format:
-- You must return a list of genres separated by commas.
-- You can choose multiple genres.
+- Return ONLY the genre names separated by commas
+- Choose all applicable genres
+- If a conversation clearly involves multiple tools/topics, include "multiple/combined"
+- Default to "general conversation" only if no other genre fits
 """
 class ChatClassifier:
     def __init__(self):
@@ -88,7 +115,7 @@ class ChatClassifier:
                             (etc for each chat ID)
 
                             Available genres: {", ".join(GENRES)}
-                            Use "other/general conversation" if no other genre fits.
+                            Use "general conversation" if no other genre fits.
                             """
             
             try:
@@ -126,6 +153,56 @@ class ChatClassifier:
                         results[chat_id] = self.classify_chat(chat_data)
                     except Exception as individual_error:
                         print(f"❌ Failed to classify chat {chat_id}: {individual_error}")
-                        results[chat_id] = "other/general conversation"  # Default fallback
+                        results[chat_id] = "general conversation"  # Default fallback
         
         return results
+
+
+# Allow running as a script
+if __name__ == "__main__":
+    import argparse
+    
+    parser = argparse.ArgumentParser(description='Chat Genre Classifier')
+    parser.add_argument('--test', action='store_true', help='Test classification with sample conversations')
+    parser.add_argument('--classify-text', type=str, help='Classify a specific text/conversation')
+    parser.add_argument('--show-genres', action='store_true', help='Show all available genres')
+    
+    args = parser.parse_args()
+    
+    if args.show_genres:
+        print("=== Available Genre Categories ===\n")
+        for i, genre in enumerate(GENRES, 1):
+            print(f"{i:2d}. {genre}")
+        print(f"\nTotal: {len(GENRES)} genres")
+        
+    elif args.test:
+        # Test with sample conversations
+        test_samples = [
+            "User: Play some music\nAssistant: Playing music on Spotify.",
+            "User: Turn on the lights\nAssistant: Turning on the lights.",
+            "User: What's on my calendar?\nAssistant: You have a meeting at 2 PM.",
+            "User: Good morning, turn on lights and play music\nAssistant: Good morning! Turning on lights and playing music."
+        ]
+        
+        classifier = ChatClassifier()
+        print("=== Testing Chat Classification ===\n")
+        
+        for i, sample in enumerate(test_samples, 1):
+            print(f"Test {i}:")
+            print(f"Input: {sample[:60]}...")
+            result = classifier.classify_chat(sample)
+            print(f"Classification: {result}\n")
+            
+    elif args.classify_text:
+        # Classify provided text
+        classifier = ChatClassifier()
+        result = classifier.classify_chat(args.classify_text)
+        print(f"Classification: {result}")
+        
+    else:
+        # Default: Run database classification
+        from db.db_connect import DBConnect
+        
+        print("🚀 Running chat genre classification on database...")
+        with DBConnect() as db:
+            db.insert_chat_genre()

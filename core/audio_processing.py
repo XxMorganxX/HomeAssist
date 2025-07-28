@@ -241,6 +241,37 @@ class AECProcessor:
             "reference_buffer_size": len(self.reference_buffer),
             "reference_buffer_sec": len(self.reference_buffer) / self.sample_rate
         }
+    
+    def detect_feedback(self, mic_audio: np.ndarray, threshold: float = 0.8) -> bool:
+        """
+        Detect audio feedback by comparing microphone input with recent reference audio.
+        
+        Args:
+            mic_audio: Current microphone audio frame
+            threshold: Correlation threshold for feedback detection (0.0-1.0)
+            
+        Returns:
+            True if feedback is detected, False otherwise
+        """
+        try:
+            if len(self.reference_buffer) < len(mic_audio):
+                return False
+            
+            # Get recent reference audio of same length
+            recent_ref = np.array(list(self.reference_buffer)[-len(mic_audio):])
+            
+            # Normalize both signals
+            mic_norm = mic_audio / (np.max(np.abs(mic_audio)) + self.eps)
+            ref_norm = recent_ref / (np.max(np.abs(recent_ref)) + self.eps)
+            
+            # Calculate cross-correlation
+            correlation = np.corrcoef(mic_norm, ref_norm)[0, 1]
+            
+            # Check if correlation indicates feedback
+            return abs(correlation) > threshold
+            
+        except Exception:
+            return False
 
 
 class AudioCaptureManager:
@@ -401,10 +432,17 @@ class VADChunker:
             self.audio_capture = AudioCaptureManager(
                 strategy=aec_config.get('capture_strategy', 'file_based')
             )
+            
+            # Enable feedback detection
+            self._check_feedback = True
+            self._feedback_threshold = 0.8
+            
             print("🔊 VADChunker initialized with AEC enabled")
+            print("🛡️ Feedback detection enabled")
         else:
             self.aec_processor = None
             self.audio_capture = None
+            self._check_feedback = False
             print("🔊 VADChunker initialized without AEC")
         
     def process(self, frame_bytes: bytes) -> Optional[bytes]:
@@ -417,6 +455,16 @@ class VADChunker:
         Returns:
             Complete speech chunk bytes if silence detected, None otherwise
         """
+        # Check for feedback before processing
+        if self.aec_enabled and self.aec_processor and self._check_feedback:
+            audio_array = np.frombuffer(frame_bytes, dtype=np.int16)
+            audio_float = audio_array.astype(np.float32) / 32768.0
+            
+            if self.aec_processor.detect_feedback(audio_float, self._feedback_threshold):
+                print("🚨 FEEDBACK DETECTED - Muting audio temporarily")
+                # Return silence instead of processing feedback
+                return None
+        
         # Apply AEC if enabled
         processed_frame = frame_bytes
         if self.aec_enabled and self.aec_processor is not None:

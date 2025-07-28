@@ -1145,7 +1145,7 @@ class ConversationHandler(Component):
                 if hasattr(self.chatbot, 'conversation') and self.chatbot.conversation:
                     messages = self.chatbot.conversation.get_chat_minus_sys_prompt()
                     if messages:
-                        self.chatbot.send_to_db(messages)
+                        self.chatbot.send_to_db(messages, self.chatbot.conversation.get_system_prompt())
                         if config.DEBUG_MODE:
                             print("💾 Conversation saved to database")
             

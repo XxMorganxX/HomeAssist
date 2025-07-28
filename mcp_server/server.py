@@ -122,16 +122,8 @@ class MCPServer:
         try:
             tool_instance = self.tool_registry.get_tool_instance(tool_name)
             
-            # Log execution start
-            print(f"   ┌─ Executing {tool_name}...")
-            
+            # Execute tool
             result = tool_instance.safe_execute(params)
-            
-            # Log execution result
-            if result.get('success', False):
-                print(f"   └─ ✅ {tool_name} completed successfully")
-            else:
-                print(f"   └─ ❌ {tool_name} failed: {result.get('error', 'Unknown error')}")
             
             logger.info(f"Tool '{tool_name}' executed successfully: {result.get('success', False)}")
             return result

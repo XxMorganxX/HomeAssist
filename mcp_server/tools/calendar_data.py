@@ -42,7 +42,7 @@ class CalendarTool(BaseTool):
                 "commands": {
                     "type": "array",
                     "description": """
-                    List of commands.
+                    List of commands. RESTRICTIONS: Only query ONE user per request. For day_summary, user MUST explicitly say 'today'.
                     For 'what classes does spencer have today' use {\"read_or_write\": \"read\", \"user\": \"spencer\", \"read_type\": \"day_summary\", \"calendar_name\":\"class\" }. 
                     If read_or_write = \"read\" then require read_type. 
                     """,
@@ -62,7 +62,7 @@ class CalendarTool(BaseTool):
                             "read_type": {
                                 "type": "string",
                                 "enum": ["latest_event", "next_event", "day_summary"],
-                                "description": "The type of read request being made. Only relevant is the read_or_write param is read"
+                                "description": "The type of read request being made. Only relevant if read_or_write param is read. IMPORTANT: day_summary should ONLY be used if user explicitly mentions 'today'"
                             },
                             "calendar_name": {
                                 "type": "string",

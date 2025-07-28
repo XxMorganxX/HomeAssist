@@ -34,9 +34,9 @@ class GetNotificationsTool(BaseTool):
             "properties": {
                 "user": {
                     "type": "string",
-                    "description": "Which user's notifications to check. Use 'all' to check both users.",
-                    "enum": ["Morgan", "Spencer", "all"],
-                    "default": "all"
+                    "description": "Which user's notifications to check. Must specify a single user - NEVER query multiple users at once.",
+                    "enum": ["Morgan", "Spencer"],
+                    "default": "Morgan"
                 },
                 "type_filter": {
                     "type": "string",
@@ -72,7 +72,7 @@ class GetNotificationsTool(BaseTool):
             Dictionary with notification results
         """
         # Extract parameters with defaults
-        user = params.get("user", "all")
+        user = params.get("user", "Morgan")
         type_filter = params.get("type_filter", "all")
         limit = params.get("limit", 10)
         mark_as_read = params.get("mark_as_read", False)
@@ -95,10 +95,8 @@ class GetNotificationsTool(BaseTool):
             # Get notification queue
             notification_queue = app_state.get("autonomous_state", {}).get("notification_queue", {})
             
-            # Determine which users to check
-            if user == "all":
-                users_to_check = ["Morgan", "Spencer"]
-            elif user in notification_queue:
+            # Determine which users to check (single user only)
+            if user in notification_queue:
                 users_to_check = [user]
             else:
                 users_to_check = []

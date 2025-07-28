@@ -30,6 +30,7 @@ class DBConnect:
     TIMESTAMP_COL_NAME="session_ended_at"
     GENRE_COL_NAME="genre"
     CHAT_COL_NAME="chat"
+    SYSTEM_PROMPT_COL_NAME="sys_prompt"
     ID_COL_NAME="id"
     ACCUMULATED_TRANSCRIPTION_LATENCY_COL_NAME="accumulated_transcription_latencies"
     FINAL_TRANSCRIPTION_LATENCY_COL_NAME="final_transcription_latency"
@@ -99,23 +100,23 @@ class DBConnect:
         # Return as Python list - psycopg2 will handle the conversion to PostgreSQL array
         return genres
 
-    def insert_new_chat(self, session_time, chat_data, accumulated_latencies=None, final_latencies=None):
-        """Insert a new chat session into the 'session_logs' table with latency metrics."""
+    def insert_new_chat(self, session_time, chat_data, system_prompt=None, accumulated_latencies=None, final_latencies=None):
+        """Insert a new chat session into the 'session_logs' table with latency metrics and system prompt."""
         try:
             self._ensure_connection()
             
-            # SQL insert statement with latency columns
+            # SQL insert statement with system_prompt and latency columns
             query = f"""INSERT INTO {self.TABLE_NAME} 
-                       ({self.TIMESTAMP_COL_NAME}, {self.CHAT_COL_NAME}, 
+                       ({self.TIMESTAMP_COL_NAME}, {self.CHAT_COL_NAME}, {self.SYSTEM_PROMPT_COL_NAME},
                         {self.ACCUMULATED_TRANSCRIPTION_LATENCY_COL_NAME}, 
                         {self.FINAL_TRANSCRIPTION_LATENCY_COL_NAME}) 
-                       VALUES (%s, %s, %s, %s);"""
+                       VALUES (%s, %s, %s, %s, %s);"""
             
             # Convert latency lists to PostgreSQL arrays (can be None)
             accumulated_array = accumulated_latencies if accumulated_latencies else None
             final_array = final_latencies if final_latencies else None
             
-            self.cur.execute(query, (session_time, Json(chat_data), accumulated_array, final_array))
+            self.cur.execute(query, (session_time, Json(chat_data), system_prompt, accumulated_array, final_array))
 
             self.conn.commit()
             print("Chat session logged successfully with latency metrics!")
@@ -303,9 +304,42 @@ class DBConnect:
 
 # Example usage
 if __name__ == "__main__":
+    import argparse
+    
+    parser = argparse.ArgumentParser(description='Database operations for chat logs')
+    parser.add_argument('--classify', action='store_true', help='Run genre classification on unclassified chats')
+    parser.add_argument('--batch-size', type=int, default=None, help='Batch size for classification (default: from config)')
+    parser.add_argument('--latest', action='store_true', help='Show latest log entry')
+    parser.add_argument('--test-insert', action='store_true', help='Insert a test chat entry')
+    
+    args = parser.parse_args()
+    
     # Using context manager for automatic cleanup
     with DBConnect() as db:
-        # db.insert_new_chat(datetime.now(), {"test_id": db.get_latest_chat_id()+1, "user": "Hello, how are you?", "assistant": "I'm good, thank you!"})
-        # print(db.get_latest_log_entry())
-        # print(db.get_latest_chat_id())
-        db.insert_chat_genre()
+        if args.classify:
+            print("🚀 Starting chat genre classification...")
+            result = db.insert_chat_genre(batch_size=args.batch_size)
+            if result['success']:
+                print(f"\n✅ Classification complete!")
+            else:
+                print(f"\n❌ Classification failed: {result.get('error', 'Unknown error')}")
+                
+        elif args.latest:
+            print("📋 Fetching latest log entry...")
+            db.get_latest_log_entry()
+            
+        elif args.test_insert:
+            print("🧪 Inserting test chat...")
+            db.insert_new_chat(
+                datetime.now(), 
+                {
+                    "test_id": db.get_latest_chat_id()+1, 
+                    "user": "Hello, how are you?", 
+                    "assistant": "I'm good, thank you!"
+                },
+                system_prompt="Test system prompt"
+            )
+        else:
+            # Default action: classify chats
+            print("🚀 Running default action: chat genre classification...")
+            db.insert_chat_genre()

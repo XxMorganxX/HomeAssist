@@ -26,8 +26,7 @@ from config import SYSTEM_PROMPT
 logging.basicConfig(level=logging.WARNING)  # Reduce noise
 logger = logging.getLogger(__name__)
 
-# Debug flag will be set later after imports are configured
-DEBUG_REALTIME = False
+
 
 def debug_log(message: str, data: dict = None):
     """Helper function for debug logging - DISABLED to reduce spam."""
@@ -51,7 +50,6 @@ class SpeechServices:
                  whisper_model: str = "whisper-1",
                  chat_provider: str = "openai",
                  chat_model: str = "gpt-4o-realtime-preview",
-                 gemini_api_key: Optional[str] = None,
                  tts_enabled: bool = False,
                  tts_model: str = "tts-1",
                  tts_voice: str = "alloy"):
@@ -61,9 +59,8 @@ class SpeechServices:
         Args:
             openai_api_key: OpenAI API key
             whisper_model: Whisper model (for fallback)
-            chat_provider: "openai" or "gemini" 
+            chat_provider: Only "openai" supported
             chat_model: Chat model name
-            gemini_api_key: Google API key (if using Gemini)
             tts_enabled: Enable text-to-speech
             tts_model: TTS model name
             tts_voice: TTS voice
@@ -85,7 +82,7 @@ class SpeechServices:
         if self.use_realtime:
             self._init_realtime()
         else:
-            self._init_traditional(openai_api_key, chat_provider, chat_model, gemini_api_key)
+            self._init_traditional(openai_api_key, chat_provider, chat_model)
     
     def _init_realtime(self):
         """Initialize real-time API components."""
@@ -131,6 +128,7 @@ class SpeechServices:
         self.conversation_items = []  # List of {id, type, role} for tracking items
         self.active_response_id = None  # Track if we have an active response
         self.last_user_item_id = None  # Track the last user input item
+        self.pending_function_calls = set()  # Track function calls waiting for execution
 
         # Audio configuration
         import config
@@ -139,7 +137,7 @@ class SpeechServices:
         logger.info("Real-time API mode enabled")
         debug_log("Real-time API components initialized")
     
-    def _init_traditional(self, openai_api_key, chat_provider, chat_model, gemini_api_key):
+    def _init_traditional(self, openai_api_key, chat_provider, chat_model):
         """Initialize traditional API components as fallback."""
         from openai import OpenAI
         from .model_providers import create_provider
@@ -149,7 +147,7 @@ class SpeechServices:
         # OpenAI client for Whisper and TTS
         self.openai_client = OpenAI(api_key=openai_api_key)
         
-        # Set up chat provider
+        # Set up chat provider - only OpenAI supported
         self.chat_provider = chat_provider.lower()
         if self.chat_provider == "openai":
             self.model_provider = create_provider(
@@ -157,16 +155,8 @@ class SpeechServices:
                 api_key=openai_api_key, 
                 model=chat_model
             )
-        elif self.chat_provider == "gemini":
-            if not gemini_api_key:
-                raise ValueError("Gemini API key required when using Gemini provider")
-            self.model_provider = create_provider(
-                "gemini", 
-                api_key=gemini_api_key, 
-                model=chat_model
-            )
         else:
-            raise ValueError(f"Unsupported chat provider: {chat_provider}")
+            raise ValueError(f"Only OpenAI chat provider supported, got: {chat_provider}")
         
         logger.info("Traditional API mode (fallback)")
         debug_log("Traditional API components initialized")
@@ -296,7 +286,7 @@ class SpeechServices:
             converted_tools = self._convert_functions_to_tools(tools)
             session_config["session"]["tools"] = converted_tools
             debug_log(f"Adding {len(tools)} tools to session")
-            print(f"🔧 Session tools format: {json.dumps(converted_tools, indent=2)}")
+            # Tools configured for session
         
         debug_log("Session configuration payload", session_config)
         print(f"📋 Full session config: {json.dumps(session_config, indent=2)}")
@@ -404,6 +394,8 @@ class SpeechServices:
                     "item_id": item_id,
                     "content_index": content_index
                 })
+                # Debug: Track user input item ID
+                print(f"🎤 User transcript item_id: {item_id}, content_index: {content_index}")
                 logger.debug(f"Transcription completed for item {item_id}, content_index {content_index}: {transcript}")
             debug_log(f"Transcription completed: {transcript}")
                 
@@ -440,7 +432,17 @@ class SpeechServices:
                     "item_id": item_id,
                     "content_index": content_index
                 })
+                
+                # Only log response text if there are no pending function calls
+                # This prevents logging intermediate responses before function results are incorporated
+                if getattr(config, 'DETAILED_FUNCTION_LOGGING', False) and not self.pending_function_calls:
+                    print(f"📝 Response text received: '{text}'")
+                
+                # Debug: Track item ID to detect context drift
+                print(f"🆔 Response item_id: {item_id}, content_index: {content_index}")
                 logger.debug(f"Response completed for item {item_id}, content_index {content_index}: {text}")
+            else:
+                print(f"⚠️ Empty text response received for item {item_id}")
             debug_log(f"Response text completed: {text}")
                 
         elif msg_type == "response.function_call_arguments.delta":
@@ -450,18 +452,33 @@ class SpeechServices:
             
         elif msg_type == "response.function_call_arguments.done":
             # Function call ready to execute
-            print(f"🔍 Raw function call data: {json.dumps(data, indent=2)}")
+            function_name = data.get("name")
+            arguments_str = data.get("arguments", "{}")
+            
+            # Parse arguments for cleaner display
+            try:
+                import json
+                args_dict = json.loads(arguments_str)
+                args_display = ", ".join([f"{k}={v}" for k, v in args_dict.items()])
+                # Function call will be logged in clean format below
+            except:
+                # Function call will be logged in clean format below
+                pass
             
             # Extract function call data from the event
             function_call = {
                 "call_id": data.get("call_id"),
-                "name": data.get("name"),
-                "arguments": data.get("arguments", "{}")
+                "name": function_name,
+                "arguments": arguments_str
             }
             
             if function_call.get("name") and function_call.get("call_id"):
+                # Track this function call as pending
+                call_id = function_call.get("call_id")
+                self.pending_function_calls.add(call_id)
+                
                 self.function_call_queue.put(function_call)
-                print(f"📞 Function call received: {function_call.get('name')}")
+                # Function call will be logged in clean format below
                 logger.debug(f"Function call ready: {function_call}")
             else:
                 print("⚠️ No function call found in response.function_call_arguments.done")
@@ -488,6 +505,9 @@ class SpeechServices:
             # Clear active response
             if response_id == self.active_response_id:
                 self.active_response_id = None
+                
+            # Clear any remaining pending function calls for this response
+            self.pending_function_calls.clear()
                 
             if response_status == "completed":
                 logger.debug(f"Response {response_id} completed successfully")
@@ -754,6 +774,7 @@ class SpeechServices:
         except Exception as e:
             logger.error(f"Error clearing audio buffer: {e}")
     
+
     def cancel_active_response(self):
         """Cancel any active response generation."""
         if not self.use_realtime or not self.is_connected:
@@ -968,14 +989,16 @@ class SpeechServices:
                 logger.error(f"Invalid function arguments JSON: {e}")
                 return None
             
-            # Log tool invocation
-            print(f"\n🔧 TOOL INVOKED: {func_name}")
-            if func_args:
-                print(f"   └─ Args: {func_args}")
-            
             # Execute the function using MCP server
             tool_result = mcp_server.execute_tool(func_name, func_args)
-            print(f"🔧 Tool result: {tool_result}")
+            
+            # Determine success/failure from tool result
+            success = tool_result.get('success', False) if isinstance(tool_result, dict) else bool(tool_result)
+            status = "✅ Success" if success else "❌ Failed"
+            
+            # Clean tool execution log
+            args_str = ', '.join([f"{k}={v}" for k, v in func_args.items()]) if func_args else ""
+            print(f"🔧 {func_name}({args_str}) → {status}")
             
             # Send function result back to Realtime session
             function_result = {
@@ -986,7 +1009,14 @@ class SpeechServices:
                     "output": json.dumps(tool_result)
                 }
             }
-            print(f"📤 Sending function result to session: {json.dumps(function_result, indent=2)}")
+            
+            # Debug: Show what we're sending to Realtime API (if detailed logging enabled)
+            if getattr(config, 'DETAILED_FUNCTION_LOGGING', False):
+                print(f"📤 Sending function result to Realtime API:")
+                print(f"   Call ID: {call_id}")
+                print(f"   Tool Result: {tool_result}")
+                print(f"   JSON Output: {json.dumps(tool_result)}")
+
             
             if self.loop:
                 try:
@@ -996,10 +1026,14 @@ class SpeechServices:
                         self.loop
                     )
                     debug_log(f"Function result sent successfully: {call_id}")
+                    print(f"📨 Function result sent to Realtime API session")
+                    
+                    # Remove this function call from pending set
+                    self.pending_function_calls.discard(call_id)
                     
                     # Trigger a new response generation to incorporate the function result
                     response_trigger = {
-                        "type": "response.create",
+                        "type": "response.create", 
                         "response": {
                             "modalities": ["text"],
                             "temperature": max(0.6, getattr(config, 'RESPONSE_TEMPERATURE', 0.7))
@@ -1010,7 +1044,8 @@ class SpeechServices:
                         self.websocket.send(json.dumps(response_trigger)),
                         self.loop
                     )
-                    print(f"🔄 Triggered response generation with function result")
+                    print(f"🚀 Response generation triggered after function result")
+                    # Response generation triggered
                     debug_log(f"Response generation triggered after function result")
                     
                 except Exception as e:
@@ -1332,6 +1367,20 @@ class ConversationManager:
         # For Realtime API, no system prompt in messages, so return all messages
         return self.messages
     
+    def get_system_prompt(self) -> str:
+        """Get the system prompt content."""
+        return getattr(self, 'system_prompt', '')
+    
+    def get_response_context(self) -> List[Dict[str, str]]:
+        """
+        Get full context for response generation - complete conversation history.
+        For Realtime API, this is just the message history since system prompt
+        is handled at session level.
+        
+        Returns:
+            Complete conversation history (no system prompt message)
+        """
+        return self.messages
     
     def get_recent_messages(self, count: int) -> List[Dict[str, str]]:
         """Get the last N messages from conversation."""

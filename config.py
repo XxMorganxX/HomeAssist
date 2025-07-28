@@ -6,8 +6,8 @@ load_dotenv()
 # AI Model Configuration
 WHISPER_MODEL = "whisper-1"  # OpenAI Whisper for STT (currently only option)
 
-# Chat Provider Selection - "openai" or "gemini"
-CHAT_PROVIDER = "openai"  # Change to "openai" to use OpenAI instead
+# Chat Provider Selection - Only OpenAI supported
+CHAT_PROVIDER = "openai"
 
 USE_REALTIME_API = True # True = real-time API, False = traditional API
 
@@ -25,38 +25,60 @@ REALTIME_SUMMARY_AS_SYSTEM_MESSAGE = True  # Include summary as system context
 
 # Real-time API Configuration
 REALTIME_STREAMING_MODE = True  # True = continuous streaming, False = chunk-based (even with realtime API)
-REALTIME_MODEL = "gpt-4o-realtime-preview-2024-12-17"  # Latest realtime model
+REALTIME_MODEL = "gpt-4o-mini-realtime-preview-2024-12-17"  # Latest realtime model
 REALTIME_VOICE = "alloy"  # Voice for realtime responses
-REALTIME_VAD_THRESHOLD = 0.5  # Voice activity detection threshold (0.0-1.0)
+REALTIME_VAD_THRESHOLD = 0.3  # Voice activity detection threshold (0.0-1.0) - more sensitive for interruptions
 REALTIME_VAD_SILENCE_MS = 200  # Milliseconds of silence to end turn (reduced for lower latency)
-REALTIME_MAX_RESPONSE_TOKENS = 150  # Max tokens for realtime responses (reduced for lower latency)
+REALTIME_MAX_RESPONSE_TOKENS = 350  # Max tokens for realtime responses (reduced for lower latency)
 
 # Cost optimization settings
 REALTIME_COST_OPTIMIZATION = True  # Enable cost-saving features
 REALTIME_MIN_AUDIO_LENGTH_MS = 800  # Don't process audio shorter than this (filters out noise)
 REALTIME_MAX_CONVERSATION_LENGTH = 10  # Truncate conversation history after N turns
 
-# Smart API selection
-REALTIME_FOR_TOOLS_ONLY = False  # Use Realtime API for all interactions (disabled smart switching)
-REALTIME_SIMPLE_QUERY_THRESHOLD = 10  # Switch to traditional API for queries under N words
+# Realtime API is used for all voice interactions - semantic tool selection by ChatGPT
 
 # Audio filtering for cost optimization
-REALTIME_CLIENT_VAD_ENABLED = False  # Use client-side VAD to filter silence before sending to API
-REALTIME_VAD_AGGRESSIVENESS = 0  # VAD aggressiveness (0-3, higher = more aggressive filtering) - set to least aggressive
-REALTIME_VAD_DEBUG = False  # Enable detailed VAD debugging output
+REALTIME_CLIENT_VAD_ENABLED = True  # Use client-side VAD to filter silence before sending to API
+REALTIME_VAD_AGGRESSIVENESS = 1  # VAD aggressiveness (0-3, higher = more aggressive filtering) - less aggressive for better interruptions
+REALTIME_VAD_DEBUG = True  # Enable detailed VAD debugging output
+
+# Noise reduction settings
+NOISE_REDUCTION_ENABLED = True  # Enable ambient noise reduction
+NOISE_FLOOR_THRESHOLD = 500  # RMS threshold below which audio is considered noise (0-32768)
+SPEECH_ENHANCEMENT_ENABLED = True  # Apply speech band enhancement
+BACKGROUND_NOISE_GATE = True  # Gate out consistent background noise
 
 # Realtime fallback configuration
 REALTIME_FALLBACK_ENABLED = True  # Allow fallback to chunk mode if realtime fails
 REALTIME_CONNECTION_TIMEOUT = 10.0  # Timeout in seconds for establishing realtime connection
-REALTIME_DEBUG = True  # Enable verbose realtime debugging output
-REALTIME_API_DEBUG = True  # Enable verbose debugging for speech_services_realtime WebSocket messages
+REALTIME_DEBUG = False  # Enable verbose realtime debugging output
+REALTIME_API_DEBUG = False  # Enable verbose debugging for speech_services_realtime WebSocket messages
 REALTIME_STREAM_TRANSCRIPTION = True  # Stream partial transcriptions to console in real-time
 
 # Interruption Handling Configuration
 INTERRUPTION_DETECTION_ENABLED = True  # Enable/disable automatic response cancellation on user interruption
 INTERRUPTION_ACKNOWLEDGMENT_ENABLED = True  # Provide feedback when interruptions are detected
-INTERRUPTION_GRACE_PERIOD_MS = 100  # Delay before auto-cancelling (avoid false positives from echo/noise)
+INTERRUPTION_GRACE_PERIOD_MS = 50  # Delay before auto-cancelling (avoid false positives from echo/noise)
 CONVERSATION_CONTEXT_PRESERVATION = True  # Maintain context across interruptions and handle continuation intelligently
+
+# Console Output Configuration
+DETAILED_FUNCTION_LOGGING = True  # Show detailed function call result data (for debugging)
+
+def request_logging_permission(description: str) -> bool:
+    """
+    Ask user permission before adding debugging/logging output.
+    
+    Args:
+        description: Description of what logging would be added
+        
+    Returns:
+        bool: True if permission granted, False otherwise
+    """
+    print(f"\n🤔 Would you like to enable detailed logging for: {description}")
+    print("   This will add more console output for debugging purposes.")
+    response = input("   Enable logging? (y/n): ").lower().strip()
+    return response in ['y', 'yes', '1', 'true']
 
 # OpenAI Models
 OPENAI_CHAT_MODEL = "gpt-4o-mini"  # Use mini for cost savings
@@ -71,7 +93,7 @@ MAX_TOKENS = 350            # Keep responses concise
 TOOL_TEMPERATURE = 0.6      # Lower temperature for more deterministic tool selection (minimum 0.6 for Realtime API)
 RESPONSE_TEMPERATURE = 0.6  # Minimum temperature for Realtime API - more deterministic responses
 # Context Configuration
-TOOL_CONTEXT_SIZE = 3       # Number of recent messages to use for tool selection (system prompt + 6 recent messages)
+TOOL_CONTEXT_SIZE = 1       # Number of recent messages to use for tool selection (system prompt + 6 recent messages)
                            # Smaller context = faster tool decisions, lower cost
                            # Response generation still uses full conversation history
 # Legacy temperature setting for backward compatibility
@@ -90,8 +112,7 @@ SPENCER_SPOTIFY_URI = os.getenv("SPENCER_SPOTIFY_URI")
 # - nova: Warm, friendly
 # - shimmer: Soft, calm
 
-# Gemini Models  
-GEMINI_CHAT_MODEL = "gemini-1.5-flash"  # or "gemini-1.5-pro"
+# Gemini removed - only OpenAI supported
 
 # Directories
 VOICE_DATA_DIR = "speech_data"
@@ -108,7 +129,7 @@ SILENCE_END_SEC = 0.9         # gap that ends a speech chunk
 COMPLETE_SILENCE_SEC = 1    # longer gap that completes the full message
 
 # Acoustic Echo Cancellation (AEC)
-AEC_ENABLED = True           # Enable/disable AEC processing
+AEC_ENABLED = False          # Enable/disable AEC processing
 AEC_FILTER_LENGTH = 100
 AEC_STEP_SIZE = 0.02
 AEC_DELAY_SAMPLES = 1600
@@ -133,14 +154,28 @@ AEC_CAPTURE_STRATEGY = "system_monitor"  # "file_based", "virtual_device", or "s
 # AEC_STEP_SIZE = 0.02
 # AEC_DELAY_SAMPLES = 800
 # AEC_REFERENCE_BUFFER_SEC = 6.0
+
+# Optimized for Realtime API streaming audio
+AEC_FILTER_LENGTH = 400          # Longer filter for better echo removal
+AEC_STEP_SIZE = 0.03             # Balanced adaptation speed
+AEC_DELAY_SAMPLES = 1200         # Compensate for streaming + playback latency
+AEC_REFERENCE_BUFFER_SEC = 8.0   # Longer buffer for streaming chunks
+
+# Emergency Feedback Protection
+FEEDBACK_DETECTION_ENABLED = False   # Enable automatic feedback detection
+FEEDBACK_DETECTION_THRESHOLD = 0.7   # Audio similarity threshold (0.0-1.0) - more sensitive
+FEEDBACK_DETECTION_WINDOW_SEC = 1.0  # Time window to analyze for feedback - faster detection
+FEEDBACK_EMERGENCY_MUTE = True       # Auto-mute on detected feedback
+FEEDBACK_RECOVERY_DELAY_SEC = 3.0    # Wait before re-enabling audio - shorter recovery
+
 session_summary_file = "core/state_management/session_summary.json"
 
 
 SYSTEM_PROMPT = """You are a voice-based home assistant for Morgan, Spencer, and guests.
 
 CRITICAL RULES - YOU MUST FOLLOW THESE:
-1. MANDATORY: Use tools for ALL requests. Do not answer from memory.
-2. ALWAYS base your response on the tool results you receive. Never ignore function results.
+1. MANDATORY: Use tools ONLY for relevant requests (home automation, calendar, notifications, music). Answer general questions directly.
+2. ALWAYS base your response on the tool results you receive when you do use tools. Never ignore function results.
 3. Give concise, factual answers. Maximum 2-3 sentences.
 4. NEVER end with engagement phrases: no "feel free to ask", "let me know", "is there anything else", etc.
 5. Stop immediately after providing the answer. No follow-up questions.
@@ -152,21 +187,34 @@ RESPONSE FORMAT RULES:
 - End your response immediately
 - Only offer specific actionable follow-ups like "Start morning playlist?" when highly relevant
 
-MANDATORY TOOL USAGE:
-- calendar_data: ALWAYS use for calendar/schedule/event queries. NEVER guess calendar info.
-- batch_light_control: ALWAYS use for all light operations
-- lighting_scene: ALWAYS use for scene controls (mood, party, etc.)
-- spotify_playbook: ALWAYS use for all music controls
-- state_manager: ALWAYS use for reading/updating system state
-- get_notifications: ALWAYS use to check for notifications
+WHEN TO USE TOOLS:
+- calendar_data: ONLY for calendar/schedule/event queries. NEVER guess calendar info.
+  * For day summaries (read_type: day_summary), user MUST explicitly mention "today" 
+  * Only query ONE person's calendar per request
+- batch_light_control: ONLY for light operations (turn on/off/dim lights)
+- lighting_scene: ONLY for scene controls (mood, party, etc.)
+- spotify_playback: ONLY for music controls (play, pause, etc.)
+- state_manager: ONLY for reading/updating system state
+- get_notifications: ONLY when user asks about notifications, messages, emails, or news updates
+  * Only query ONE person's notifications per request
 
-CRITICAL: You MUST use the appropriate tool for every request and ALWAYS incorporate the tool results into your response. If a tool returns data, use that data in your answer.
+WHEN NOT TO USE TOOLS:
+- General conversation, questions about topics, opinions, explanations
+- Questions about history, politics, science, technology (unless home automation related)
+- Personal advice or general knowledge queries
+
+CRITICAL: You MUST use the appropriate tool for HOME AUTOMATION requests and ALWAYS incorporate the tool results into your response. For general conversation, answer directly without tools.
 
 FUNCTION RESULT HANDLING:
 - When you call a function and receive results, ALWAYS use those results in your response
 - If get_notifications returns notifications, tell the user about them
 - If calendar_data returns events, tell the user about them
 - Never say you "can't check" something if the tool returned valid data
+
+TOOL CALL RESTRICTIONS:
+- NEVER query multiple people's calendars or notifications in one request
+- For calendar day summaries, user MUST say "today" - don't assume they mean today
+- Default to the current user if no specific person is mentioned
 
 GOOD RESPONSE EXAMPLES:
 ✓ "Turning on living room lights. Done."

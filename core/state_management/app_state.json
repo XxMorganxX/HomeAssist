@@ -4,44 +4,7 @@
     "chat_phase": "listening (active)",
     "notification_queue": {
       "Morgan": {
-        "notifications": [
-          {
-            "intended_recipient": "Morgan",
-            "notification_content": "\ud83d\udce7 Email: Job opportunity at Tech Corp\nSummary: Exciting role in AI research",
-            "relevant_when": "next_24_hours",
-            "source": "email"
-          },
-          {
-            "intended_recipient": "Morgan",
-            "notification_content": "\ud83d\udcf0 Tech News: New AI breakthrough announced\nKey insights:\n\u2022 Revolutionary algorithm improves efficiency by 40%",
-            "relevant_when": "next_24_hours",
-            "source": "news"
-          },
-          {
-            "intended_recipient": "Morgan",
-            "notification_content": "\ud83d\udcf0 Tech News: OpenAI teases imminent GPT-5 launch. Here's what to expect\nOpenAI is on the verge of launching GPT-5, which promises to integrate the reasoning capabilities of...\nKey insights:\n\u2022 GPT-5 integrates reasoning capabilities with existing GPT-series strengths.\n\u2022 New mini and nano models will enhance accessibility for developers.",
-            "relevant_when": "next_24_hours",
-            "source": "news"
-          },
-          {
-            "intended_recipient": "Morgan",
-            "notification_content": "\ud83d\udcf0 Tech News: What OpenAI's push for independence ultimately means for Microsoft's $14 billion investment\nThe article explores the evolving relationship between OpenAI and Microsoft amid rising tensions ove...\nKey insights:\n\u2022 OpenAI is seeking independence to better control its technology development and revenue model.\n\u2022 Microsoft's substantial investment and current contract are critical to OpenAI's ongoing viability.",
-            "relevant_when": "next_24_hours",
-            "source": "news"
-          },
-          {
-            "intended_recipient": "Morgan",
-            "notification_content": "\ud83d\udcf0 Tech News: Meta's wristband breakthrough lets you use digital devices without touching them\nMeta's Reality Labs has introduced a groundbreaking wristband capable of translating subtle hand ges...\nKey insights:\n\u2022 The wristband uses advanced electromyography to interpret muscle signals for device control.\n\u2022 AI enhances usability by allowing the device to adapt to various users without requiring personalized training.",
-            "relevant_when": "next_24_hours",
-            "source": "news"
-          },
-          {
-            "intended_recipient": "Morgan",
-            "notification_content": "\ud83d\udcf0 Tech News: Quantum Scientists Have Built a New Math of Cryptography\nRecent advancements in quantum cryptography have led to the proposal of a new mathematical foundatio...\nKey insights:\n\u2022 A new approach to quantum cryptography overcomes limitations of past models.\n\u2022 Innovative path proposed without unrealistic assumptions, enhancing practicality.",
-            "relevant_when": "next_24_hours",
-            "source": "news"
-          }
-        ]
+        "notifications": []
       },
       "Spencer": {
         "notifications": []

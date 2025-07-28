@@ -78,15 +78,11 @@ class RealtimeStreamingChatbot:
         if not openai_api_key:
             raise ValueError("OPENAI_KEY environment variable not set")
             
-        # Get Gemini API key if using Gemini (fallback only)
-        gemini_api_key = os.getenv("GEMINI_API_KEY")
-        
         self.speech_services = SpeechServices(
             openai_api_key=openai_api_key,
             whisper_model=config.WHISPER_MODEL,
             chat_provider=config.CHAT_PROVIDER,
             chat_model="gpt-4o-realtime-preview",  # Force realtime model
-            gemini_api_key=gemini_api_key,
             tts_enabled=config.TTS_ENABLED,
             tts_model=config.TEXT_TO_SPEECH_MODEL,
             tts_voice=config.TTS_VOICE
@@ -117,6 +113,11 @@ class RealtimeStreamingChatbot:
         self.response_interrupted = False  # Track if current response was interrupted
         self.partial_response_content = ""  # Store partial response before interruption
         self.interruption_timestamp = None  # Track when interruption occurred
+        self.potential_interruption_time = None  # Track when VAD detected speech during response
+        
+        # Conversation turn tracking for response correlation
+        self.current_transcript_item_id = None  # Track current user input item_id
+        self.expected_response_item_id = None   # Track expected response item_id
         
         # Tool support
         self.mcp_server = None
@@ -169,7 +170,8 @@ class RealtimeStreamingChatbot:
                 })
                 
             if self.functions:
-                print(f"🔧 Loaded {len(self.functions)} MCP tools for realtime chatbot")
+                # MCP tools loaded
+                pass
             
         except ImportError as e:
             print(f"⚠️ MCP server not available: {e}")
@@ -201,8 +203,7 @@ class RealtimeStreamingChatbot:
                     self.speech_services.loop
                 )
             
-            print(f"🔧 Triggered response with {len(self.functions)} tools available")
-            print(f"   Tools: {[f['name'] for f in self.functions]}")
+            # Response triggered with tools
             
         except Exception as e:
             print(f"⚠️ Error triggering response with tools: {e}")
@@ -217,8 +218,8 @@ class RealtimeStreamingChatbot:
         timestamp = time.time()
         self.audio_queue.put((audio_bytes, timestamp))
     
-    def send_to_db(self, chat: dict):
-        """Send chat to database with latency metrics."""
+    def send_to_db(self, chat: dict, system_prompt: str = None):
+        """Send chat to database with latency metrics and system prompt."""
         # Clear session summary when conversation ends
         if getattr(config, 'DISPLAY_CONTEXT', False):
             try:
@@ -257,10 +258,11 @@ class RealtimeStreamingChatbot:
                 print(f"🎵 Audio duration summary: {len(self.audio_duration_per_turn)} turns, total: {total_audio_duration:.2f}s, avg: {avg_audio_duration:.2f}s per turn")
             
             
-            # Save to database with latency metrics
+            # Save to database with latency metrics and system prompt
             db.insert_new_chat(
                 session_time=datetime.now(), 
                 chat_data=chat,
+                system_prompt=system_prompt,
                 accumulated_latencies=self.session_processing_latencies if self.session_processing_latencies else None,
                 final_latencies=self.session_final_latencies if self.session_final_latencies else None
             )
@@ -270,15 +272,17 @@ class RealtimeStreamingChatbot:
         if not self.is_streaming:
             return
             
-        # Check if we should mask audio (during greeting playback)
+        # Check if we should mask audio (during audio playback protection)
         if hasattr(self, '_audio_mask_until') and self._audio_mask_until > 0:
             if time.time() < self._audio_mask_until:
-                # Skip processing during mask period
+                # Skip processing during mask period to prevent immediate feedback
                 return
             else:
-                # Mask period just ended, log it once
-                # Audio masking ended
+                # Mask period just ended - enable extra feedback protection for next few frames
+                if config.DEBUG_MODE:
+                    print("🛡️ Audio mask period ended - enhanced feedback detection active")
                 self._audio_mask_until = 0  # Reset to avoid repeated checks
+                self._post_mask_protection_until = time.time() + 0.5  # 500ms of enhanced protection
         
         # Cost optimization: Track audio duration to filter out very short sounds
         if getattr(config, 'REALTIME_COST_OPTIMIZATION', True):
@@ -370,13 +374,26 @@ class RealtimeStreamingChatbot:
                     self._vad_stats['currently_speaking'] = is_speech
                     self._vad_stats['last_state_change'] = current_time
                     speech_state_changed = True
+                    
+                    # Trigger interruption detection when speech starts
+                    if is_speech:
+                        if config.DEBUG_MODE:
+                            print("🎤 VAD detected speech start - checking for interruptions")
+                        self._on_speech_started()
+                    else:
+                        if config.DEBUG_MODE:
+                            print("🔇 VAD detected speech end")
+                        self._on_speech_stopped()
                 
                 # Speech state changed but no logging to reduce spam
                 
                 if not is_speech:
-                    # No speech detected - don't send to API to save costs
+                    # No speech detected - replace with silence to maintain stream continuity
                     self.audio_frames_filtered += 1
-                    return
+                    # Create silent frame of same size
+                    silent_frame = b'\x00' * len(audio_bytes)
+                    audio_bytes = silent_frame  # Replace with silence
+                    # Continue to send silent frame to maintain audio stream
                 
                 # Speech detected (or fallback mode active) - send to API will proceed
                 
@@ -401,99 +418,89 @@ class RealtimeStreamingChatbot:
         """Handle partial transcription from realtime API."""
         if transcript and transcript != self.current_transcript:
             self.current_transcript = transcript
+            
+            # Check if this partial transcript confirms an interruption
+            if (self.potential_interruption_time and self.awaiting_response and
+                getattr(config, 'INTERRUPTION_DETECTION_ENABLED', True)):
+                
+                # Only trigger interruption if there's meaningful content (not just noise/fragments)
+                # Ignore very short fragments, common filler sounds, or unclear speech
+                transcript_clean = transcript.strip().lower()
+                if (len(transcript_clean) >= 2 and  # At least 2 characters
+                    transcript_clean not in ['uh', 'um', 'ah', 'er', 'mm', 'hmm', 'hm'] and  # Not filler sounds
+                    not transcript_clean.startswith('[') and  # Not unclear speech markers
+                    transcript_clean != self.current_transcript.lower()):  # Actually new content
+                    
+                    if config.DEBUG_MODE:
+                        print(f"\n🛑 Confirmed interruption with content: '{transcript_clean}'")
+                    
+                    # Now trigger the actual interruption
+                    self._trigger_confirmed_interruption()
+                else:
+                    if config.DEBUG_MODE:
+                        print(f"\n🔇 Ignoring short/filler content: '{transcript_clean}'")
+            
             # Use carriage return to overwrite the same line
             print(f"\r🎤  {transcript}", end="", flush=True)
     
-    def _should_use_realtime_for_query(self, transcript: str) -> bool:
-        """Determine if we should use Realtime API or fall back to traditional for cost savings."""
-        import config
+    def handle_audio_response(self, audio_b64: str):
+        """Handle audio response chunks from Realtime API and send to AEC."""
+        import base64
+        import numpy as np
+        import sounddevice as sd
+        import threading
+        import time
         
-        # Always use Realtime API if cost optimization is disabled
-        if not getattr(config, 'REALTIME_COST_OPTIMIZATION', True):
-            return True
-        
-        # If REALTIME_FOR_TOOLS_ONLY is False, use Realtime API for everything
-        if not getattr(config, 'REALTIME_FOR_TOOLS_ONLY', False):
-            return True
-        
-        # Only use Realtime for tool interactions when REALTIME_FOR_TOOLS_ONLY is True
-        tool_keywords = [
-            'calendar', 'schedule', 'events', 'today', 'tomorrow',
-            'lights', 'light', 'turn on', 'turn off', 'dim',
-            'music', 'play', 'pause', 'spotify', 'song',
-            'scene', 'mood', 'party', 'movie'
-        ]
-        
-        transcript_lower = transcript.lower()
-        needs_tools = any(keyword in transcript_lower for keyword in tool_keywords)
-        
-        if not needs_tools:
-            # Check word count threshold as fallback
-            threshold = getattr(config, 'REALTIME_SIMPLE_QUERY_THRESHOLD', 10)
-            word_count = len(transcript.split())
-            
-            if word_count < threshold:
-                return False  # Use traditional API for short, non-tool queries
-        
-        return True  # Use Realtime API
-
-    def _process_with_traditional_api(self, message: str) -> None:
-        """Process query using traditional API with 4o-mini for cost savings."""
         try:
-            # Initialize traditional speech services if needed
-            if not hasattr(self, '_traditional_speech_services'):
-                from core.speech_services import SpeechServices as TraditionalSpeechServices
-                
-                openai_api_key = os.getenv("OPENAI_KEY")
-                self._traditional_speech_services = TraditionalSpeechServices(
-                    openai_api_key=openai_api_key,
-                    whisper_model=config.WHISPER_MODEL,
-                    chat_provider="openai",
-                    chat_model=config.OPENAI_CHAT_MODEL,  # Uses 4o-mini
-                    tts_enabled=config.TTS_ENABLED,
-                    tts_model=config.TEXT_TO_SPEECH_MODEL,
-                    tts_voice=config.TTS_VOICE
-                )
+            # Decode base64 audio data
+            audio_bytes = base64.b64decode(audio_b64)
             
-            # Get response using traditional API
-            response_context = self.conversation.get_response_context()
-            print(f"💰 Using 4o-mini (context: {len(response_context)} messages)")
+            # Convert to numpy array (assuming PCM16 format from Realtime API)
+            audio_array = np.frombuffer(audio_bytes, dtype=np.int16)
             
-            response = self._traditional_speech_services.chat_completion(
-                response_context,
-                temperature=config.RESPONSE_TEMPERATURE,
-                functions=self.functions  # Include tools
-            )
+            # Send to AEC as reference audio IMMEDIATELY before playing
+            if hasattr(self, 'chunker') and self.chunker.aec_enabled and self.chunker.aec_processor:
+                # Convert to float32 for AEC processing
+                audio_float = audio_array.astype(np.float32) / 32768.0
+                
+                # Add reference audio immediately - no delay needed for non-blocking playback
+                self.chunker.aec_processor.add_reference_audio(audio_float)
+                
+                if config.DEBUG_MODE:
+                    print(f"🎵 Added realtime audio to AEC: {len(audio_array)} samples")
             
-            if response and response.get("content"):
-                self.conversation.add_assistant_message(response["content"])
-                # Trigger context management after adding assistant message
-                self.speech_services._manage_context_updates(self.conversation)
-                
-                
-                print(f"🤖  GPT: {response['content']}\n")
-                
-                # Convert response to speech if TTS is enabled
-                if self._traditional_speech_services.tts_enabled:
-                    audio_file = self._traditional_speech_services.text_to_speech(response["content"])
-                
-                print("─" * 50)
-            else:
-                print("⚠️ No response from traditional API")
-                
+            # Play the audio (non-blocking to allow interruption detection)
+            sample_rate = 24000  # Realtime API default
+            sd.play(audio_array, samplerate=sample_rate, blocking=False)
+            
+            # Add brief audio masking to prevent immediate feedback detection
+            # This gives AEC time to process the reference audio before checking for feedback
+            audio_duration_sec = len(audio_array) / sample_rate
+            mask_duration = min(0.1, audio_duration_sec * 0.3)  # Mask for 100ms or 30% of audio duration
+            self._audio_mask_until = time.time() + mask_duration
+            
+            if config.DEBUG_MODE:
+                print(f"🛡️ Audio mask applied for {mask_duration:.2f}s to prevent feedback")
+            
         except Exception as e:
-            print(f"❌ Error with traditional API: {e}")
+            print(f"⚠️ Error handling audio response: {e}")
             if config.DEBUG_MODE:
                 import traceback
                 traceback.print_exc()
+    
+
 
     def handle_final_transcript(self, transcript: str, item_id: str = None) -> None:
         """Handle complete transcription from realtime API."""
         if not transcript:
             return
         
-        # Store the item_id for later use in response
+        # Store the item_id for conversation turn tracking
         self.current_item_id = item_id
+        self.current_transcript_item_id = item_id
+        
+        # Clear any previous expected response item_id
+        self.expected_response_item_id = None
             
         # Clear the partial transcript line and show final
         if getattr(config, 'REALTIME_STREAM_TRANSCRIPTION', False):
@@ -522,7 +529,10 @@ class RealtimeStreamingChatbot:
                 print(f"🚫 End phrase '{phrase}' detected, stopping conversation")
                 print("🤖 Roger that! Conversation ending...")
                 self.session_ended = True
-                self.send_to_db(self.conversation.get_chat_minus_sys_prompt())
+                self.send_to_db(
+                    self.conversation.get_chat_minus_sys_prompt(),
+                    self.conversation.get_system_prompt()
+                )
                 return
         
         # Check for terminal phrases
@@ -530,7 +540,10 @@ class RealtimeStreamingChatbot:
             if phrase in transcript_lower:
                 print(f"🛑 Terminal phrase '{phrase}' detected, returning to wake word mode")
                 self.session_ended = True
-                self.send_to_db(self.conversation.get_chat_minus_sys_prompt())
+                self.send_to_db(
+                    self.conversation.get_chat_minus_sys_prompt(),
+                    self.conversation.get_system_prompt()
+                )
                 return
         
         # Check if this message comes after an interruption
@@ -574,6 +587,7 @@ class RealtimeStreamingChatbot:
             # Clear the partial response since we've handled it
             self.partial_response_content = ""
             self.interruption_timestamp = None
+            self.potential_interruption_time = None
         elif self.partial_response_content and self.interruption_timestamp:
             # Context preservation disabled - just clear interrupted response
             if config.DEBUG_MODE:
@@ -581,49 +595,38 @@ class RealtimeStreamingChatbot:
             self.conversation.remove_incomplete_response()
             self.partial_response_content = ""
             self.interruption_timestamp = None
+            self.potential_interruption_time = None
         
         # Add user message to conversation
         enhanced_message = self._enhance_message_for_freshness(message_to_process)
         self.conversation.add_user_message(enhanced_message)
         
         
-        # Smart API selection for cost optimization
-        use_realtime = self._should_use_realtime_for_query(transcript)
+        # Always use Realtime API for voice interactions
+        self._using_realtime_api = True
+        if config.DEBUG_MODE:
+            print("🤖  Waiting for response... (Realtime API)")
         
-        if use_realtime:
-            # Use Realtime API
-            self._using_realtime_api = True
-            if config.DEBUG_MODE:
-                print("🤖  Waiting for response... (Realtime API)")
+        # Only trigger response if not already waiting for one
+        if not self.awaiting_response:
+            self.awaiting_response = True
+            self._response_start_time = time.time()  # Track when we start waiting for response
             
-            # Only trigger response if not already waiting for one
-            if not self.awaiting_response:
-                self.awaiting_response = True
-                self._response_start_time = time.time()  # Track when we start waiting for response
-                
-                # Temporary debug flag (bypassing config)
-                TEMP_DEBUG = True
-                
-                if TEMP_DEBUG:
-                    print(f"🤖  Triggering response with {len(self.functions) if self.functions else 0} tools")
-                
-                # Trigger response generation with tools
-                if self.functions:
-                    self._trigger_response_with_tools()
-                else:
-                    # Trigger response without tools
-                    self.speech_services.trigger_response()
+            # Temporary debug flag (bypassing config)
+            TEMP_DEBUG = True
+            
+            if TEMP_DEBUG:
+                # Triggering response
+                pass
+            
+            # Trigger response generation with tools
+            if self.functions:
+                self._trigger_response_with_tools()
             else:
-                print("⚠️  Already waiting for response, skipping duplicate trigger")
+                # Trigger response without tools
+                self.speech_services.trigger_response()
         else:
-            # Fall back to traditional API with 4o-mini
-            self._using_realtime_api = False
-            if config.DEBUG_MODE:
-                print("🤖  Processing with traditional API (4o-mini)...")
-            
-            # Process using traditional API for cost savings
-            self._process_with_traditional_api(enhanced_message)
-            return
+            print("⚠️  Already waiting for response, skipping duplicate trigger")
         
         # Reset for next utterance
         self.current_transcript = ""
@@ -635,6 +638,11 @@ class RealtimeStreamingChatbot:
         self.response_interrupted = False
         self.partial_response_content = ""
         self.interruption_timestamp = None
+        self.potential_interruption_time = None
+        
+        # Reset conversation turn tracking for next interaction
+        self.current_transcript_item_id = None
+        self.expected_response_item_id = None
     
     def _on_speech_started(self) -> None:
         """Callback when speech starts - handle interruptions."""
@@ -654,39 +662,85 @@ class RealtimeStreamingChatbot:
             grace_period = getattr(config, 'INTERRUPTION_GRACE_PERIOD_MS', 100) / 1000.0
             if hasattr(self, '_response_start_time') and (current_time - self._response_start_time) < grace_period:
                 if config.DEBUG_MODE:
-                    print(f"🔇 Ignoring interruption within grace period ({grace_period:.1f}s)")
+                    print(f"🔇 Speech detected within grace period ({grace_period:.1f}s) - monitoring for content")
                 return
             
+            # Mark as potential interruption - we'll confirm when we get actual transcription content
+            self.potential_interruption_time = current_time
             if config.DEBUG_MODE:
-                print("🛑 User interruption detected - cancelling response")
-            
-            # Mark as interrupted and store timestamp
-            self.response_interrupted = True
-            self.interruption_timestamp = current_time
-            
-            # Cancel the active response
-            try:
-                self.speech_services.cancel_active_response()
-                if config.DEBUG_MODE:
-                    print("✅ Response cancelled successfully")
-            except Exception as e:
-                if config.DEBUG_MODE:
-                    print(f"⚠️ Error cancelling response: {e}")
-            
-            # Provide acknowledgment if enabled
-            if getattr(config, 'INTERRUPTION_ACKNOWLEDGMENT_ENABLED', True):
-                print("🎤 Voice detected, listening...")
-            
-            # Reset awaiting response flag since we cancelled
-            self.awaiting_response = False
+                print("🎧 Speech detected during response - waiting for transcription to confirm interruption")
+            return
         
         # Track that speech has started
         self.speech_detected = True
         if config.DEBUG_MODE:
             print("🎤 Speech started")
     
+    def _trigger_confirmed_interruption(self) -> None:
+        """Trigger interruption after confirming there's actual speech content."""
+        current_time = time.time()
+        
+        # Mark as interrupted and store timestamp
+        self.response_interrupted = True
+        self.interruption_timestamp = self.potential_interruption_time or current_time
+        
+        # Cancel the active response
+        try:
+            self.speech_services.cancel_active_response()
+            if config.DEBUG_MODE:
+                print("✅ Response cancelled successfully")
+        except Exception as e:
+            if config.DEBUG_MODE:
+                print(f"⚠️ Error cancelling response: {e}")
+        
+        # Stop any audio playback immediately
+        try:
+            sd.stop()
+            if config.DEBUG_MODE:
+                print("🔇 Audio playback stopped")
+        except Exception as e:
+            if config.DEBUG_MODE:
+                print(f"⚠️ Error stopping audio: {e}")
+        
+        # Provide acknowledgment if enabled
+        if getattr(config, 'INTERRUPTION_ACKNOWLEDGMENT_ENABLED', True):
+            print("🎤 Voice detected, listening...")
+        
+        # Reset flags
+        self.awaiting_response = False
+        self.potential_interruption_time = None
+    
+    def _is_valid_response_for_transcript(self, response_item_id: str, transcript_item_id: str) -> bool:
+        """
+        Validate if a response item_id corresponds to the current transcript.
+        
+        OpenAI Realtime API generates item_ids in sequence, so responses should have
+        item_ids that come after their corresponding transcript item_ids.
+        """
+        if not response_item_id or not transcript_item_id:
+            return True  # Allow if we don't have enough info to validate
+        
+        try:
+            # Extract sequence numbers from item_ids (format: item_XXXX)
+            transcript_seq = int(transcript_item_id.split('_')[-1]) if '_' in transcript_item_id else 0
+            response_seq = int(response_item_id.split('_')[-1]) if '_' in response_item_id else 0
+            
+            # Response should come after transcript (higher sequence number)
+            # Allow some flexibility for multiple response items
+            return response_seq > transcript_seq and (response_seq - transcript_seq) < 10
+            
+        except (ValueError, IndexError):
+            # If we can't parse item_ids, allow the response (fail open)
+            return True
+    
     def _on_speech_stopped(self) -> None:
         """Callback when speech stops."""
+        # Clear potential interruption if speech stops without meaningful content
+        if self.potential_interruption_time and not self.response_interrupted:
+            if config.DEBUG_MODE:
+                print("🔇 Speech stopped without meaningful content - continuing response")
+            self.potential_interruption_time = None
+            
         self.speech_end_time = time.time()
         self.speech_detected = False
         if config.DEBUG_MODE:
@@ -707,7 +761,7 @@ class RealtimeStreamingChatbot:
         
         # Get response using realtime API
         response_context = self.conversation.get_response_context()
-        print(f"🤖 Using realtime chat (context: {len(response_context)} messages)")
+        # Using realtime chat
         
         response = self.speech_services.chat_completion(
             response_context,
@@ -870,7 +924,8 @@ class RealtimeStreamingChatbot:
             # Configure tools in the session if available
             if self.functions:
                 if config.DEBUG_MODE:
-                    print(f"🔧 Configuring {len(self.functions)} tools in session...")
+                    # Configuring tools in session
+                    pass
                 self.speech_services.update_session_tools(self.functions)
             
             self.is_streaming = True
@@ -880,6 +935,7 @@ class RealtimeStreamingChatbot:
             # Set up callbacks for realtime events
             self.speech_services.set_callbacks(
                 partial_transcript_callback=self.handle_partial_transcript if getattr(config, 'REALTIME_STREAM_TRANSCRIPTION', False) else None,
+                audio_response_callback=self.handle_audio_response,
                 speech_stopped_callback=self._on_speech_stopped,
                 speech_started_callback=self._on_speech_started
             )
@@ -918,10 +974,11 @@ class RealtimeStreamingChatbot:
                         try:
                             function_call = self.speech_services.check_for_function_calls(timeout=0.05)  # Faster polling
                             if function_call and self.mcp_server:
-                                print(f"\n🔧 TOOL INVOKED: {function_call.get('name')}")
+                                # Tool invoked - logged in clean format
                                 result = self.speech_services.execute_function_call_realtime(function_call, self.mcp_server)
                                 if result:
-                                    print(f"✅ Tool executed successfully")
+                                    # Tool executed successfully
+                                    pass
                                 # Don't reset awaiting_response yet - wait for the final text response
                         except queue.Empty:
                             pass
@@ -930,7 +987,19 @@ class RealtimeStreamingChatbot:
                     if self.awaiting_response:
                         try:
                             response = self.speech_services.response_queue.get(timeout=0.05)  # Faster polling
+                            # Response received from queue
                             if response and response.get("content"):
+                                # Validate response item_id to ensure it matches current conversation turn
+                                response_item_id = response.get("item_id")
+                                
+                                # Debug: Show response correlation
+                                print(f"🔗 Response correlation: transcript_id={self.current_transcript_item_id}, response_id={response_item_id}")
+                                
+                                # If we have item_ids, validate they're related (responses should come after their corresponding transcripts)
+                                if (self.current_transcript_item_id and response_item_id and 
+                                    not self._is_valid_response_for_transcript(response_item_id, self.current_transcript_item_id)):
+                                    print(f"⚠️ Skipping mismatched response: expected after {self.current_transcript_item_id}, got {response_item_id}")
+                                    continue  # Skip this response and check for another one
                                 # Check if this response was interrupted
                                 if self.response_interrupted:
                                     # Store partial content but don't process fully
@@ -1035,6 +1104,7 @@ class RealtimeStreamingChatbot:
             # Set up callbacks
             self.speech_services.set_callbacks(
                 partial_transcript_callback=self.handle_partial_transcript if getattr(config, 'REALTIME_STREAM_TRANSCRIPTION', False) else None,
+                audio_response_callback=self.handle_audio_response,
                 speech_stopped_callback=self._on_speech_stopped,
                 speech_started_callback=self._on_speech_started
             )
@@ -1042,7 +1112,8 @@ class RealtimeStreamingChatbot:
             # Configure tools if available
             if self.functions:
                 if config.DEBUG_MODE:
-                    print(f"🔧 Configuring {len(self.functions)} tools in session...")
+                    # Configuring tools in session
+                    pass
                 self.speech_services.update_session_tools(self.functions)
             
             # Start message handling thread

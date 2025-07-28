@@ -138,8 +138,8 @@ class StreamingChatbot:
             print(f"⚠️  Audio status: {status}")
         self.audio_queue.put(bytes(indata))
     
-    def send_to_db(self, chat: dict):
-        """Send chat to database with latency metrics."""
+    def send_to_db(self, chat: dict, system_prompt: str = None):
+        """Send chat to database with latency metrics and system prompt."""
         with DBConnect() as db:
             # Prepare latency data
             accumulated_latencies = self.transcription_latencies.copy() if self.transcription_latencies else None
@@ -156,10 +156,11 @@ class StreamingChatbot:
                 avg_conversation = total_conversation / len(final_latencies)
                 print(f"⏱️  Conversation latencies: {len(final_latencies)} responses, total: {total_conversation:.3f}s, avg: {avg_conversation:.3f}s")
             
-            # Save to database with latency metrics
+            # Save to database with latency metrics and system prompt
             db.insert_new_chat(
                 session_time=datetime.now(), 
                 chat_data=chat,
+                system_prompt=system_prompt,
                 accumulated_latencies=accumulated_latencies,
                 final_latencies=final_latencies
             )
@@ -221,7 +222,10 @@ class StreamingChatbot:
                         print(f"🚫 End phrase '{phrase}' detected, stopping conversation")
                         print("🤖 Roger that! Conversation ending...")
                         self.session_ended = True
-                        self.send_to_db(self.conversation.get_chat_minus_sys_prompt())
+                        self.send_to_db(
+                            self.conversation.get_chat_minus_sys_prompt(),
+                            self.conversation.get_system_prompt()
+                        )
                         return
                 
                 # Check for terminal phrases that return to wake word mode
@@ -229,7 +233,10 @@ class StreamingChatbot:
                     if phrase in user_text_lower:
                         print(f"🛑 Terminal phrase '{phrase}' detected, returning to wake word mode")
                         self.session_ended = True
-                        self.send_to_db(self.conversation.get_chat_minus_sys_prompt())
+                        self.send_to_db(
+                            self.conversation.get_chat_minus_sys_prompt(),
+                            self.conversation.get_system_prompt()
+                        )
                         return
             
                 # Check for force send phrases
@@ -262,7 +269,10 @@ class StreamingChatbot:
                 print("🤖 Roger that! Conversation ending...")
                 self.session_ended = True
                 self.accumulated_chunks.clear()
-                self.send_to_db(self.conversation.get_chat_minus_sys_prompt())
+                self.send_to_db(
+                self.conversation.get_chat_minus_sys_prompt(),
+                self.conversation.get_system_prompt()
+            )
                 return
         
         # Check for terminal phrases in complete message
@@ -271,7 +281,10 @@ class StreamingChatbot:
                 print(f"🛑 Terminal phrase '{phrase}' detected in complete message, returning to wake word mode")
                 self.session_ended = True
                 self.accumulated_chunks.clear()
-                self.send_to_db(self.conversation.get_chat_minus_sys_prompt())
+                self.send_to_db(
+                self.conversation.get_chat_minus_sys_prompt(),
+                self.conversation.get_system_prompt()
+            )
                 return
         
         print("🤖  Sending to ChatGPT...")
@@ -731,7 +744,10 @@ class ToolEnabledStreamingChatbot(StreamingChatbot):
                 print("🤖 Roger that! Conversation ending...")
                 self.session_ended = True
                 self.accumulated_chunks.clear()
-                self.send_to_db(self.conversation.get_chat_minus_sys_prompt())
+                self.send_to_db(
+                self.conversation.get_chat_minus_sys_prompt(),
+                self.conversation.get_system_prompt()
+            )
                 return
         
         # Check for terminal phrases in complete message
@@ -740,7 +756,10 @@ class ToolEnabledStreamingChatbot(StreamingChatbot):
                 print(f"🛑 Terminal phrase '{phrase}' detected in complete message, returning to wake word mode")
                 self.session_ended = True
                 self.accumulated_chunks.clear()
-                self.send_to_db(self.conversation.get_chat_minus_sys_prompt())
+                self.send_to_db(
+                self.conversation.get_chat_minus_sys_prompt(),
+                self.conversation.get_system_prompt()
+            )
                 return
         
         print("🤖  Sending to ChatGPT...")
@@ -1084,7 +1103,10 @@ class ToolEnabledStreamingChatbot(StreamingChatbot):
         # Save test conversation to database
         try:
             print("💾 Saving test conversation to database...")
-            self.send_to_db(self.conversation.get_chat_minus_sys_prompt())
+            self.send_to_db(
+                self.conversation.get_chat_minus_sys_prompt(),
+                self.conversation.get_system_prompt()
+            )
             print("✅ Test conversation saved successfully")
         except Exception as db_error:
             print(f"⚠️ Failed to save test conversation to database: {db_error}")

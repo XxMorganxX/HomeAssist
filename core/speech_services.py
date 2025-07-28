@@ -226,6 +226,12 @@ class ConversationManager:
     def get_chat_minus_sys_prompt(self) -> List[Dict[str, str]]:
         """Get conversation history minus the system prompt."""
         return self.messages[1:]
+    
+    def get_system_prompt(self) -> str:
+        """Get the system prompt content."""
+        if len(self.messages) > 0 and self.messages[0].get('role') == 'system':
+            return self.messages[0].get('content', '')
+        return ''
         
     def get_tool_context(self, max_messages: int = 6) -> List[Dict[str, str]]:
         """
