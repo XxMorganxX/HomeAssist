@@ -412,3 +412,423 @@ Check the following files for results:
 2025-07-27 19:30:38,293 - INFO - Time: 2025-07-27 19:30:38
 2025-07-27 19:30:38,293 - INFO - ============================================================
 2025-07-27 19:30:38,293 - INFO - All tasks completed successfully!
+2025-07-27 22:37:06,111 - INFO - ============================================================
+2025-07-27 22:37:06,112 - INFO - SCHEDULED EVENTS STARTING
+2025-07-27 22:37:06,112 - INFO - Time: 2025-07-27 22:37:06
+2025-07-27 22:37:06,112 - INFO - ============================================================
+2025-07-27 22:37:06,112 - INFO - 
+[SETUP] PREPARING ENVIRONMENT
+2025-07-27 22:37:06,112 - INFO - 🧹 Cleaning up ephemeral data directories...
+2025-07-27 22:37:06,112 - INFO - 📁 No files to clean in /Users/morgannstuart/Desktop/RasPi_Smart_Home/scripts/scheduled/email_summarizer/ephemeral_data
+2025-07-27 22:37:06,112 - INFO - Removing 4 files from /Users/morgannstuart/Desktop/RasPi_Smart_Home/scripts/scheduled/news_summary/ephemeral_data
+2025-07-27 22:37:06,113 - INFO - ✅ Cleaned /Users/morgannstuart/Desktop/RasPi_Smart_Home/scripts/scheduled/news_summary/ephemeral_data
+2025-07-27 22:37:06,113 - INFO - 
+------------------------------------------------------------
+2025-07-27 22:37:06,113 - INFO - [1/2] EMAIL SUMMARIZER
+2025-07-27 22:37:06,113 - INFO - ------------------------------------------------------------
+2025-07-27 22:37:06,113 - INFO - Starting email summarizer...
+2025-07-27 22:37:06,113 - INFO - Script path: /Users/morgannstuart/Desktop/RasPi_Smart_Home/scripts/scheduled/email_summarizer/main.py
+2025-07-27 22:37:08,004 - INFO - [EMAIL] ============================================================
+2025-07-27 22:37:08,005 - INFO - [EMAIL] 📧 EMAIL SUMMARIZER
+2025-07-27 22:37:08,005 - INFO - [EMAIL] ============================================================
+2025-07-27 22:37:08,005 - INFO - [EMAIL] Started at: 2025-07-27 22:37:06
+2025-07-27 22:37:08,005 - INFO - [EMAIL] ============================================================
+2025-07-27 22:37:08,005 - INFO - [EMAIL] 
+2025-07-27 22:37:08,005 - INFO - [EMAIL] ==================== CHECKING CREDENTIALS ====================
+2025-07-27 22:37:08,005 - INFO - [EMAIL] 🔍 Checking OAuth credentials...
+2025-07-27 22:37:08,005 - INFO - [EMAIL] ✅ OAuth credentials file found!
+2025-07-27 22:37:08,005 - INFO - [EMAIL] ✅ Credentials check passed
+2025-07-27 22:37:08,005 - INFO - [EMAIL] 
+2025-07-27 22:37:08,005 - INFO - [EMAIL] ==================== FETCHING EMAILS ====================
+2025-07-27 22:37:08,005 - INFO - [EMAIL] 📧 Fetching emails from Gmail...
+2025-07-27 22:37:08,005 - INFO - [EMAIL] 📧 Fetching up to 100 recent emails from Gmail...
+2025-07-27 22:37:08,005 - INFO - [EMAIL] 📅 Fetching emails after 2025/07/27 (precise: 2025-07-27T15:56:26)
+2025-07-27 22:37:08,006 - INFO - [EMAIL] 📬 Found 6 potential email(s) to check.
+2025-07-27 22:37:08,006 - INFO - [EMAIL] ℹ️ No new emails to process.
+2025-07-27 22:37:08,006 - INFO - [EMAIL] ✅ No new emails to process
+2025-07-27 22:37:08,006 - INFO - [EMAIL] 
+2025-07-27 22:37:08,006 - INFO - [EMAIL] 🎉 Email processing is up to date!
+2025-07-27 22:37:08,081 - INFO - ✅ Email summarizer completed successfully in 2.0s
+2025-07-27 22:37:08,082 - INFO - 
+------------------------------------------------------------
+2025-07-27 22:37:08,082 - INFO - [2/2] NEWS SUMMARY
+2025-07-27 22:37:08,082 - INFO - ------------------------------------------------------------
+2025-07-27 22:37:08,082 - INFO - Starting news summary...
+2025-07-27 22:37:08,082 - INFO - Script path: /Users/morgannstuart/Desktop/RasPi_Smart_Home/scripts/scheduled/news_summary/main.py
+2025-07-27 22:37:40,012 - INFO - [NEWS] === Step 1: Headline Scraping ===
+2025-07-27 22:37:40,013 - INFO - [NEWS] API key 1 is not working, trying next...
+2025-07-27 22:37:40,013 - INFO - [NEWS] API key 2 is not working, trying next...
+2025-07-27 22:37:40,013 - INFO - [NEWS] API key 3 is not working, trying next...
+2025-07-27 22:37:40,013 - INFO - [NEWS] Now using API key 4
+2025-07-27 22:37:40,013 - INFO - [NEWS] Fetching headlines for 'artificial intelligence'
+2025-07-27 22:37:40,013 - INFO - [NEWS]   ✗ No articles found for 'artificial intelligence'
+2025-07-27 22:37:40,013 - INFO - [NEWS] Fetching headlines for 'AI'
+2025-07-27 22:37:40,013 - INFO - [NEWS]   ✓ Found 3 articles (total available: 21)
+2025-07-27 22:37:40,013 - INFO - [NEWS]     1. Reliable leaker tips mind-blowing Samsung Galaxy S26 Edge ba...
+2025-07-27 22:37:40,014 - INFO - [NEWS]     2. Data Shows Destiny 2 Edge of Fate Campaign Completions Down ...
+2025-07-27 22:37:40,014 - INFO - [NEWS]     3. The Greek Small-Town Doctor Who Knows AI’s Secrets - Gizmodo
+2025-07-27 22:37:40,014 - INFO - [NEWS] Fetching headlines for 'machine learning'
+2025-07-27 22:37:40,014 - INFO - [NEWS]   ✗ No articles found for 'machine learning'
+2025-07-27 22:37:40,014 - INFO - [NEWS] Fetching headlines for 'deep learning'
+2025-07-27 22:37:40,014 - INFO - [NEWS]   ✗ No articles found for 'deep learning'
+2025-07-27 22:37:40,014 - INFO - [NEWS] Fetching headlines for 'generative AI'
+2025-07-27 22:37:40,014 - INFO - [NEWS]   ✗ No articles found for 'generative AI'
+2025-07-27 22:37:40,014 - INFO - [NEWS] Fetching headlines for 'large language models'
+2025-07-27 22:37:40,014 - INFO - [NEWS]   ✗ No articles found for 'large language models'
+2025-07-27 22:37:40,014 - INFO - [NEWS] Fetching headlines for 'LLM'
+2025-07-27 22:37:40,014 - INFO - [NEWS]   ✗ No articles found for 'LLM'
+2025-07-27 22:37:40,014 - INFO - [NEWS] Fetching headlines for 'neural networks'
+2025-07-27 22:37:40,014 - INFO - [NEWS]   ✗ No articles found for 'neural networks'
+2025-07-27 22:37:40,014 - INFO - [NEWS] Fetching headlines for 'computer vision'
+2025-07-27 22:37:40,014 - INFO - [NEWS]   ✗ No articles found for 'computer vision'
+2025-07-27 22:37:40,014 - INFO - [NEWS] Fetching headlines for 'NLP'
+2025-07-27 22:37:40,014 - INFO - [NEWS]   ✗ No articles found for 'NLP'
+2025-07-27 22:37:40,014 - INFO - [NEWS] Fetching headlines for 'ChatGPT'
+2025-07-27 22:37:40,014 - INFO - [NEWS]   ✗ No articles found for 'ChatGPT'
+2025-07-27 22:37:40,014 - INFO - [NEWS] Fetching headlines for 'Claude AI'
+2025-07-27 22:37:40,014 - INFO - [NEWS]   ✗ No articles found for 'Claude AI'
+2025-07-27 22:37:40,014 - INFO - [NEWS] Fetching headlines for 'Gemini AI'
+2025-07-27 22:37:40,014 - INFO - [NEWS]   ✗ No articles found for 'Gemini AI'
+2025-07-27 22:37:40,014 - INFO - [NEWS] Fetching headlines for 'openAI'
+2025-07-27 22:37:40,014 - INFO - [NEWS]   ✓ Found 2 articles (total available: 2)
+2025-07-27 22:37:40,014 - INFO - [NEWS]     1. OpenAI teases imminent GPT-5 launch. Here's what to expect -...
+2025-07-27 22:37:40,014 - INFO - [NEWS]     2. What OpenAI's push for independence ultimately means for Mic...
+2025-07-27 22:37:40,014 - INFO - [NEWS] Fetching headlines for 'Anthropic'
+2025-07-27 22:37:40,014 - INFO - [NEWS]   ✗ No articles found for 'Anthropic'
+2025-07-27 22:37:40,015 - INFO - [NEWS] Fetching headlines for 'stability AI'
+2025-07-27 22:37:40,015 - INFO - [NEWS]   ✗ No articles found for 'stability AI'
+2025-07-27 22:37:40,015 - INFO - [NEWS] Fetching headlines for 'Apple'
+2025-07-27 22:37:40,015 - INFO - [NEWS]   ✓ Found 1 articles (total available: 1)
+2025-07-27 22:37:40,015 - INFO - [NEWS]     1. iPhone 17 Pro Launching in Two Months With These 16 New Feat...
+2025-07-27 22:37:40,015 - INFO - [NEWS] Fetching headlines for 'Google'
+2025-07-27 22:37:40,015 - INFO - [NEWS]   ✓ Found 2 articles (total available: 2)
+2025-07-27 22:37:40,015 - INFO - [NEWS]     1. Google Messages on Wear OS getting Material 3 Expressive red...
+2025-07-27 22:37:40,015 - INFO - [NEWS]     2. Pixel Buds Pro 2 and Pixel Watch 4 Leaks Just Spoiled Google...
+2025-07-27 22:37:40,015 - INFO - [NEWS] Fetching headlines for 'Meta'
+2025-07-27 22:37:40,015 - INFO - [NEWS]   ✓ Found 1 articles (total available: 1)
+2025-07-27 22:37:40,015 - INFO - [NEWS]     1. Meta's wristband breakthrough lets you use digital devices w...
+2025-07-27 22:37:40,015 - INFO - [NEWS] Fetching headlines for 'Amazon'
+2025-07-27 22:37:40,015 - INFO - [NEWS]   ✓ Found 2 articles (total available: 2)
+2025-07-27 22:37:40,015 - INFO - [NEWS]     1. Amazon's newest Kindle has people reading "hundreds more pag...
+2025-07-27 22:37:40,015 - INFO - [NEWS]     2. Amazon’s Clearing Out This Wireless CarPlay Adapter Like It’...
+2025-07-27 22:37:40,015 - INFO - [NEWS] Fetching headlines for 'Microsoft'
+2025-07-27 22:37:40,015 - INFO - [NEWS]   ✓ Found 3 articles (total available: 3)
+2025-07-27 22:37:40,015 - INFO - [NEWS]     1. Sony is hiring to expand "PlayStation Studios games beyond P...
+2025-07-27 22:37:40,015 - INFO - [NEWS]     2. What OpenAI's push for independence ultimately means for Mic...
+2025-07-27 22:37:40,015 - INFO - [NEWS]     3. ‘Starting Today’—Microsoft Confirms Free Windows Update - Fo...
+2025-07-27 22:37:40,015 - INFO - [NEWS] Fetching headlines for 'Nvidia'
+2025-07-27 22:37:40,015 - INFO - [NEWS]   ✓ Found 1 articles (total available: 1)
+2025-07-27 22:37:40,015 - INFO - [NEWS]     1. Leak confirms NVIDIA N1X PC chip features 20 CPU cores and 6...
+2025-07-27 22:37:40,015 - INFO - [NEWS] Fetching headlines for 'Tesla'
+2025-07-27 22:37:40,015 - INFO - [NEWS]   ✗ No articles found for 'Tesla'
+2025-07-27 22:37:40,015 - INFO - [NEWS] Fetching headlines for 'Alphabet'
+2025-07-27 22:37:40,015 - INFO - [NEWS]   ✓ Found 1 articles (total available: 1)
+2025-07-27 22:37:40,015 - INFO - [NEWS]     1. Alphabet Stock (GOOGL) Climbs Despite Samsung’s Galactical S...
+2025-07-27 22:37:40,015 - INFO - [NEWS] Fetching headlines for 'tech layoffs'
+2025-07-27 22:37:40,015 - INFO - [NEWS]   ✗ No articles found for 'tech layoffs'
+2025-07-27 22:37:40,015 - INFO - [NEWS] Fetching headlines for 'earnings report'
+2025-07-27 22:37:40,015 - INFO - [NEWS]   ✗ No articles found for 'earnings report'
+2025-07-27 22:37:40,015 - INFO - [NEWS] Fetching headlines for 'big tech'
+2025-07-27 22:37:40,015 - INFO - [NEWS]   ✗ No articles found for 'big tech'
+2025-07-27 22:37:40,015 - INFO - [NEWS] Fetching headlines for 'Silicon Valley'
+2025-07-27 22:37:40,015 - INFO - [NEWS]   ✗ No articles found for 'Silicon Valley'
+2025-07-27 22:37:40,015 - INFO - [NEWS] Fetching headlines for 'JavaScript'
+2025-07-27 22:37:40,015 - INFO - [NEWS]   ✗ No articles found for 'JavaScript'
+2025-07-27 22:37:40,015 - INFO - [NEWS] Fetching headlines for 'TypeScript'
+2025-07-27 22:37:40,015 - INFO - [NEWS]   ✗ No articles found for 'TypeScript'
+2025-07-27 22:37:40,016 - INFO - [NEWS] Fetching headlines for 'React'
+2025-07-27 22:37:40,016 - INFO - [NEWS]   ✗ No articles found for 'React'
+2025-07-27 22:37:40,016 - INFO - [NEWS] Fetching headlines for 'Node.js'
+2025-07-27 22:37:40,016 - INFO - [NEWS]   ✗ No articles found for 'Node.js'
+2025-07-27 22:37:40,016 - INFO - [NEWS] Fetching headlines for 'Web3'
+2025-07-27 22:37:40,016 - INFO - [NEWS]   ✗ No articles found for 'Web3'
+2025-07-27 22:37:40,016 - INFO - [NEWS] Fetching headlines for 'frontend'
+2025-07-27 22:37:40,016 - INFO - [NEWS]   ✗ No articles found for 'frontend'
+2025-07-27 22:37:40,016 - INFO - [NEWS] Fetching headlines for 'backend'
+2025-07-27 22:37:40,016 - INFO - [NEWS]   ✗ No articles found for 'backend'
+2025-07-27 22:37:40,016 - INFO - [NEWS] Fetching headlines for 'full stack'
+2025-07-27 22:37:40,016 - INFO - [NEWS]   ✗ No articles found for 'full stack'
+2025-07-27 22:37:40,016 - INFO - [NEWS] Fetching headlines for 'open source'
+2025-07-27 22:37:40,016 - INFO - [NEWS]   ✗ No articles found for 'open source'
+2025-07-27 22:37:40,016 - INFO - [NEWS] Fetching headlines for 'GitHub'
+2025-07-27 22:37:40,016 - INFO - [NEWS]   ✗ No articles found for 'GitHub'
+2025-07-27 22:37:40,016 - INFO - [NEWS] Fetching headlines for 'API'
+2025-07-27 22:37:40,016 - INFO - [NEWS]   ✗ No articles found for 'API'
+2025-07-27 22:37:40,016 - INFO - [NEWS] Fetching headlines for 'cloud computing'
+2025-07-27 22:37:40,016 - INFO - [NEWS]   ✗ No articles found for 'cloud computing'
+2025-07-27 22:37:40,016 - INFO - [NEWS] Fetching headlines for 'DevOps'
+2025-07-27 22:37:40,016 - INFO - [NEWS]   ✗ No articles found for 'DevOps'
+2025-07-27 22:37:40,016 - INFO - [NEWS] Fetching headlines for 'SaaS'
+2025-07-27 22:37:40,016 - INFO - [NEWS]   ✗ No articles found for 'SaaS'
+2025-07-27 22:37:40,016 - INFO - [NEWS] Fetching headlines for 'cybersecurity'
+2025-07-27 22:37:40,016 - INFO - [NEWS]   ✗ No articles found for 'cybersecurity'
+2025-07-27 22:37:40,016 - INFO - [NEWS] Fetching headlines for 'data breach'
+2025-07-27 22:37:40,016 - INFO - [NEWS]   ✗ No articles found for 'data breach'
+2025-07-27 22:37:40,016 - INFO - [NEWS] Fetching headlines for 'ransomware'
+2025-07-27 22:37:40,016 - INFO - [NEWS]   ✗ No articles found for 'ransomware'
+2025-07-27 22:37:40,016 - INFO - [NEWS] Fetching headlines for 'phishing'
+2025-07-27 22:37:40,016 - INFO - [NEWS]   ✗ No articles found for 'phishing'
+2025-07-27 22:37:40,016 - INFO - [NEWS] Fetching headlines for 'encryption'
+2025-07-27 22:37:40,016 - INFO - [NEWS]   ✓ Found 1 articles (total available: 1)
+2025-07-27 22:37:40,016 - INFO - [NEWS]     1. Quantum Scientists Have Built a New Math of Cryptography - Q...
+2025-07-27 22:37:40,016 - INFO - [NEWS] Fetching headlines for 'VPN'
+2025-07-27 22:37:40,016 - INFO - [NEWS]   ✗ No articles found for 'VPN'
+2025-07-27 22:37:40,016 - INFO - [NEWS] Fetching headlines for 'zero trust'
+2025-07-27 22:37:40,016 - INFO - [NEWS]   ✗ No articles found for 'zero trust'
+2025-07-27 22:37:40,016 - INFO - [NEWS] Fetching headlines for 'dark web'
+2025-07-27 22:37:40,017 - INFO - [NEWS]   ✗ No articles found for 'dark web'
+2025-07-27 22:37:40,017 - INFO - [NEWS] Fetching headlines for 'malware'
+2025-07-27 22:37:40,017 - INFO - [NEWS]   ✗ No articles found for 'malware'
+2025-07-27 22:37:40,017 - INFO - [NEWS] Fetching headlines for 'cybersecurity threat'
+2025-07-27 22:37:40,017 - INFO - [NEWS]   ✗ No articles found for 'cybersecurity threat'
+2025-07-27 22:37:40,017 - INFO - [NEWS] Fetching headlines for 'information security'
+2025-07-27 22:37:40,017 - INFO - [NEWS]   ✗ No articles found for 'information security'
+2025-07-27 22:37:40,017 - INFO - [NEWS] Fetching headlines for 'iPhone'
+2025-07-27 22:37:40,017 - INFO - [NEWS]   ✓ Found 3 articles (total available: 3)
+2025-07-27 22:37:40,017 - INFO - [NEWS]     1. iPhone 17 Pro Launching in Two Months With These 16 New Feat...
+2025-07-27 22:37:40,017 - INFO - [NEWS]     2. iPhone Fold leaker just spilled the beans on screen sizes — ...
+2025-07-27 22:37:40,017 - INFO - [NEWS]     3. iOS 26 Public Beta: Check Out What's New on Your iPhone Lock...
+2025-07-27 22:37:40,017 - INFO - [NEWS] Fetching headlines for 'Android'
+2025-07-27 22:37:40,017 - INFO - [NEWS]   ✓ Found 3 articles (total available: 4)
+2025-07-27 22:37:40,017 - INFO - [NEWS]     1. I tested Call Screening on iOS 26 vs Android 16 — and there'...
+2025-07-27 22:37:40,017 - INFO - [NEWS]     2. Google Messages on Wear OS getting Material 3 Expressive red...
+2025-07-27 22:37:40,017 - INFO - [NEWS]     3. Fresh Pixel 10 leak shows off the series in more than just M...
+2025-07-27 22:37:40,017 - INFO - [NEWS] Fetching headlines for 'smartphone'
+2025-07-27 22:37:40,017 - INFO - [NEWS]   ✓ Found 1 articles (total available: 1)
+2025-07-27 22:37:40,017 - INFO - [NEWS]     1. Exynos 2600’s graphics performance is faster than Snapdragon...
+2025-07-27 22:37:40,017 - INFO - [NEWS] Fetching headlines for 'wearable tech'
+2025-07-27 22:37:40,017 - INFO - [NEWS]   ✗ No articles found for 'wearable tech'
+2025-07-27 22:37:40,017 - INFO - [NEWS] Fetching headlines for 'Apple Watch'
+2025-07-27 22:37:40,017 - INFO - [NEWS]   ✗ No articles found for 'Apple Watch'
+2025-07-27 22:37:40,017 - INFO - [NEWS] Fetching headlines for 'AR glasses'
+2025-07-27 22:37:40,017 - INFO - [NEWS]   ✗ No articles found for 'AR glasses'
+2025-07-27 22:37:40,017 - INFO - [NEWS] Fetching headlines for 'VR headset'
+2025-07-27 22:37:40,017 - INFO - [NEWS]   ✗ No articles found for 'VR headset'
+2025-07-27 22:37:40,017 - INFO - [NEWS] Fetching headlines for 'Meta Quest'
+2025-07-27 22:37:40,017 - INFO - [NEWS]   ✗ No articles found for 'Meta Quest'
+2025-07-27 22:37:40,017 - INFO - [NEWS] Fetching headlines for 'foldable phone'
+2025-07-27 22:37:40,017 - INFO - [NEWS]   ✗ No articles found for 'foldable phone'
+2025-07-27 22:37:40,017 - INFO - [NEWS] Fetching headlines for 'earbuds'
+2025-07-27 22:37:40,017 - INFO - [NEWS]   ✗ No articles found for 'earbuds'
+2025-07-27 22:37:40,018 - INFO - [NEWS] Fetching headlines for 'M3 chip'
+2025-07-27 22:37:40,018 - INFO - [NEWS]   ✗ No articles found for 'M3 chip'
+2025-07-27 22:37:40,018 - INFO - [NEWS] Fetching headlines for 'Snapdragon'
+2025-07-27 22:37:40,018 - INFO - [NEWS]   ✓ Found 1 articles (total available: 1)
+2025-07-27 22:37:40,018 - INFO - [NEWS]     1. Exynos 2600’s graphics performance is faster than Snapdragon...
+2025-07-27 22:37:40,018 - INFO - [NEWS] Fetching headlines for 'quantum computing'
+2025-07-27 22:37:40,018 - INFO - [NEWS]   ✗ No articles found for 'quantum computing'
+2025-07-27 22:37:40,018 - INFO - [NEWS] Fetching headlines for 'blockchain'
+2025-07-27 22:37:40,018 - INFO - [NEWS]   ✗ No articles found for 'blockchain'
+2025-07-27 22:37:40,018 - INFO - [NEWS] Fetching headlines for 'augmented reality'
+2025-07-27 22:37:40,018 - INFO - [NEWS]   ✗ No articles found for 'augmented reality'
+2025-07-27 22:37:40,018 - INFO - [NEWS] Fetching headlines for 'virtual reality'
+2025-07-27 22:37:40,018 - INFO - [NEWS]   ✗ No articles found for 'virtual reality'
+2025-07-27 22:37:40,018 - INFO - [NEWS] Fetching headlines for 'mixed reality'
+2025-07-27 22:37:40,018 - INFO - [NEWS]   ✗ No articles found for 'mixed reality'
+2025-07-27 22:37:40,018 - INFO - [NEWS] Fetching headlines for 'spatial computing'
+2025-07-27 22:37:40,018 - INFO - [NEWS]   ✗ No articles found for 'spatial computing'
+2025-07-27 22:37:40,018 - INFO - [NEWS] Fetching headlines for 'robotics'
+2025-07-27 22:37:40,018 - INFO - [NEWS]   ✗ No articles found for 'robotics'
+2025-07-27 22:37:40,018 - INFO - [NEWS] Fetching headlines for 'drones'
+2025-07-27 22:37:40,018 - INFO - [NEWS]   ✗ No articles found for 'drones'
+2025-07-27 22:37:40,018 - INFO - [NEWS] Fetching headlines for 'IoT'
+2025-07-27 22:37:40,019 - INFO - [NEWS]   ✓ Found 1 articles (total available: 1)
+2025-07-27 22:37:40,019 - INFO - [NEWS]     1. Minions, Servers, and Progression – The Tech Behind Swarm - ...
+2025-07-27 22:37:40,019 - INFO - [NEWS] Fetching headlines for '5G'
+2025-07-27 22:37:40,019 - INFO - [NEWS]   ✓ Found 1 articles (total available: 1)
+2025-07-27 22:37:40,019 - INFO - [NEWS]     1. Google Messages on Wear OS getting Material 3 Expressive red...
+2025-07-27 22:37:40,019 - INFO - [NEWS] Fetching headlines for 'edge computing'
+2025-07-27 22:37:40,019 - INFO - [NEWS]   ✗ No articles found for 'edge computing'
+2025-07-27 22:37:40,019 - INFO - [NEWS] Fetching headlines for 'tech IPO'
+2025-07-27 22:37:40,019 - INFO - [NEWS]   ✗ No articles found for 'tech IPO'
+2025-07-27 22:37:40,019 - INFO - [NEWS] Fetching headlines for 'startup funding'
+2025-07-27 22:37:40,019 - INFO - [NEWS]   ✗ No articles found for 'startup funding'
+2025-07-27 22:38:15,647 - INFO - [NEWS] Fetching headlines for 'venture capital'
+2025-07-27 22:38:15,647 - INFO - [NEWS]   ✗ No articles found for 'venture capital'
+2025-07-27 22:38:15,647 - INFO - [NEWS] Fetching headlines for 'angel investing'
+2025-07-27 22:38:15,647 - INFO - [NEWS]   ✗ No articles found for 'angel investing'
+2025-07-27 22:38:15,647 - INFO - [NEWS] Fetching headlines for 'Series A'
+2025-07-27 22:38:15,647 - INFO - [NEWS]   ✓ Found 2 articles (total available: 2)
+2025-07-27 22:38:15,647 - INFO - [NEWS]     1. Fresh Pixel 10 leak shows off the series in more than just M...
+2025-07-27 22:38:15,647 - INFO - [NEWS]     2. Massive Elden Ring Sales Boost Kadokawa Stock (9468) - TipRa...
+2025-07-27 22:38:15,647 - INFO - [NEWS] Fetching headlines for 'seed round'
+2025-07-27 22:38:15,647 - INFO - [NEWS]   ✗ No articles found for 'seed round'
+2025-07-27 22:38:15,647 - INFO - [NEWS] Fetching headlines for 'unicorn startup'
+2025-07-27 22:38:15,647 - INFO - [NEWS]   ✗ No articles found for 'unicorn startup'
+2025-07-27 22:38:15,647 - INFO - [NEWS] Fetching headlines for 'pitch deck'
+2025-07-27 22:38:15,647 - INFO - [NEWS]   ✗ No articles found for 'pitch deck'
+2025-07-27 22:38:15,647 - INFO - [NEWS] Fetching headlines for 'tech accelerator'
+2025-07-27 22:38:15,647 - INFO - [NEWS]   ✗ No articles found for 'tech accelerator'
+2025-07-27 22:38:15,647 - INFO - [NEWS] Fetching headlines for 'EU tech regulation'
+2025-07-27 22:38:15,647 - INFO - [NEWS]   ✗ No articles found for 'EU tech regulation'
+2025-07-27 22:38:15,647 - INFO - [NEWS] Fetching headlines for 'China AI'
+2025-07-27 22:38:15,647 - INFO - [NEWS]   ✗ No articles found for 'China AI'
+2025-07-27 22:38:15,647 - INFO - [NEWS] Fetching headlines for 'US chip ban'
+2025-07-27 22:38:15,647 - INFO - [NEWS]   ✗ No articles found for 'US chip ban'
+2025-07-27 22:38:15,647 - INFO - [NEWS] Fetching headlines for 'semiconductors'
+2025-07-27 22:38:15,647 - INFO - [NEWS]   ✗ No articles found for 'semiconductors'
+2025-07-27 22:38:15,648 - INFO - [NEWS] Fetching headlines for 'global tech summit'
+2025-07-27 22:38:15,648 - INFO - [NEWS]   ✗ No articles found for 'global tech summit'
+2025-07-27 22:38:15,648 - INFO - [NEWS] Fetching headlines for 'CES'
+2025-07-27 22:38:15,648 - INFO - [NEWS]   ✓ Found 3 articles (total available: 9)
+2025-07-27 22:38:15,648 - INFO - [NEWS]     1. iPhone 17 Pro Launching in Two Months With These 16 New Feat...
+2025-07-27 22:38:15,648 - INFO - [NEWS]     2. AMD Confirms Ryzen Threadripper 9000 “HEDT” CPU Prices: Avai...
+2025-07-27 22:38:15,648 - INFO - [NEWS]     3. 8 smart home gadgets that instantly upgraded my house (and w...
+2025-07-27 22:38:15,648 - INFO - [NEWS] Fetching headlines for 'WWDC'
+2025-07-27 22:38:15,648 - INFO - [NEWS]   ✗ No articles found for 'WWDC'
+2025-07-27 22:38:15,648 - INFO - [NEWS] Fetching headlines for 'MWC'
+2025-07-27 22:38:15,648 - INFO - [NEWS]   ✗ No articles found for 'MWC'
+2025-07-27 22:38:15,648 - INFO - [NEWS] Fetching headlines for 'tech trade war'
+2025-07-27 22:38:15,648 - INFO - [NEWS]   ✗ No articles found for 'tech trade war'
+2025-07-27 22:38:15,648 - INFO - [NEWS] 
+2025-07-27 22:38:15,648 - INFO - [NEWS] === Scraping Summary ===
+2025-07-27 22:38:15,648 - INFO - [NEWS] Total articles found: 32
+2025-07-27 22:38:15,648 - INFO - [NEWS] Keywords searched: 90
+2025-07-27 22:38:15,648 - INFO - [NEWS] Keywords with results: 18
+2025-07-27 22:38:15,648 - INFO - [NEWS] 
+2025-07-27 22:38:15,648 - INFO - [NEWS] Successful keywords: Android, Amazon, Snapdragon, IoT, Series A, openAI, Alphabet, Nvidia, CES, AI, Google, smartphone, iPhone, Microsoft, encryption, Meta, Apple, 5G
+2025-07-27 22:38:15,648 - INFO - [NEWS] 
+2025-07-27 22:38:15,648 - INFO - [NEWS] === Step 2: Headline Analysis ===
+2025-07-27 22:38:15,648 - INFO - [NEWS] Analyzing 32 headlines...
+2025-07-27 22:38:15,648 - INFO - [NEWS] - Reliable leaker tips mind-blowing Samsung Galaxy S26 Edge battery size and other potential surprises - PhoneArena
+2025-07-27 22:38:15,648 - INFO - [NEWS] - Data Shows Destiny 2 Edge of Fate Campaign Completions Down Nearly 70% Compared To The Final Shape - The Game Post
+2025-07-27 22:38:15,648 - INFO - [NEWS] - The Greek Small-Town Doctor Who Knows AI’s Secrets - Gizmodo
+2025-07-27 22:38:15,648 - INFO - [NEWS] - OpenAI teases imminent GPT-5 launch. Here's what to expect - ZDNET
+2025-07-27 22:38:15,648 - INFO - [NEWS] - What OpenAI's push for independence ultimately means for Microsoft's $14 billion investment - CNBC
+2025-07-27 22:38:15,648 - INFO - [NEWS] - iPhone 17 Pro Launching in Two Months With These 16 New Features - MacRumors
+2025-07-27 22:38:15,648 - INFO - [NEWS] - Google Messages on Wear OS getting Material 3 Expressive redesign - 9to5Google
+2025-07-27 22:38:15,648 - INFO - [NEWS] - Pixel Buds Pro 2 and Pixel Watch 4 Leaks Just Spoiled Google’s Whole Party - Gizmodo
+2025-07-27 22:38:15,648 - INFO - [NEWS] - Meta's wristband breakthrough lets you use digital devices without touching them - Tech Xplore
+2025-07-27 22:38:15,648 - INFO - [NEWS] - Amazon's newest Kindle has people reading "hundreds more pages" of their books - clear the shelves - Woman & Home
+2025-07-27 22:38:15,648 - INFO - [NEWS] - Amazon’s Clearing Out This Wireless CarPlay Adapter Like It’s Black Friday in July - Gizmodo
+2025-07-27 22:38:15,648 - INFO - [NEWS] - Sony is hiring to expand "PlayStation Studios games beyond PlayStation hardware" — partners including Xbox, Steam, Nintendo Switch, and more - Windows Central
+2025-07-27 22:38:15,649 - INFO - [NEWS] - What OpenAI's push for independence ultimately means for Microsoft's $14 billion investment - CNBC
+2025-07-27 22:38:15,649 - INFO - [NEWS] - ‘Starting Today’—Microsoft Confirms Free Windows Update - Forbes
+2025-07-27 22:38:15,649 - INFO - [NEWS] - Leak confirms NVIDIA N1X PC chip features 20 CPU cores and 6144 CUDA cores - VideoCardz.com
+2025-07-27 22:38:15,649 - INFO - [NEWS] - Alphabet Stock (GOOGL) Climbs Despite Samsung’s Galactical Search for New AI Agents - TipRanks
+2025-07-27 22:38:15,649 - INFO - [NEWS] - Quantum Scientists Have Built a New Math of Cryptography - Quanta Magazine
+2025-07-27 22:38:15,649 - INFO - [NEWS] - iPhone 17 Pro Launching in Two Months With These 16 New Features - MacRumors
+2025-07-27 22:38:15,649 - INFO - [NEWS] - iPhone Fold leaker just spilled the beans on screen sizes — and it's worse than we thought - Tom's Guide
+2025-07-27 22:38:15,649 - INFO - [NEWS] - iOS 26 Public Beta: Check Out What's New on Your iPhone Lock Screen - MacRumors
+2025-07-27 22:38:15,649 - INFO - [NEWS] - I tested Call Screening on iOS 26 vs Android 16 — and there's a clear winner - Tom's Guide
+2025-07-27 22:38:15,649 - INFO - [NEWS] - Google Messages on Wear OS getting Material 3 Expressive redesign - 9to5Google
+2025-07-27 22:38:15,649 - INFO - [NEWS] - Fresh Pixel 10 leak shows off the series in more than just Moonstone - Android Authority
+2025-07-27 22:38:15,649 - INFO - [NEWS] - Exynos 2600’s graphics performance is faster than Snapdragon 8 Elite - SamMobile
+2025-07-27 22:38:15,649 - INFO - [NEWS] - Exynos 2600’s graphics performance is faster than Snapdragon 8 Elite - SamMobile
+2025-07-27 22:38:15,649 - INFO - [NEWS] - Minions, Servers, and Progression – The Tech Behind Swarm - Riot Games
+2025-07-27 22:38:15,649 - INFO - [NEWS] - Google Messages on Wear OS getting Material 3 Expressive redesign - 9to5Google
+2025-07-27 22:38:15,649 - INFO - [NEWS] - Fresh Pixel 10 leak shows off the series in more than just Moonstone - Android Authority
+2025-07-27 22:38:15,649 - INFO - [NEWS] - Massive Elden Ring Sales Boost Kadokawa Stock (9468) - TipRanks
+2025-07-27 22:38:15,649 - INFO - [NEWS] - iPhone 17 Pro Launching in Two Months With These 16 New Features - MacRumors
+2025-07-27 22:38:15,649 - INFO - [NEWS] - AMD Confirms Ryzen Threadripper 9000 “HEDT” CPU Prices: Available on 31st July, $1499 For 24 Cores, $2499 For 32 Cores & $4999 For 64 Cores - Wccftech
+2025-07-27 22:38:15,649 - INFO - [NEWS] - 8 smart home gadgets that instantly upgraded my house (and why they work) - ZDNet
+2025-07-27 22:38:15,649 - INFO - [NEWS] 
+2025-07-27 22:38:15,649 - INFO - [NEWS] === Top 5 Headlines Analysis ===
+2025-07-27 22:38:15,649 - INFO - [NEWS] 
+2025-07-27 22:38:15,649 - INFO - [NEWS] #1: OpenAI teases imminent GPT-5 launch. Here's what to expect
+2025-07-27 22:38:15,649 - INFO - [NEWS] URL: https://www.zdnet.com/article/openai-teases-imminent-gpt-5-launch-heres-what-to-expect/
+2025-07-27 22:38:15,649 - INFO - [NEWS] Reasoning: The headline discusses the upcoming launch of GPT-5 by OpenAI, which is a significant advancement in AI technology. GPT-5 represents the next iteration of their generative pre-trained transformer, promising enhancements in natural language processing and AI capabilities. This topic is highly relevant in the tech community, as improvements in AI models have far-reaching implications across various sectors, including education, customer service, and content creation.
+2025-07-27 22:38:15,649 - INFO - [NEWS] 
+2025-07-27 22:38:15,649 - INFO - [NEWS] #2: What OpenAI's push for independence ultimately means for Microsoft's $14 billion investment
+2025-07-27 22:38:15,649 - INFO - [NEWS] URL: https://www.cnbc.com/2025/07/25/what-openais-push-for-independence-ultimately-means-for-microsofts-14-billion-investment-.html
+2025-07-27 22:38:15,650 - INFO - [NEWS] Reasoning: This headline reflects on OpenAI's strategic autonomy and its potential impact on Microsoft's massive investment in the company. The dynamics between tech giants like Microsoft and AI developers like OpenAI provide insights into the future of AI innovation, partnerships, and competition in the tech landscape. Understanding these shifts is crucial for industry stakeholders, as they highlight the growing significance of AI companies and their independence in shaping technological advancements.
+2025-07-27 22:38:15,650 - INFO - [NEWS] 
+2025-07-27 22:38:15,650 - INFO - [NEWS] #3: Meta's wristband breakthrough lets you use digital devices without touching them
+2025-07-27 22:38:15,650 - INFO - [NEWS] URL: https://techxplore.com/news/2025-07-meta-wristband-breakthrough-digital-devices.html
+2025-07-27 22:38:15,650 - INFO - [NEWS] Reasoning: Meta's innovative wristband introduces new interaction possibilities for digital devices, significantly impacting user experience and design in technology. This development aligns with the trend towards intuitive human-computer interfaces, integrating AI to enhance accessibility. As technology evolves, these advances can lead to more immersive interactions with digital environments, highlighting the role of innovation in improving user engagement and functionality.
+2025-07-27 22:38:15,650 - INFO - [NEWS] 
+2025-07-27 22:38:15,650 - INFO - [NEWS] #4: Leak confirms NVIDIA N1X PC chip features 20 CPU cores and 6144 CUDA cores
+2025-07-27 22:38:15,650 - INFO - [NEWS] URL: https://videocardz.com/newz/leak-confirms-nvidia-n1x-pc-chip-features-20-cpu-cores-and-6144-cuda-cores
+2025-07-27 22:38:15,650 - INFO - [NEWS] Reasoning: This headline pertains to a highly anticipated leak involving NVIDIA's upcoming hardware that could revolutionize computing power and graphics performance. With 20 CPU cores and a vast number of CUDA cores, this chip is significant for developers engaged in AI, machine learning, and gaming. As AI workloads become more demanding, advancements in hardware like this are critical for enabling more sophisticated applications in various fields.
+2025-07-27 22:38:15,650 - INFO - [NEWS] 
+2025-07-27 22:38:15,650 - INFO - [NEWS] #5: Quantum Scientists Have Built a New Math of Cryptography
+2025-07-27 22:38:15,650 - INFO - [NEWS] URL: https://www.quantamagazine.org/quantum-scientists-have-built-a-new-math-of-cryptography-20250725/
+2025-07-27 22:38:15,650 - INFO - [NEWS] Reasoning: The exploration of new mathematical frameworks for cryptography, especially within the context of quantum computing, is a hotbed of innovation in the tech industry. The implications of this research extend to AI since secure communication is fundamental for the advancement and deployment of AI technologies. Addressing cybersecurity through quantum cryptography could set a new precedent, ensuring that the future of AI systems remains protected against potential threats and attacks.
+2025-07-27 22:38:15,650 - INFO - [NEWS] 
+2025-07-27 22:38:15,650 - INFO - [NEWS] Analysis saved to ephemeral_data/top_headlines.json
+2025-07-27 22:38:15,650 - INFO - [NEWS] 
+2025-07-27 22:38:15,650 - INFO - [NEWS] === Step 3: Article Scraping ===
+2025-07-27 22:38:15,650 - INFO - [NEWS] 
+2025-07-27 22:38:15,650 - INFO - [NEWS] ==================================================
+2025-07-27 22:38:15,650 - INFO - [NEWS] Article 1: Fetching content from https://www.zdnet.com/article/openai-tea
+2025-07-27 22:38:15,650 - INFO - [NEWS] ==================================================
+2025-07-27 22:38:15,650 - INFO - [NEWS] 
+2025-07-27 22:38:15,650 - INFO - [NEWS] ==================================================
+2025-07-27 22:38:15,650 - INFO - [NEWS] Article 2: Fetching content from https://www.cnbc.com/2025/07/25/what-ope
+2025-07-27 22:38:15,650 - INFO - [NEWS] ==================================================
+2025-07-27 22:38:15,651 - INFO - [NEWS] 
+2025-07-27 22:38:15,651 - INFO - [NEWS] ==================================================
+2025-07-27 22:38:15,651 - INFO - [NEWS] Article 3: Fetching content from https://techxplore.com/news/2025-07-meta
+2025-07-27 22:38:15,651 - INFO - [NEWS] ==================================================
+2025-07-27 22:38:15,651 - INFO - [NEWS] 
+2025-07-27 22:38:15,651 - INFO - [NEWS] ==================================================
+2025-07-27 22:38:15,651 - INFO - [NEWS] Article 4: Fetching content from https://videocardz.com/newz/leak-confirm
+2025-07-27 22:38:15,651 - INFO - [NEWS] ==================================================
+2025-07-27 22:38:15,651 - INFO - [NEWS] 
+2025-07-27 22:38:15,651 - INFO - [NEWS] ==================================================
+2025-07-27 22:38:15,651 - INFO - [NEWS] Article 5: Fetching content from https://www.quantamagazine.org/quantum-s
+2025-07-27 22:38:15,651 - INFO - [NEWS] ==================================================
+2025-07-27 22:38:15,651 - INFO - [NEWS] 
+2025-07-27 22:38:15,651 - INFO - [NEWS] === Step 4: Full Article Analysis ===
+2025-07-27 22:38:15,651 - INFO - [NEWS] 
+2025-07-27 22:38:15,651 - INFO - [NEWS] Analyzing 5 full articles...
+2025-07-27 22:38:15,651 - INFO - [NEWS] 
+2025-07-27 22:38:15,651 - INFO - [NEWS] Analyzing article 1: OpenAI teases imminent GPT-5 launch. Here's what to expect...
+2025-07-27 22:38:15,651 - INFO - [NEWS]   Innovation Score: 8.5/10
+2025-07-27 22:38:15,651 - INFO - [NEWS]   Categories: AI, Machine Learning, Software, Consumer Tech
+2025-07-27 22:38:15,651 - INFO - [NEWS]   Key Insights: 3 found
+2025-07-27 22:38:15,651 - INFO - [NEWS] 
+2025-07-27 22:38:15,651 - INFO - [NEWS] Analyzing article 2: What OpenAI's push for independence ultimately means for Mic...
+2025-07-27 22:38:15,651 - INFO - [NEWS]   Innovation Score: 7.5/10
+2025-07-27 22:38:15,651 - INFO - [NEWS]   Categories: AI, Enterprise, Investor Relations
+2025-07-27 22:38:15,651 - INFO - [NEWS]   Key Insights: 3 found
+2025-07-27 22:38:15,651 - INFO - [NEWS] 
+2025-07-27 22:38:15,651 - INFO - [NEWS] Analyzing article 3: Meta's wristband breakthrough lets you use digital devices w...
+2025-07-27 22:38:15,651 - INFO - [NEWS]   Innovation Score: 8.5/10
+2025-07-27 22:38:15,651 - INFO - [NEWS]   Categories: AI, Consumer Tech, Healthcare, Research
+2025-07-27 22:38:15,651 - INFO - [NEWS]   Key Insights: 3 found
+2025-07-27 22:38:15,651 - INFO - [NEWS] 
+2025-07-27 22:38:15,651 - INFO - [NEWS] Analyzing article 4: Leak confirms NVIDIA N1X PC chip features 20 CPU cores and 6...
+2025-07-27 22:38:15,651 - INFO - [NEWS]   Innovation Score: 6.5/10
+2025-07-27 22:38:15,651 - INFO - [NEWS]   Categories: Hardware, AI, Consumer Tech
+2025-07-27 22:38:15,651 - INFO - [NEWS]   Key Insights: 3 found
+2025-07-27 22:38:15,651 - INFO - [NEWS] 
+2025-07-27 22:38:15,652 - INFO - [NEWS] Analyzing article 5: Quantum Scientists Have Built a New Math of Cryptography...
+2025-07-27 22:38:15,652 - INFO - [NEWS]   Innovation Score: 8.5/10
+2025-07-27 22:38:15,652 - INFO - [NEWS]   Categories: Cryptography, Quantum Computing, Research
+2025-07-27 22:38:15,652 - INFO - [NEWS]   Key Insights: 3 found
+2025-07-27 22:38:15,652 - INFO - [NEWS] 
+2025-07-27 22:38:15,652 - INFO - [NEWS] === Full Article Analysis Complete ===
+2025-07-27 22:38:15,652 - INFO - [NEWS] Successfully analyzed 5 out of 5 articles
+2025-07-27 22:38:15,652 - INFO - [NEWS] Average Innovation Score: 7.9/10
+2025-07-27 22:38:15,652 - INFO - [NEWS] Analysis saved to ephemeral_data/full_article_analysis.json
+2025-07-27 22:38:15,652 - INFO - [NEWS] 
+2025-07-27 22:38:15,652 - INFO - [NEWS] 🎉 Complete analysis pipeline finished!
+2025-07-27 22:38:15,652 - INFO - [NEWS] Check the following files for results:
+2025-07-27 22:38:15,652 - INFO - [NEWS]   - ephemeral_data/headlines.json (scraped headlines)
+2025-07-27 22:38:15,652 - INFO - [NEWS]   - ephemeral_data/top_headlines.json (best headlines)
+2025-07-27 22:38:15,652 - INFO - [NEWS]   - ephemeral_data/news.json (article content)
+2025-07-27 22:38:15,652 - INFO - [NEWS]   - ephemeral_data/full_article_analysis.json (detailed analysis)
+2025-07-27 22:38:15,748 - INFO - ✅ News summary completed successfully in 67.7s
+2025-07-27 22:38:15,748 - INFO - 📁 Generated 4 files: top_headlines.json, headlines.json, news.json, full_article_analysis.json
+2025-07-27 22:38:15,748 - INFO - 
+------------------------------------------------------------
+2025-07-27 22:38:15,748 - INFO - [3/3] EXPORTING NOTIFICATIONS
+2025-07-27 22:38:15,748 - INFO - ------------------------------------------------------------
+2025-07-27 22:38:15,748 - INFO - Starting notification export...
+2025-07-27 22:38:15,748 - INFO - Added news notification for Morgan: OpenAI teases imminent GPT-5 launch. Here's what to expect
+2025-07-27 22:38:15,748 - INFO - Added news notification for Morgan: What OpenAI's push for independence ultimately means for Microsoft's $14 billion investment
+2025-07-27 22:38:15,748 - INFO - Added news notification for Morgan: Meta's wristband breakthrough lets you use digital devices without touching them
+2025-07-27 22:38:15,748 - INFO - Added news notification for Morgan: Quantum Scientists Have Built a New Math of Cryptography
+2025-07-27 22:38:15,749 - INFO - Successfully saved app_state.json with 4 new notifications
+2025-07-27 22:38:15,749 - INFO - Notification export complete. Added 4 notifications.
+2025-07-27 22:38:15,749 - INFO - ✅ Exported 4 notifications successfully
+2025-07-27 22:38:15,749 - INFO - 
+============================================================
+2025-07-27 22:38:15,749 - INFO - SCHEDULED EVENTS COMPLETE
+2025-07-27 22:38:15,749 - INFO - Email Summarizer: ✅ SUCCESS
+2025-07-27 22:38:15,749 - INFO - News Summary: ✅ SUCCESS
+2025-07-27 22:38:15,749 - INFO - Notifications Export: ✅ SUCCESS
+2025-07-27 22:38:15,749 - INFO - Time: 2025-07-27 22:38:15
+2025-07-27 22:38:15,749 - INFO - ============================================================
+2025-07-27 22:38:15,749 - INFO - All tasks completed successfully!

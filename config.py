@@ -65,7 +65,7 @@ TEXT_TO_SPEECH_MODEL = "tts-1"
 TTS_VOICE = "alloy"  # Options: alloy, echo, fable, onyx, nova, shimmer
 TTS_ENABLED = True  # Enable/disable text-to-speech - DISABLED to suppress voice responses
 
-MAX_TOKENS = 150            # Keep responses concise
+MAX_TOKENS = 350            # Keep responses concise
 
 # Temperature Configuration
 TOOL_TEMPERATURE = 0.6      # Lower temperature for more deterministic tool selection (minimum 0.6 for Realtime API)

@@ -7,23 +7,39 @@
         "notifications": [
           {
             "intended_recipient": "Morgan",
-            "notification_content": "\ud83d\udcf0 Tech News: OpenAI\u2019s most capable AI model, GPT-5, may be coming in August\nOpenAI's upcoming GPT-5 model is generating excitement as it is poised to be released as early as Au...\nKey insights:\n\u2022 GPT-5 is set to unify OpenAI's various AI capabilities, indicating significant integration and enhancement over its predecessors.\n\u2022 The introduction of mini and nano versions suggests a strategic choice to offer scalable options for different use cases.",
-            "relevant_when": "next_24_hours"
+            "notification_content": "\ud83d\udce7 Email: Job opportunity at Tech Corp\nSummary: Exciting role in AI research",
+            "relevant_when": "next_24_hours",
+            "source": "email"
           },
           {
             "intended_recipient": "Morgan",
-            "notification_content": "\ud83d\udcf0 Tech News: Meta's wristband breakthrough lets you use digital devices without touching them\nMeta's Reality Labs has introduced a groundbreaking wristband that can control digital devices throu...\nKey insights:\n\u2022 The wristband translates hand gestures into device commands without physical interaction.\n\u2022 Utilizes AI for pattern recognition, enhancing usability across different users.",
-            "relevant_when": "next_24_hours"
+            "notification_content": "\ud83d\udcf0 Tech News: New AI breakthrough announced\nKey insights:\n\u2022 Revolutionary algorithm improves efficiency by 40%",
+            "relevant_when": "next_24_hours",
+            "source": "news"
           },
           {
             "intended_recipient": "Morgan",
-            "notification_content": "\ud83d\udcf0 Tech News: AMD Confirms Ryzen Threadripper 9000 \u201cHEDT\u201d CPU Prices: Available on 31st July, $1499 For 24 Cores, $2499 For 32 Cores & $4999 For 64 Cores\nAMD's announcement of the Ryzen Threadripper 9000 series CPUs offers a range of high-performance pro...\nKey insights:\n\u2022 Introduction of Ryzen Threadripper 9000 CPUs with high core counts for HEDT enthusiasts.\n\u2022 Significant price reductions compared to previous models, enhancing accessibility for high-performance computing.",
-            "relevant_when": "next_24_hours"
+            "notification_content": "\ud83d\udcf0 Tech News: OpenAI teases imminent GPT-5 launch. Here's what to expect\nOpenAI is on the verge of launching GPT-5, which promises to integrate the reasoning capabilities of...\nKey insights:\n\u2022 GPT-5 integrates reasoning capabilities with existing GPT-series strengths.\n\u2022 New mini and nano models will enhance accessibility for developers.",
+            "relevant_when": "next_24_hours",
+            "source": "news"
           },
           {
             "intended_recipient": "Morgan",
-            "notification_content": "\ud83d\udcf0 Tech News: Google Might Have Made an AI Search Product I Actually Like\nGoogle's latest AI-powered feature, the Web Guide, is designed to improve search functionality by gr...\nKey insights:\n\u2022 Web Guide enhances the user experience by categorizing search results.\n\u2022 The feature offers a more intuitive approach to searching without summarizing content.",
-            "relevant_when": "next_24_hours"
+            "notification_content": "\ud83d\udcf0 Tech News: What OpenAI's push for independence ultimately means for Microsoft's $14 billion investment\nThe article explores the evolving relationship between OpenAI and Microsoft amid rising tensions ove...\nKey insights:\n\u2022 OpenAI is seeking independence to better control its technology development and revenue model.\n\u2022 Microsoft's substantial investment and current contract are critical to OpenAI's ongoing viability.",
+            "relevant_when": "next_24_hours",
+            "source": "news"
+          },
+          {
+            "intended_recipient": "Morgan",
+            "notification_content": "\ud83d\udcf0 Tech News: Meta's wristband breakthrough lets you use digital devices without touching them\nMeta's Reality Labs has introduced a groundbreaking wristband capable of translating subtle hand ges...\nKey insights:\n\u2022 The wristband uses advanced electromyography to interpret muscle signals for device control.\n\u2022 AI enhances usability by allowing the device to adapt to various users without requiring personalized training.",
+            "relevant_when": "next_24_hours",
+            "source": "news"
+          },
+          {
+            "intended_recipient": "Morgan",
+            "notification_content": "\ud83d\udcf0 Tech News: Quantum Scientists Have Built a New Math of Cryptography\nRecent advancements in quantum cryptography have led to the proposal of a new mathematical foundatio...\nKey insights:\n\u2022 A new approach to quantum cryptography overcomes limitations of past models.\n\u2022 Innovative path proposed without unrealistic assumptions, enhancing practicality.",
+            "relevant_when": "next_24_hours",
+            "source": "news"
           }
         ]
       },

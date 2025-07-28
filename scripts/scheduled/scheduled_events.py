@@ -254,7 +254,8 @@ def export_notifications():
                         notification = {
                             "intended_recipient": recipient,
                             "notification_content": notification_content.strip(),
-                            "relevant_when": "next_24_hours"
+                            "relevant_when": "next_24_hours",
+                            "source": "email"
                         }
                         
                         # Add to notification queue
@@ -305,7 +306,8 @@ def export_notifications():
                     notification = {
                         "intended_recipient": recipient,
                         "notification_content": notification_content.strip(),
-                        "relevant_when": "next_24_hours"
+                        "relevant_when": "next_24_hours",
+                        "source": "news"
                     }
                     
                     # Add to notification queue
