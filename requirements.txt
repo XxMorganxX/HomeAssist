@@ -1,0 +1,6 @@
+mcp
+openai
+pyaudio
+websocket-client
+python-dotenv
+aiohttp
