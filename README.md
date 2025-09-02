@@ -28,7 +28,7 @@ Repo Structure
 
 Prerequisites
 
-- Python 3.10+
+- Python 3.11+ (3.11 recommended; Python 3.13 may cause NumPy wheel issues)
 - macOS with `afplay` for audio playback (built-in) or ffmpeg for post-processing (optional)
 - Microphone access (PyAudio)
 - Accounts/keys where used:
@@ -164,6 +164,24 @@ Troubleshooting
 
 - OpenAI Realtime timeouts
   - Network hiccups can cause timeouts; re‑run the command. Ensure the API key is valid.
+
+- NumPy C-extension import error on Python 3.13
+  - Symptom: `ImportError: No module named 'numpy._core._multiarray_umath'` when importing NumPy (e.g., via OpenWakeWord).
+  - Fix (recommended): use Python 3.11. Example:
+    ```bash
+    brew install python@3.11 # if not installed
+    cd /Users/morgannstuart/Desktop/HomeAssist
+    rm -rf venv
+    python3.11 -m venv venv
+    source venv/bin/activate
+    pip install --upgrade pip setuptools wheel
+    pip install -r requirements.txt
+    ```
+  - Alternative: try a clean reinstall of NumPy in your existing venv (may still fail on 3.13):
+    ```bash
+    source venv/bin/activate
+    pip install --force-reinstall --no-cache-dir numpy
+    ```
 
 License
 

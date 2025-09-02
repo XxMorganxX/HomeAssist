@@ -380,16 +380,22 @@ class GoogleTTSProvider(TextToSpeechInterface):
             raise RuntimeError(f"Failed to start 'afplay': {e}")
 
         try:
-            # Poll until finished or interrupted
-            while self._afplay_process.poll() is None and not self._stop_playback:
+            # Poll until finished or interrupted (robust to concurrent stop that clears the process)
+            while not self._stop_playback:
+                process = self._afplay_process
+                if process is None or process.poll() is not None:
+                    break
                 await asyncio.sleep(0.05)
 
-            if self._stop_playback and self._afplay_process.poll() is None:
-                self._afplay_process.terminate()
-                try:
-                    self._afplay_process.wait(timeout=1)
-                except Exception:
-                    self._afplay_process.kill()
+            # If interrupted and process still running, terminate it
+            if self._stop_playback:
+                process = self._afplay_process
+                if process is not None and process.poll() is None:
+                    process.terminate()
+                    try:
+                        process.wait(timeout=1)
+                    except Exception:
+                        process.kill()
         finally:
             self._afplay_process = None
     

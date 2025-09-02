@@ -58,12 +58,7 @@ class SharedAudioManager:
                 # Create new PyAudio instance if needed
                 if not self._audio:
                     print(f"🎤 Initializing audio for {owner_name}")
-                    # Audible cue specifically when preparing to listen for wakeword
-                    if owner_name == "wakeword":
-                        try:
-                            beep_ready_to_listen()
-                        except Exception:
-                            pass
+                    # Avoid double beeps: tones already played by caller when needed
                     self._audio = pyaudio.PyAudio()
                     self._current_owner = owner_name
                     self._owner_count = 1
@@ -76,11 +71,6 @@ class SharedAudioManager:
                     return None
                 
                 print(f"✅ Audio acquired by {owner_name} (count: {self._owner_count})")
-                if owner_name == "wakeword":
-                    try:
-                        beep_ready_to_listen()
-                    except Exception:
-                        pass
                 return self._audio
                 
             except Exception as e:

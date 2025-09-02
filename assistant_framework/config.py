@@ -7,6 +7,8 @@ import os
 from pathlib import Path
 from typing import Dict, Any, Optional
 from dotenv import load_dotenv
+from utils.device_manager import get_emeet_device
+
 
 # Load environment variables from parent directory if available
 parent_dir = Path(__file__).parent.parent
@@ -34,7 +36,7 @@ WAKEWORD_PROVIDER = "openwakeword"
 TERMINATION_PHRASES = ["over out", "stop listening", "end session", "over, out"]
 TERMINATION_CHECK_MODE = "final"  # "final" or "partial" - when to check for termination
 TERMINATION_TIMEOUT = 120  # seconds before auto-terminating transcription
-AUDIO_HANDOFF_DELAY = 0.2  # seconds to wait between audio component switches
+AUDIO_HANDOFF_DELAY = 0.5  # seconds to wait between audio component switches
 
 # Send phrases that trigger sending transcription buffer to response component
 SEND_PHRASES = ["send message", "process this", "respond to this", "send this", "send it", "sir"]
@@ -53,18 +55,21 @@ You have access to tools for notifications, lights, calendar, Spotify, weather, 
 Non-tool responses should never contain URLs.
 
 IMPORTANT: Only use tools when the user asks about:
-- Smart home devices (lights, thermostats, etc.)
+- House Lighting Devices
 - Personal information (calendar, notifications, etc.)
 - Home automation tasks
 - Spotify or music control
 - Weather forecasts and conditions
 - Any home-related queries
+- Google Search
 
 When asked allow user to reads this system prompt.
 
 For general knowledge questions, historical facts, or non-home topics, provide direct answers without using tools.
 
 Be helpful, concise, and use tools only when appropriate for home-related requests.
+
+Keep your responses concise about the user's request. You should consider previous conversation history, but should not repeat yourself or respond to old questions you've already answered unless explicitly asked.
 
 Tool response should be concise and only include the information that is relevant to the user's request. For instance, if the user asks for notifications, you don't need to include notification id or status.
 """
@@ -180,6 +185,7 @@ def get_framework_config() -> Dict[str, Any]:
                 "threshold": 0.2,
                 "cooldown_seconds": 2.0,
                 "min_playback_interval": 0.5,
+                "input_device_index": get_emeet_device(),  # ← set this to your mic index
                 "verbose": False,
             }
         }

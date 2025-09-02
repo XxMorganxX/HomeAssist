@@ -1,5 +1,4 @@
 from __future__ import print_function
-import datetime
 import os
 from pathlib import Path
 import sys
@@ -61,6 +60,7 @@ class CalendarComponent:
     def get_calendar_mappings(self):
         """Get calendar ID->name and name->ID mappings from Google Calendar API."""
         try:
+            self._maybe_refresh_credentials()
             if not self.service:
                 return {}, {}
             
@@ -149,6 +149,22 @@ class CalendarComponent:
                     self.creds = Credentials.from_authorized_user_file(token_path, scopes)
                     if getattr(config, "DEBUG_MODE", False):
                         print(f"📅 Loaded existing calendar credentials for {self.user}")
+
+                    # If the existing token does not contain a refresh token, proactively
+                    # upgrade to offline access so we can refresh automatically.
+                    if self.creds and not getattr(self.creds, "refresh_token", None):
+                        if getattr(config, "DEBUG_MODE", False):
+                            print(f"♻️  Upgrading {self.user} credentials to offline access (refresh token)...")
+                        flow = InstalledAppFlow.from_client_secrets_file(client_secret_path, scopes)
+                        self.creds = flow.run_local_server(
+                            port=0,
+                            access_type='offline',
+                            prompt='consent'
+                        )
+                        with open(token_path, 'w') as token_file:
+                            token_file.write(self.creds.to_json())
+                        if getattr(config, "DEBUG_MODE", False):
+                            print(f"💾 Saved upgraded offline credentials for {self.user} to {token_path}")
                 except Exception as e:
                     if getattr(config, "DEBUG_MODE", False):
                         print(f"⚠️ Failed to load existing token: {e}")
@@ -212,6 +228,24 @@ class CalendarComponent:
             self.error_message = str(e)
             print(f"❌ Failed to initialize calendar credentials for {self.user}: {e}")
             return False
+
+    def _maybe_refresh_credentials(self) -> None:
+        """Refresh credentials if expired and persist the updated token file."""
+        try:
+            if not self.creds:
+                return
+            if self.creds.expired and getattr(self.creds, "refresh_token", None):
+                if getattr(config, "DEBUG_MODE", False):
+                    print(f"🔄 Refreshing expired credentials for {self.user}...")
+                self.creds.refresh(Request())
+                token_path = self._get_user_config()["token"]
+                with open(token_path, 'w') as token_file:
+                    token_file.write(self.creds.to_json())
+                if getattr(config, "DEBUG_MODE", False):
+                    print(f"💾 Saved refreshed credentials for {self.user} to {token_path}")
+        except Exception as e:
+            if getattr(config, "DEBUG_MODE", False):
+                print(f"⚠️ Failed to refresh credentials for {self.user}: {e}")
     
     def get_events(self, num_events: int = 10, time_min: str = None, time_max: str = None, calendar_id: str = 'primary') -> List[Dict]:
         """
@@ -227,9 +261,13 @@ class CalendarComponent:
             List of event dictionaries
         """
         try:
+            # Ensure credentials are fresh and service is available
+            self._maybe_refresh_credentials()
             if not self.service:
-                print(f"❌ Calendar service not initialized for {self.user}")
-                return []
+                self._initialize_credentials()
+                if not self.service:
+                    print(f"❌ Calendar service not initialized for {self.user}")
+                    return []
             
             # If specific calendar_id is requested, only query that calendar
             if calendar_id != 'primary':
@@ -387,9 +425,6 @@ class CalendarComponent:
             today_start = datetime.now().replace(hour=0, minute=0, second=0, microsecond=0)
             time_min = today_start.isoformat() + 'Z'
             
-            # Get end of today
-            today_end = datetime.now().replace(hour=23, minute=59, second=59, microsecond=999999)
-            
             # Get events for today
             all_events = self.get_events(num_events=50, time_min=time_min)
             
@@ -506,7 +541,7 @@ class CalendarComponent:
             events = self.get_formatted_events(num_events)
             
             if not events:
-                return f"You have no upcoming events in your calendar."
+                return "You have no upcoming events in your calendar."
             
             if len(events) == 1:
                 event = events[0]
@@ -523,10 +558,11 @@ class CalendarComponent:
             
             return " ".join(summary_parts)
             
-        except Exception as e:
-            return f"I'm having trouble accessing your calendar right now."
+        except Exception:
+            return "I'm having trouble accessing your calendar right now."
 
     def display_all_calendar_types(self):
+        self._maybe_refresh_credentials()
         calendar_list = self.service.calendarList().list().execute()
 
         for cal in calendar_list['items']:
@@ -545,7 +581,7 @@ class CalendarComponent:
             events = self.get_events(num_events=max_results, time_min=time_min, calendar_id=calendar_id)
             
             return events
-        except Exception as e:
+        except Exception:
             return []
     
     def get_day_events(self, date: str, calendar_name: str = "primary", include_past: bool = False) -> List[Dict]:
@@ -569,7 +605,7 @@ class CalendarComponent:
             )
             
             return events
-        except Exception as e:
+        except Exception:
             return []
     
     def get_week_events(self, calendar_name: str = "primary", include_past: bool = False) -> List[Dict]:
@@ -594,12 +630,13 @@ class CalendarComponent:
             )
             
             return events
-        except Exception as e:
+        except Exception:
             return []
     
     def create_event(self, event_data: Dict[str, Any]) -> Dict[str, Any]:
         """Create a new calendar event for the improved calendar tool."""
         try:
+            self._maybe_refresh_credentials()
             if not self.service:
                 raise Exception("Calendar service not initialized")
             

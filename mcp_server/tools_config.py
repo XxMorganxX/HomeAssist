@@ -18,11 +18,11 @@ ENABLED_TOOLS = {
     # Improved tools - enhanced with rich parameter descriptions
     "improved_state_manager": True,         # Enhanced system state management
     "improved_get_notifications": True,     # Enhanced notification tool with metadata
-    "improved_batch_light_control": True,   # Enhanced light control with validation
-    "improved_lighting_scene": True,        # Enhanced scene control with descriptions
     "improved_spotify_playback": True,      # Enhanced Spotify control with full API
     "improved_calendar_data": True,         # Enhanced calendar with comprehensive commands
     "improved_weather": True,               # Enhanced region-based weather tool
+    "improved_google_search": True,         # New improved Google search tool
+    "improved_kasa_lighting": True,         # New improved Kasa lighting tool (direct + scenes)
 }
 
 # Optional: Specify tools that should never be loaded

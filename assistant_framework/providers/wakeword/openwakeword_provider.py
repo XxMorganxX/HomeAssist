@@ -53,6 +53,14 @@ class OpenWakeWordProvider(WakeWordInterface):
         self.model_path_tflite: str = os.path.join(self.model_dir, f"{self.model_name}.tflite")
         self.model_path_onnx: str = os.path.join(self.model_dir, f"{self.model_name}.onnx")
 
+        # Optional input device index (for stability on macOS if default device changes)
+        self.input_device_index: Optional[int] = None
+        try:
+            if 'input_device_index' in config and config['input_device_index'] is not None:
+                self.input_device_index = int(config['input_device_index'])
+        except Exception:
+            self.input_device_index = None
+
         # Ensure model exists
         if not os.path.exists(self.model_path_tflite) and not os.path.exists(self.model_path_onnx):
             os.makedirs(self.model_dir, exist_ok=True)
@@ -112,19 +120,35 @@ class OpenWakeWordProvider(WakeWordInterface):
         if self._is_listening:
             return
 
-        # Acquire audio resources
-        self._audio = self.audio_manager.acquire_audio("wakeword", force_cleanup=True)
+        # Retry device acquisition once if first attempt fails due to transient device issues
+        for attempt in range(2):
+            # Acquire audio resources
+            self._audio = self.audio_manager.acquire_audio("wakeword", force_cleanup=True)
+            if self._audio:
+                break
+            # Backoff before retry
+            await asyncio.sleep(0.3)
         if not self._audio:
             raise RuntimeError("Failed to acquire audio resources for wake word detection")
 
-        # Open microphone stream
-        self._mic_stream = self._audio.open(
-            format=pyaudio.paInt16,
-            channels=1,
-            rate=self.sample_rate,
-            input=True,
-            frames_per_buffer=self.chunk,
-        )
+        # Open microphone stream (deferred start to avoid CoreAudio race conditions)
+        print("🎤 Opening wake word audio stream")
+        open_kwargs = {
+            'format': pyaudio.paInt16,
+            'channels': 1,
+            'rate': self.sample_rate,
+            'input': True,
+            'frames_per_buffer': self.chunk,
+            'start': False,
+        }
+        if self.input_device_index is not None:
+            open_kwargs['input_device_index'] = self.input_device_index
+
+        self._mic_stream = self._audio.open(**open_kwargs)
+        # Let CoreAudio settle briefly before starting the stream
+        await asyncio.sleep(0.25)
+        self._mic_stream.start_stream()
+        print("✅ Wake word audio stream started")
 
         self._is_listening = True
         self._stop_event.clear()

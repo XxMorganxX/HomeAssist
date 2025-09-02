@@ -175,10 +175,46 @@ class OpenAIWebSocketResponseProvider(ResponseInterface):
             'spotify', 'music', 'home', 'house', 'smart', 'device', 'weather',
             'turn on', 'turn off', 'set', 'check', 'show', 'play', 'stop'
         ]
-        
+        search_keywords = [
+            'search', 'google', 'web', 'lookup', 'look up', 'find', 'find out',
+            'release date', 'when is', 'when does', 'launch date', 'news'
+        ]
+        lighting_keywords = [
+            'light', 'lights', 'lamp', 'bulb', 'brightness', 'dim', 'brighten',
+            'turn on', 'turn off', 'toggle', 'light 1', 'light one', 'light 2', 'light two',
+        ]
+        scene_keywords = [
+            'scene', 'movie', 'mood', 'work', 'reading', 'party', 'relax'
+        ]
+
         message_lower = message.lower()
-        is_home_related = any(keyword in message_lower for keyword in home_keywords)
-        
+        is_home_related = any(k in message_lower for k in home_keywords)
+        is_search_related = any(k in message_lower for k in search_keywords)
+        is_lighting_related = any(k in message_lower for k in lighting_keywords)
+        wants_scene = any(k in message_lower for k in scene_keywords)
+
+        if not self.openai_functions:
+            return None
+
+        # Prefer Google search tool for search intents
+        if is_search_related:
+            google_funcs = [f for f in self.openai_functions if f.get('name') in (
+                'improved_google_search', 'google_search', 'improved_google_ai_search'
+            )]
+            return google_funcs or self.openai_functions
+
+        # Prefer lighting tools for lighting intents
+        if is_lighting_related:
+            preferred = ['improved_batch_light_control']
+            if wants_scene:
+                preferred.append('improved_lighting_scene')
+            lighting_funcs = [f for f in self.openai_functions if f.get('name') in preferred]
+            # If specific lighting tools are found, only expose them to make the model's choice unambiguous
+            if lighting_funcs:
+                return lighting_funcs
+            # Otherwise, fall back to all tools but at least include home-related
+            return self.openai_functions
+
         return self.openai_functions if is_home_related else None
     
     async def _ws_stream_roundtrip(self,

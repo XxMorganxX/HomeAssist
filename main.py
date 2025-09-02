@@ -12,7 +12,7 @@ import threading
 import queue
 from enum import Enum
 from pathlib import Path
-from typing import Optional
+from typing import Optional  # noqa: F401 (kept for type hints below if needed)
 from datetime import datetime, timedelta
 from dotenv import load_dotenv
 
@@ -67,6 +67,24 @@ from assistant_framework.utils.tones import (
     beep_ready_to_listen,
     beep_send_detected,
 )
+
+# Apply macOS audio fixes early without importing the core package (avoids core.__init__ side-effects)
+try:
+    import importlib.util as _il  # type: ignore  # noqa: E402
+    from pathlib import Path as _P  # noqa: E402
+    _fix_path = _P(__file__).parent / "core" / "fixes" / "macos_audio_fix.py"
+    if _fix_path.exists():
+        _spec = _il.spec_from_file_location("macos_audio_fix", str(_fix_path))
+        if _spec and _spec.loader:
+            _mod = _il.module_from_spec(_spec)
+            _spec.loader.exec_module(_mod)  # type: ignore[attr-defined]
+            try:
+                _mod.configure_macos_audio()
+                _mod.suppress_auhal_errors()
+            except Exception:
+                pass
+except Exception:
+    pass
 
 
 class SystemState(Enum):
@@ -336,6 +354,14 @@ class HomeAssistant:
             if buffer_text:
                 print(f"\n📤 Sending to response component: '{buffer_text}'")
                 
+                # Persist the user's message in context for memory
+                try:
+                    if self.orchestrator.context and buffer_text:
+                        self.orchestrator.context.add_message("user", buffer_text)
+                        self.orchestrator.context.auto_trim_if_needed()
+                except Exception as e:
+                    print(f"⚠️  Error updating context with user message: {e}")
+
                 # Send to response component via orchestrator
                 if self.orchestrator.response:
                     print("🤖 ", end="", flush=True)  # Print robot emoji once at start
@@ -343,7 +369,11 @@ class HomeAssistant:
                     has_streamed = False
                     beeped_for_agent = False
                     
-                    async for chunk in self.orchestrator.response.stream_response(buffer_text):
+                    # Use orchestrator to include conversation history
+                    async for chunk in self.orchestrator.run_response_only(
+                        buffer_text,
+                        use_context=True
+                    ):
                         # Beep once when the first content arrives from the agent
                         if chunk.content:
                             if not beeped_for_agent:
@@ -363,6 +393,14 @@ class HomeAssistant:
                                 full_response = chunk.content
                     print()  # New line after response
                     
+                    # Persist assistant reply to context for memory
+                    try:
+                        if self.orchestrator.context and full_response.strip():
+                            self.orchestrator.context.add_message("assistant", full_response)
+                            self.orchestrator.context.auto_trim_if_needed()
+                    except Exception as e:
+                        print(f"⚠️  Error updating context with assistant reply: {e}")
+                    
                     # Play the response using TTS
                     if full_response.strip() and self.orchestrator.tts:
                         try:
@@ -375,7 +413,7 @@ class HomeAssistant:
                             audio_output = await self.orchestrator.tts.synthesize(full_response)
                             
                             # Start playing audio in background with error handling
-                            tts_task = asyncio.create_task(
+                            asyncio.create_task(
                                 self._play_tts_safely(audio_output)
                             )
                         except Exception as e:
@@ -487,7 +525,7 @@ class HomeAssistant:
                     # Clear partial line and send to response
                     self._clear_partial_line()
                     print(f"📝 [FINAL] {self.clean_transcription_text(result.text)}")
-                    print(f"\n📨 Send phrase detected")
+                    print("\n📨 Send phrase detected")
                     try:
                         beep_send_detected()
                     except Exception:
@@ -512,7 +550,7 @@ class HomeAssistant:
                         # Clear any partial line before printing a clean final
                         self._clear_partial_line()
                         print(f"📝 [FINAL] {clean_text}")
-                    print(f"\n🛑 Termination phrase detected")
+                    print("\n🛑 Termination phrase detected")
                     break
                 
                 # Display transcription with cleaning
