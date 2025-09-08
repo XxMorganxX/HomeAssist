@@ -78,8 +78,12 @@ class ImprovedBaseTool(ABC):
             param_type = param_info.get("type", "string")
             
             if param_type == "string" and "enum" in param_info:
-                # Create Literal type for enums
-                annotations[param_name] = Literal[tuple(param_info["enum"])]
+                # Create Literal type for enums, but only when non-empty
+                enum_vals = list(param_info.get("enum") or [])
+                if len(enum_vals) > 0:
+                    annotations[param_name] = Literal[tuple(enum_vals)]
+                else:
+                    annotations[param_name] = str
             elif param_type == "string":
                 annotations[param_name] = str
             elif param_type == "integer":
@@ -110,6 +114,15 @@ class ImprovedBaseTool(ABC):
                 for param_name, default_val in defaults.items():
                     if param_name not in filtered_params and default_val is not None:
                         filtered_params[param_name] = default_val
+                
+                # Log tool call in dev mode
+                try:
+                    from assistant_framework.config import get_active_preset
+                    if get_active_preset().lower().startswith("dev"):
+                        import json
+                        print(f"[DEV] TOOL CALL → {self.name}: {json.dumps(filtered_params, ensure_ascii=False)}")
+                except Exception:
+                    pass
                 
                 # Execute the tool
                 result = self.execute(filtered_params)

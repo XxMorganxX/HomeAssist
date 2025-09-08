@@ -17,9 +17,8 @@ from mcp_server.improved_base_tool import ImprovedBaseTool
 
 try:
     from core.kasa_lighting_client import KasaLightingClient
-except Exception as e:
+except Exception:
     # Fallback import path when running from MCP server root
-    import os
     from pathlib import Path
     sys.path.append(str(Path(__file__).resolve().parents[2]))
     from core.kasa_lighting_client import KasaLightingClient  # type: ignore
@@ -29,6 +28,14 @@ try:
     LIGHT_ROOM_MAPPING = getattr(config, 'LIGHT_ROOM_MAPPING', {})
 except Exception:
     LIGHT_ROOM_MAPPING = {"lights": {}, "rooms": {}}
+
+# Fallback: load mapping from mcp_server.config if not present in root config
+if not LIGHT_ROOM_MAPPING:
+    try:
+        from mcp_server import config as mcp_config  # type: ignore
+        LIGHT_ROOM_MAPPING = getattr(mcp_config, 'LIGHT_ROOM_MAPPING', {}) or {"lights": {}, "rooms": {}}
+    except Exception:
+        pass
 
 
 class ImprovedKasaLightingTool(ImprovedBaseTool):
@@ -51,6 +58,8 @@ class ImprovedKasaLightingTool(ImprovedBaseTool):
         self.available_lights: List[str] = list(self.light_config.get("lights", {}).keys())
         self.available_rooms: List[str] = list(self.light_config.get("rooms", {}).keys())
         self.available_scenes: List[str] = ["movie", "work", "mood", "reading", "party", "relax"]
+        # Remember last targeted light for follow-up commands like "turn it off"
+        self._last_light_name: Optional[str] = None
 
     def get_schema(self) -> Dict[str, Any]:
         return {
@@ -60,7 +69,7 @@ class ImprovedKasaLightingTool(ImprovedBaseTool):
                     "type": "string",
                     "enum": ["direct", "scene"],
                     "description": (
-                        "Choose 'direct' to control a single light with actions like on/off/dim. "
+                        "Choose 'direct' to control a single light with actions like on/off. "
                         "Choose 'scene' to apply a preset across a room or selected lights."
                     ),
                 },
@@ -91,7 +100,6 @@ class ImprovedKasaLightingTool(ImprovedBaseTool):
                     "enum": self.available_scenes,
                     "description": (
                         "Scene to apply (scene mode). Presets: movie, work, mood, reading, party, relax. "
-                        "Scenes set reasonable brightness and color temperature if supported."
                     ),
                 },
                 "light_names": {
@@ -131,9 +139,12 @@ class ImprovedKasaLightingTool(ImprovedBaseTool):
 
             if interaction == "direct":
                 action = (params.get("action") or "").strip().lower()
-                light_name = params.get("light_name")
+                light_name: Optional[str] = params.get("light_name")
+                # If the user omits light_name (e.g., "turn it off"), use last targeted light
+                if not light_name and self._last_light_name:
+                    light_name = self._last_light_name
                 if not action or not light_name:
-                    return {"success": False, "error": "direct mode requires 'action' and 'light_name'"}
+                    return {"success": False, "error": "direct mode requires 'action' and 'light_name' (or a prior light to reference)"}
 
                 if action == "on":
                     result = self.client.turn_on(light_name)
@@ -142,7 +153,10 @@ class ImprovedKasaLightingTool(ImprovedBaseTool):
                 else:
                     return {"success": False, "error": f"Unknown action '{action}'. Allowed: on, off"}
 
-                return {"success": bool(result.get("success")), "result": result}
+                # Update last targeted light on successful action
+                if result and result.get("success"):
+                    self._last_light_name = light_name
+                return {"success": bool(result.get("success")), "result": result, "last_light": self._last_light_name}
 
             # scene interaction
             scene_name = params.get("scene_name")

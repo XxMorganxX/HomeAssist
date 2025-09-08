@@ -3,7 +3,6 @@ Main orchestrator for managing provider lifecycle and pipeline execution.
 """
 
 import asyncio
-import os
 import random
 import subprocess
 from typing import Dict, Any, Optional, AsyncIterator
@@ -20,7 +19,7 @@ try:
     )
     from .factory import ProviderFactory
     from .models.data_models import TranscriptionResult, ResponseChunk, AudioOutput
-    from .utils.tones import play_short_beep
+    pass
 except ImportError:
     # Fall back to absolute imports (when run as module)
     from assistant_framework.interfaces import (
@@ -32,7 +31,7 @@ except ImportError:
     )
     from assistant_framework.factory import ProviderFactory
     from assistant_framework.models.data_models import TranscriptionResult, ResponseChunk, AudioOutput
-    from assistant_framework.utils.tones import play_short_beep
+    pass
 
 
 class AssistantOrchestrator:
@@ -179,10 +178,22 @@ class AssistantOrchestrator:
         
         # Get context if available and requested
         context_history = None
+        tool_context = None
         if use_context and self.context:
-            context_history = self.context.get_history()
+            # Use a compact, recent-biased window for the responder
+            get_recent_for_response = getattr(self.context, 'get_recent_for_response', None)
+            if callable(get_recent_for_response):
+                context_history = get_recent_for_response()
+            else:
+                # Fallback: recent slice of full history
+                get_full = getattr(self.context, 'get_full_history', None)
+                full_history = get_full() if callable(get_full) else self.context.get_history()
+                context_history = full_history[-8:]
+            # Short window for tool selection
+            get_tool_ctx = getattr(self.context, 'get_tool_context', None)
+            tool_context = get_tool_ctx() if callable(get_tool_ctx) else None
         
-        async for chunk in self.response.stream_response(message, context_history):
+        async for chunk in self.response.stream_response(message, context_history, tool_context):
             yield chunk
     
     async def run_tts_only(self, 

@@ -58,6 +58,24 @@ class ImprovedMCPToolAdapter:
         except Exception as e:
             logger.error(f"Failed to register tool '{tool_name}': {e}")
             raise
+
+    async def call_tool(self, tool_name: str, arguments: Dict[str, Any]):
+        """Optional helper to print tool name and params in dev preset before execution."""
+        tool = self.registered_tools.get(tool_name)
+        if not tool:
+            return {"success": False, "error": f"Tool '{tool_name}' not registered"}
+        try:
+            # Print dev log for tool call
+            try:
+                from assistant_framework.config import get_active_preset
+                if get_active_preset().lower().startswith("dev"):
+                    import json
+                    print(f"[DEV] TOOL CALL → {tool_name}: {json.dumps(arguments, ensure_ascii=False)}")
+            except Exception:
+                pass
+            return tool.execute(arguments)
+        except Exception as e:
+            return {"success": False, "error": str(e)}
     
     def _create_legacy_mcp_tool_function(self, tool_instance: BaseTool):
         """
@@ -108,6 +126,15 @@ async def {tool_name}({params_str}) -> Dict[str, Any]:
     # Collect parameters into kwargs dict
     kwargs = {{}}
 {kwargs_code}
+    
+    # Log tool call in dev mode
+    try:
+        from assistant_framework.config import get_active_preset
+        if get_active_preset().lower().startswith("dev"):
+            import json
+            print(f"[DEV] TOOL CALL → {tool_name}: {{json.dumps(kwargs, ensure_ascii=False)}}")
+    except Exception:
+        pass
     
     try:
         # Execute the tool using its safe_execute method

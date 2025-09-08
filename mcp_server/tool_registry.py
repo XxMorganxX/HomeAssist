@@ -84,6 +84,8 @@ class ToolRegistry:
         try:
             # Import the module
             module_path = f"{module_prefix}.{module_name}"
+            
+            # Perform a shallow import that tolerates missing heavy dependencies by delaying attribute access
             module = importlib.import_module(module_path)
             
             # Find tool classes in the module
@@ -139,6 +141,13 @@ class ToolRegistry:
             except TypeError:
                 # Tool doesn't accept config parameter
                 self.tool_instances[tool_name] = tool_class()
+            # In dev preset, print tool instance creation
+            try:
+                from assistant_framework.config import get_active_preset
+                if get_active_preset().lower().startswith("dev"):
+                    print(f"[DEV] TOOL INSTANTIATED → {tool_name}")
+            except Exception:
+                pass
             
         return self.tool_instances[tool_name]
     
@@ -177,6 +186,12 @@ class ToolRegistry:
         tool_class = self.registered_tools[tool_name]
         # Create temporary instance to get schema
         temp_instance = tool_class()
+        try:
+            from assistant_framework.config import get_active_preset
+            if get_active_preset().lower().startswith("dev"):
+                print(f"[DEV] TOOL SCHEMA → {tool_name}")
+        except Exception:
+            pass
         return temp_instance.get_schema()
     
     def reload_tools(self) -> List[str]:

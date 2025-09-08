@@ -122,8 +122,8 @@ class OpenWakeWordProvider(WakeWordInterface):
 
         # Retry device acquisition once if first attempt fails due to transient device issues
         for attempt in range(2):
-            # Acquire audio resources
-            self._audio = self.audio_manager.acquire_audio("wakeword", force_cleanup=True)
+            # Acquire audio resources (soft handoff)
+            self._audio = self.audio_manager.acquire_audio("wakeword", force_cleanup=False)
             if self._audio:
                 break
             # Backoff before retry

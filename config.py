@@ -2,6 +2,7 @@
 Unified Configuration for OpenAI MCP Agent
 Supports both traditional OpenAI API and WebSocket Realtime API implementations.
 """
+import os
 
 # =============================================================================
 # MODEL CONFIGURATION
@@ -142,7 +143,17 @@ apply_debug_preset("development")      # Good balance for development
 # SYSTEM PROMPT
 # =============================================================================
 
-
+# Light configuration (sourced from MCP server config to avoid duplication)
+try:
+    from mcp_server import config as mcp_config  # type: ignore
+    LIGHT_ONE_IP = getattr(mcp_config, 'LIGHT_ONE_IP', None)
+    LIGHT_TWO_IP = getattr(mcp_config, 'LIGHT_TWO_IP', None)
+    LIGHT_ROOM_MAPPING = getattr(mcp_config, 'LIGHT_ROOM_MAPPING', {"lights": {}, "rooms": {}})
+except Exception:
+    # Fallback to empty mapping if MCP config isn't available at import time
+    LIGHT_ONE_IP = LIGHT_ONE_IP if 'LIGHT_ONE_IP' in globals() else None  # type: ignore[name-defined]
+    LIGHT_TWO_IP = LIGHT_TWO_IP if 'LIGHT_TWO_IP' in globals() else None  # type: ignore[name-defined]
+    LIGHT_ROOM_MAPPING = {"lights": {}, "rooms": {}}
 
 # =============================================================================
 # IMPLEMENTATION-SPECIFIC FUNCTIONS
@@ -172,7 +183,6 @@ def validate_config():
     errors = []
     
     # Check required environment variables
-    import os
     if not os.getenv("OPENAI_API_KEY"):
         errors.append("OPENAI_API_KEY environment variable not set")
     
@@ -196,7 +206,7 @@ def print_config_summary():
     print(f"Implementation: {get_implementation_name()}")
     print(f"Active Model: {get_active_model()}")
     print(f"Max Tokens: {MAX_COMPLETION_TOKENS}")
-    print(f"Debug Level: Production" if not any(globals().get(k, False) for k in globals() if k.startswith('DEBUG_')) else "Development/Debug")
+    print("Debug Level: Production" if not any(globals().get(k, False) for k in globals() if k.startswith('DEBUG_')) else "Development/Debug")
     print(f"Tool Logging: {'Enabled' if LOG_TOOLS else 'Disabled'}")
     
     # Show validation errors if any
@@ -238,6 +248,5 @@ def set_websocket_mode():
     apply_debug_preset("basic")
 
 # Print config summary when imported (can be disabled by setting QUIET_IMPORT=True)
-import os
 if not os.getenv("QUIET_IMPORT"):
     print_config_summary()

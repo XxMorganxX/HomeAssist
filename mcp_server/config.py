@@ -8,34 +8,27 @@ import os
 # Debug mode
 DEBUG_MODE = True
 
-# Light configuration
-LIGHT_ONE_IP = "192.168.1.100"  # Replace with actual IP
-LIGHT_TWO_IP = "192.168.1.101"  # Replace with actual IP
 
-# Light room mapping
+# Light configuration
+LIGHT_ONE_IP = "192.168.1.49"  # Morgan's LED
+LIGHT_TWO_IP = "192.168.1.165"  # Living Room Lamp
+
+# Light room mapping    
 LIGHT_ROOM_MAPPING = {
     "lights": {
-        "Light 1": {
+        "Light one": {
             "ip": LIGHT_ONE_IP,
-            "room": "living_room",
-            "credentials": {
-                "username": None,  # Set if needed
-                "password": None   # Set if needed
-            }
+            "room": "morgan_room",
         },
-        "Light 2": {
+        "Light two": {
             "ip": LIGHT_TWO_IP,
-            "room": "bedroom",
-            "credentials": {
-                "username": None,
-                "password": None
-            }
+            "room": "living_room",
         }
     },
     "rooms": {
-        "living_room": ["Light 1"],
-        "bedroom": ["Light 2"],
-        "all": ["Light 1", "Light 2"]
+        "morgan_room": ["Light one"],
+        "living_room": ["Light two"],
+        "all": ["Light one", "Light two"]
     }
 }
 

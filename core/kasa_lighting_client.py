@@ -17,11 +17,19 @@ try:
     import config  # type: ignore
     LIGHT_ROOM_MAPPING = getattr(config, 'LIGHT_ROOM_MAPPING', {})
 except Exception:
-    # Fallback minimal mapping shape
-    LIGHT_ROOM_MAPPING = {
-        "lights": {},
-        "rooms": {},
-    }
+    LIGHT_ROOM_MAPPING = {}
+
+# Fallback: pull from MCP server config to avoid duplication
+if not LIGHT_ROOM_MAPPING:
+    try:
+        from mcp_server import config as mcp_config  # type: ignore
+        LIGHT_ROOM_MAPPING = getattr(mcp_config, 'LIGHT_ROOM_MAPPING', {})
+    except Exception:
+        # Fallback minimal mapping shape
+        LIGHT_ROOM_MAPPING = {
+            "lights": {},
+            "rooms": {},
+        }
 
 
 class KasaLightingClient:
@@ -195,12 +203,12 @@ class KasaLightingClient:
     def _get_scene_definition(self, scene_name: str) -> Optional[Dict[str, Any]]:
         # Default scene definitions; can be moved to config if needed
         scenes = {
-            'movie': {"brightness": 20, "kelvin": 3000},
-            'work': {"brightness": 90, "kelvin": 5000},
-            'mood': {"brightness": 40, "kelvin": 2700},
-            'reading': {"brightness": 70, "kelvin": 4000},
+            'movie': {"brightness": 20},
+            'work': {"brightness": 90},
+            'mood': {"brightness": 40},
+            'reading': {"brightness": 70},
             'party': {"brightness": 80},
-            'relax': {"brightness": 30, "kelvin": 3000},
+            'relax': {"brightness": 30},
         }
         return scenes.get(scene_name.lower())
 
@@ -277,3 +285,18 @@ class KasaLightingClient:
                 print(f"[KasaLightingClient] {msg}")
 
 
+
+
+
+
+async def get_devices():
+    import asyncio
+    from kasa import Discover
+    devices = await Discover.discover(discovery_timeout=5)  # seconds
+    for ip, dev in devices.items():
+        await dev.update()
+        print(f"{ip}  {dev.alias}  ({dev.model})  is_on={dev.is_on}")
+
+
+if __name__ == "__main__":
+    asyncio.run(get_devices())

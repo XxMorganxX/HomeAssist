@@ -36,6 +36,8 @@ class UnifiedContextProvider(ContextInterface):
         self.system_prompt = config.get('system_prompt', '')
         self.model = config.get('model', 'gpt-4')
         self.max_messages = config.get('max_messages', 21)
+        # For responder: only send this many most-recent non-system messages
+        self.response_recent_messages = int(config.get('response_recent_messages', 8))
         self.enable_debug = config.get('enable_debug', False)
         
         # Initialize tokenizer
@@ -58,7 +60,7 @@ class UnifiedContextProvider(ContextInterface):
             else:
                 # Default to gpt-4 tokenizer
                 self.encoder = tiktoken.encoding_for_model("gpt-4")
-        except:
+        except Exception:
             # Fallback to general encoding
             self.encoder = tiktoken.get_encoding("cl100k_base")
     
@@ -113,10 +115,66 @@ class UnifiedContextProvider(ContextInterface):
         """Get the full conversation history."""
         return [msg.to_dict() for msg in self.conversation_history]
     
+    def get_full_history(self) -> List[Dict[str, Any]]:
+        """Alias: get the full conversation history for final text generation."""
+        return self.get_history()
+
+    def get_recent_for_response(self) -> List[Dict[str, Any]]:
+        """Return a small recent window to bias responses to latest prompt.
+        Keeps the initial system message (if any) and the N most recent messages after it.
+        """
+        if not self.conversation_history:
+            return []
+
+        # Preserve leading system prompt
+        start_idx = 1 if (self.conversation_history and self.conversation_history[0].role == MessageRole.SYSTEM) else 0
+        head = [self.conversation_history[0].to_dict()] if start_idx == 1 else []
+
+        tail = [msg.to_dict() for msg in self.conversation_history[start_idx:]][-self.response_recent_messages:]
+        return head + tail
+    
     def get_recent_history(self, n: int) -> List[Dict[str, Any]]:
         """Get the most recent n messages."""
         recent_messages = self.conversation_history[-n:] if n > 0 else []
         return [msg.to_dict() for msg in recent_messages]
+    
+    def get_tool_context(self, max_user: int = 3, max_assistant: int = 2) -> List[Dict[str, Any]]:
+        """
+        Build a compact recent context for tool decisioning: last max_user user prompts
+        and last max_assistant assistant responses, preserving chronological order.
+        Includes the system message if it exists as the very first message.
+        """
+        if not self.conversation_history:
+            return []
+
+        # Optional leading system message
+        system_entry = None
+        if self.conversation_history and self.conversation_history[0].role == MessageRole.SYSTEM:
+            system_entry = (0, self.conversation_history[0])
+
+        # Collect last N users and assistants from the end
+        user_msgs: List[tuple[int, ConversationMessage]] = []
+        assistant_msgs: List[tuple[int, ConversationMessage]] = []
+        for idx in range(len(self.conversation_history) - 1, -1, -1):
+            msg = self.conversation_history[idx]
+            if msg.role == MessageRole.USER and len(user_msgs) < max_user:
+                user_msgs.append((idx, msg))
+            elif msg.role == MessageRole.ASSISTANT and len(assistant_msgs) < max_assistant:
+                assistant_msgs.append((idx, msg))
+            # Stop early if we have all needed
+            if len(user_msgs) >= max_user and len(assistant_msgs) >= max_assistant:
+                break
+
+        # Reverse to chronological order and merge
+        selected = []
+        if system_entry:
+            selected.append(system_entry)
+        selected.extend(sorted(user_msgs, key=lambda x: x[0]))
+        selected.extend(sorted(assistant_msgs, key=lambda x: x[0]))
+
+        # Sort again globally by original index to strictly preserve chronology
+        selected_sorted = sorted(selected, key=lambda x: x[0])
+        return [msg.to_dict() for (_, msg) in selected_sorted]
     
     def trim_history(self, max_messages: int) -> None:
         """Trim conversation history to a maximum number of messages."""

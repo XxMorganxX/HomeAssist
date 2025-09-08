@@ -55,7 +55,7 @@ You have access to tools for notifications, lights, calendar, Spotify, weather, 
 Non-tool responses should never contain URLs.
 
 IMPORTANT: Only use tools when the user asks about:
-- House Lighting Devices
+- House Lighting Devices (For turning on and off lights, or setting the scene of the lights)
 - Personal information (calendar, notifications, etc.)
 - Home automation tasks
 - Spotify or music control
@@ -124,6 +124,12 @@ OPENAI_WS_CONFIG = {
     "api_key": os.getenv("OPENAI_API_KEY"),
     "model": "gpt-4o-realtime-preview-2024-12-17",
     "max_tokens": 2000,
+    # Encourage concise, recent-focus answers
+    "temperature": 0.5,
+    "recency_bias_prompt": (
+        "Focus your answer on the user's latest message. Use prior conversation only to disambiguate if explicitly referenced. "
+        "Do not revisit earlier topics or add unrelated callbacks to past discussion unless the user asks. Be concise."
+    ),
     "system_prompt": SYSTEM_PROMPT,
     "mcp_server_path": MCP_SERVER_PATH,
     "mcp_venv_python": MCP_VENV_PYTHON
@@ -143,7 +149,9 @@ UNIFIED_CONTEXT_CONFIG = {
     "system_prompt": SYSTEM_PROMPT,
     "model": "gpt-4",
     "max_messages": 21,
-    "enable_debug": False
+    "enable_debug": False,
+    # Number of most recent messages to send to the responder (system prompt is provided separately)
+    "response_recent_messages": 8
 }
 
 
@@ -365,7 +373,7 @@ def set_providers(transcription: Optional[str] = None,
 # =============================================================================
 
 # Set the active configuration preset here. Options: "default", "dev", "prod", "test"
-CONFIG_PRESET: str = os.getenv("AF_CONFIG_PRESET", "prod")
+CONFIG_PRESET: str = "dev" #os.getenv("AF_CONFIG_PRESET", "prod")
 
 
 def set_active_preset(preset: str) -> None:

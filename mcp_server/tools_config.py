@@ -16,7 +16,7 @@ ENABLED_TOOLS = {
     "spotify_playback": False,       # Music playback control (legacy)
     
     # Improved tools - enhanced with rich parameter descriptions
-    "improved_state_manager": True,         # Enhanced system state management
+    "improved_state_tool": True,         # Enhanced system state management
     "improved_get_notifications": True,     # Enhanced notification tool with metadata
     "improved_spotify_playback": True,      # Enhanced Spotify control with full API
     "improved_calendar_data": True,         # Enhanced calendar with comprehensive commands

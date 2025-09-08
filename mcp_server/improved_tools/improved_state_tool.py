@@ -16,14 +16,19 @@ try:
 except ImportError:
     # Fallback for MCP server context
     config = None
-from typing import Dict, Any, Literal
+from typing import Dict, Any
 
 
 class ImprovedStateTool(ImprovedBaseTool):
     """Enhanced tool for managing system state and user preferences via voice commands."""
     
-    name = "improved_state_manager"
-    description = "Manage system state including user preferences, current settings, and application state. Use this tool when users want to change their Spotify account, lighting scene, volume level, or do-not-disturb status. This tool provides centralized control over all chat-controllable system settings."
+    name = "improved_state_tool"
+    description = (
+        "Manage system state including user preferences, current settings, and application state. "
+        "Use this tool for high-level settings like Spotify user, lighting SCENE (mood/party/movie), "
+        "volume level, or do-not-disturb. Do NOT use this for direct device control of lights — "
+        "for turning a specific light on/off, always use improved_kasa_lighting instead."
+    )
     version = "1.0.1"
     
     def __init__(self):
@@ -99,7 +104,10 @@ class ImprovedStateTool(ImprovedBaseTool):
             
             # Perform state change
             self.state_manager.set(state_type, new_state)
-            self.log_info(f"Successfully changed {state_type} to {new_state}")
+            try:
+                self.logger.info("Successfully changed %s to %s", state_type, new_state)
+            except Exception:
+                pass
             
             # Get current state for confirmation
             current_value = self.state_manager.get(state_type)
@@ -114,7 +122,10 @@ class ImprovedStateTool(ImprovedBaseTool):
             }
             
         except Exception as e:
-            self.log_error(f"Failed to set state: {e}")
+            try:
+                self.logger.error("Failed to set state: %s", e)
+            except Exception:
+                pass
             return {
                 "success": False,
                 "error": f"Failed to set {params.get('state_type', 'unknown')}: {str(e)}",

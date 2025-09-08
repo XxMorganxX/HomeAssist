@@ -3,8 +3,18 @@ Core audio processing and speech services.
 This module contains the efficient, deterministic logic for audio processing.
 """
 
-from .audio_processing import VADChunker, wav_bytes_from_frames, calculate_rms
-from .streaming_chatbot import StreamingChatbot
+# Avoid importing heavy numpy-dependent modules at package import time
+try:
+    from .audio_processing import VADChunker, wav_bytes_from_frames, calculate_rms
+except Exception:
+    VADChunker = None  # type: ignore
+    wav_bytes_from_frames = None  # type: ignore
+    calculate_rms = None  # type: ignore
+
+try:
+    from .streaming_chatbot import StreamingChatbot
+except Exception:
+    StreamingChatbot = None  # type: ignore
 
 
 # Conditionally import speech services based on config

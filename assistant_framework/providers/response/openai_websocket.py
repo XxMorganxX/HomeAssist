@@ -48,6 +48,8 @@ class OpenAIWebSocketResponseProvider(ResponseInterface):
         
         self.model = config.get('model', 'gpt-4o-realtime-preview-2024-12-17')
         self.max_tokens = config.get('max_tokens', 2000)
+        self.temperature = config.get('temperature', 0.8)
+        self.recency_bias_prompt = config.get('recency_bias_prompt', '')
         self.system_prompt = config.get('system_prompt', '')
         
         # MCP configuration
@@ -142,7 +144,14 @@ class OpenAIWebSocketResponseProvider(ResponseInterface):
             schema = mcp_tool.inputSchema
             if isinstance(schema, dict):
                 if "properties" in schema:
-                    parameters["properties"] = schema["properties"]
+                    # Avoid empty enum arrays which can break downstream validators
+                    safe_properties = {}
+                    for key, prop in schema["properties"].items():
+                        if isinstance(prop, dict) and prop.get("type") == "string" and isinstance(prop.get("enum"), list) and len(prop.get("enum")) == 0:
+                            # Drop invalid empty enum; keep as plain string
+                            prop = {k: v for k, v in prop.items() if k != "enum"}
+                        safe_properties[key] = prop
+                    parameters["properties"] = safe_properties
                 if "required" in schema:
                     parameters["required"] = schema["required"]
         
@@ -155,12 +164,37 @@ class OpenAIWebSocketResponseProvider(ResponseInterface):
     
     async def stream_response(self, 
                             message: str, 
-                            context: Optional[List[Dict[str, str]]] = None) -> AsyncIterator[ResponseChunk]:
+                            context: Optional[List[Dict[str, str]]] = None,
+                            tool_context: Optional[List[Dict[str, str]]] = None) -> AsyncIterator[ResponseChunk]:
         """Stream a response for the given message with optional context."""
-        # Prepare messages
-        messages = context if context else []
+        # Prefer a small recent window if the context provider supports it,
+        # to bias toward the latest prompt while still passing history.
+        messages = []
+        if context:
+            messages = context
+        else:
+            messages = []
         messages.append({"role": "user", "content": message})
         
+        # If provided, prepend a compact tool context as a guidance system message
+        if tool_context:
+            guidance_header = (
+                "For choosing tools, consider ONLY this short recent context to infer device references and intent. "
+                "Do not use it for final wording, only for tool selection:"
+            )
+            compact_lines = []
+            for m in tool_context:
+                role = m.get("role", "user")
+                content = m.get("content", "")
+                if content:
+                    compact_lines.append(f"{role}: {content}")
+            compact_text = guidance_header + "\n" + "\n".join(compact_lines)
+            messages.insert(0, {"role": "system", "content": compact_text})
+
+        # Prepend a recency-bias system instruction if configured
+        if self.recency_bias_prompt:
+            messages.insert(0, {"role": "system", "content": self.recency_bias_prompt})
+
         # Check if home-related for tool inclusion
         tools = self._should_include_tools(message) if self.openai_functions else None
         
@@ -169,53 +203,10 @@ class OpenAIWebSocketResponseProvider(ResponseInterface):
             yield chunk
     
     def _should_include_tools(self, message: str) -> Optional[List[Dict[str, Any]]]:
-        """Determine if tools should be included based on message content."""
-        home_keywords = [
-            'light', 'lights', 'thermostat', 'temperature', 'calendar', 'notification',
-            'spotify', 'music', 'home', 'house', 'smart', 'device', 'weather',
-            'turn on', 'turn off', 'set', 'check', 'show', 'play', 'stop'
-        ]
-        search_keywords = [
-            'search', 'google', 'web', 'lookup', 'look up', 'find', 'find out',
-            'release date', 'when is', 'when does', 'launch date', 'news'
-        ]
-        lighting_keywords = [
-            'light', 'lights', 'lamp', 'bulb', 'brightness', 'dim', 'brighten',
-            'turn on', 'turn off', 'toggle', 'light 1', 'light one', 'light 2', 'light two',
-        ]
-        scene_keywords = [
-            'scene', 'movie', 'mood', 'work', 'reading', 'party', 'relax'
-        ]
-
-        message_lower = message.lower()
-        is_home_related = any(k in message_lower for k in home_keywords)
-        is_search_related = any(k in message_lower for k in search_keywords)
-        is_lighting_related = any(k in message_lower for k in lighting_keywords)
-        wants_scene = any(k in message_lower for k in scene_keywords)
-
+        """Expose all discovered tools and let the model decide which to call."""
         if not self.openai_functions:
             return None
-
-        # Prefer Google search tool for search intents
-        if is_search_related:
-            google_funcs = [f for f in self.openai_functions if f.get('name') in (
-                'improved_google_search', 'google_search', 'improved_google_ai_search'
-            )]
-            return google_funcs or self.openai_functions
-
-        # Prefer lighting tools for lighting intents
-        if is_lighting_related:
-            preferred = ['improved_batch_light_control']
-            if wants_scene:
-                preferred.append('improved_lighting_scene')
-            lighting_funcs = [f for f in self.openai_functions if f.get('name') in preferred]
-            # If specific lighting tools are found, only expose them to make the model's choice unambiguous
-            if lighting_funcs:
-                return lighting_funcs
-            # Otherwise, fall back to all tools but at least include home-related
-            return self.openai_functions
-
-        return self.openai_functions if is_home_related else None
+        return self.openai_functions
     
     async def _ws_stream_roundtrip(self,
                                   messages: List[Dict[str, Any]],
@@ -252,9 +243,9 @@ class OpenAIWebSocketResponseProvider(ResponseInterface):
                     "type": "session.update",
                     "session": {
                         "modalities": ["text"],
-                        "instructions": self.system_prompt,
+                        "instructions": (self.system_prompt or ""),
                         "voice": "alloy",
-                        "temperature": 0.8,
+                        "temperature": self.temperature,
                     }
                 }
                 

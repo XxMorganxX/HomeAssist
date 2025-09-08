@@ -1,3 +1,14 @@
 .env
 __pycache__/
 google_creds/
+logs/
+new_mail.json
+relevance_results.json
+test_relevance_results.json
+full_article_analysis.json
+headlines.json
+news.json
+top_headlines.json
+daily_key_points.json
+daily_summary.txt
+email_summaries.json

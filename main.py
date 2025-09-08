@@ -654,13 +654,7 @@ class HomeAssistant:
                 print("⏳ Clearing audio buffers...")
                 await asyncio.sleep(2.0)  # Longer delay to prevent segfault
                 
-                # Force audio manager cleanup before transition
-                try:
-                    get_audio_manager().force_cleanup()
-                    print("🧹 Forced audio cleanup before transition")
-                    await asyncio.sleep(1.0)
-                except Exception as e:
-                    print(f"⚠️  Error in forced cleanup: {e}")
+                # Avoid forcing audio cleanup here; soft release happens in safe_audio_transition
                 
                 await safe_audio_transition("transcription", "wakeword", delay=AUDIO_HANDOFF_DELAY)
                 

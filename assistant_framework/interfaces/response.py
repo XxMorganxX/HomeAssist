@@ -23,13 +23,15 @@ class ResponseInterface(ABC):
     @abstractmethod
     async def stream_response(self, 
                             message: str, 
-                            context: Optional[List[Dict[str, str]]] = None) -> AsyncIterator[ResponseChunk]:
+                            context: Optional[List[Dict[str, str]]] = None,
+                            tool_context: Optional[List[Dict[str, str]]] = None) -> AsyncIterator[ResponseChunk]:
         """
         Stream a response for the given message with optional context.
         
         Args:
             message: The user message to respond to
             context: Optional conversation history
+            tool_context: Optional compact recent history to guide tool selection
             
         Yields:
             ResponseChunk: Response chunks as they become available

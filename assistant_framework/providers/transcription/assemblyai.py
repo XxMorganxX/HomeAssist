@@ -95,8 +95,8 @@ class AssemblyAITranscriptionProvider(TranscriptionInterface):
             # Store the current event loop for the WebSocket callback
             self._loop = asyncio.get_running_loop()
             
-            # Acquire audio resources
-            self.audio = self.audio_manager.acquire_audio("transcription", force_cleanup=True)
+            # Acquire audio resources (soft handoff, avoid tearing down CoreAudio)
+            self.audio = self.audio_manager.acquire_audio("transcription", force_cleanup=False)
             if not self.audio:
                 raise RuntimeError("Failed to acquire audio resources")
             

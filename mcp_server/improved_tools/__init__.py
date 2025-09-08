@@ -11,19 +11,21 @@ All tools in this package provide:
 - Enhanced error handling and validation
 """
 
-# Import all improved tools for easy access
+# Import only existing improved tools for easy access
 from .improved_state_tool import ImprovedStateTool
 from .improved_notifications import ImprovedGetNotificationsTool
-from .improved_light_control import ImprovedBatchLightControlTool
-from .improved_lighting_scene import ImprovedLightingSceneTool
+from .improved_kasa_lighting import ImprovedKasaLightingTool
 from .improved_spotify import ImprovedSpotifyPlaybackTool
 from .improved_calendar import ImprovedCalendarTool
+from .improved_google_search import ImprovedGoogleSearchTool
+from .improved_weather import ImprovedWeatherTool
 
 __all__ = [
     'ImprovedStateTool',
-    'ImprovedGetNotificationsTool', 
-    'ImprovedBatchLightControlTool',
-    'ImprovedLightingSceneTool',
+    'ImprovedGetNotificationsTool',
+    'ImprovedKasaLightingTool',
     'ImprovedSpotifyPlaybackTool',
-    'ImprovedCalendarTool'
+    'ImprovedCalendarTool',
+    'ImprovedGoogleSearchTool',
+    'ImprovedWeatherTool',
 ]

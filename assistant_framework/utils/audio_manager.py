@@ -65,6 +65,10 @@ class SharedAudioManager:
                 elif self._current_owner == owner_name:
                     # Same owner requesting again
                     self._owner_count += 1
+                elif self._current_owner is None:
+                    # Audio exists but is currently unowned; reassign ownership without reinit
+                    self._current_owner = owner_name
+                    self._owner_count = 1
                 else:
                     # This shouldn't happen with force_cleanup=True
                     print(f"⚠️  Unexpected audio state: current={self._current_owner}, requested={owner_name}")
@@ -99,7 +103,10 @@ class SharedAudioManager:
             self._owner_count = max(0, self._owner_count - 1)
             print(f"📤 Audio released by {owner_name} (count: {self._owner_count})")
             
-            if self._owner_count <= 0 or force_cleanup:
+            # Keep PyAudio instance alive when not owned to avoid frequent terminate/init cycles
+            if self._owner_count <= 0:
+                self._current_owner = None
+            if force_cleanup:
                 self._cleanup_audio_unsafe()
     
     def _cleanup_audio_unsafe(self):
@@ -162,9 +169,12 @@ async def safe_audio_transition(from_owner: str, to_owner: str, delay: float = 0
     """
     manager = get_audio_manager()
     
-    # Force cleanup to ensure clean state for transition
-    print(f"🔄 Forcing audio cleanup for transition: {from_owner} → {to_owner}")
-    manager.force_cleanup()
+    # Soft release to avoid tearing down CoreAudio engine on every handoff
+    print(f"🔄 Releasing audio for transition: {from_owner} → {to_owner}")
+    try:
+        manager.release_audio(from_owner, force_cleanup=False)
+    except Exception as e:
+        print(f"⚠️  Audio release warning during transition: {e}")
     
     # Wait for audio system to settle
     await asyncio.sleep(delay)
