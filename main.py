@@ -56,7 +56,8 @@ from assistant_framework.config import (
     TERMINATION_CHECK_MODE,
     TERMINATION_TIMEOUT,
     AUDIO_HANDOFF_DELAY,
-    SEND_PHRASES
+    SEND_PHRASES,
+    PREFIX_TRIM_PHRASES
 )
 from assistant_framework.orchestrator import create_orchestrator
 from assistant_framework.utils.audio_manager import safe_audio_transition, get_audio_manager
@@ -329,6 +330,40 @@ class HomeAssistant:
                     break
                     
         return result
+
+    def trim_prefix_on_phrases(self, text: str) -> str:
+        """Remove everything up to and including the first matching trim phrase.
+
+        - Case-insensitive
+        - Matches at word boundaries to avoid mid-word hits
+        - If multiple matches exist, trims to the LAST occurrence (most recent correction)
+        - Consumes trailing punctuation/spaces after the phrase
+        """
+        try:
+            if not PREFIX_TRIM_PHRASES:
+                return text
+            src = self.clean_transcription_text(text)
+            import re as _re
+            # Build matches and pick the last (rightmost) valid boundary match
+            last_cut = None
+            for phrase in PREFIX_TRIM_PHRASES:
+                p = phrase.strip()
+                if not p:
+                    continue
+                # Word-boundary, case-insensitive
+                pattern = _re.compile(r"\b" + _re.escape(p) + r"\b", flags=_re.IGNORECASE)
+                for m in pattern.finditer(src):
+                    cut = m.end()
+                    # Consume trailing punctuation/spaces
+                    while cut < len(src) and src[cut] in " .,!?:;-\t\n\r":
+                        cut += 1
+                    last_cut = cut if (last_cut is None or cut > last_cut) else last_cut
+            if last_cut is None:
+                return text
+            trimmed = src[last_cut:].lstrip()
+            return trimmed
+        except Exception:
+            return text
     
     def get_transcription_buffer_text(self) -> str:
         """Get the complete transcription buffer as a single string."""
@@ -352,12 +387,19 @@ class HomeAssistant:
                 buffer_text = cleaned_once
             
             if buffer_text:
-                print(f"\n📤 Sending to response component: '{buffer_text}'")
+                # Apply prefix trim before printing/sending so logs and context reflect final text
+                final_text = self.trim_prefix_on_phrases(buffer_text)
+                if not final_text.strip():
+                    print("⚠️  No content to send after applying trim phrases")
+                    # Clear the buffer after a reset phrase
+                    self.clear_transcription_buffer()
+                    return
+                print(f"\n📤 Sending to response component: '{final_text}'")
                 
                 # Persist the user's message in context for memory
                 try:
-                    if self.orchestrator.context and buffer_text:
-                        self.orchestrator.context.add_message("user", buffer_text)
+                    if self.orchestrator.context and final_text:
+                        self.orchestrator.context.add_message("user", final_text)
                         self.orchestrator.context.auto_trim_if_needed()
                 except Exception as e:
                     print(f"⚠️  Error updating context with user message: {e}")
@@ -371,7 +413,7 @@ class HomeAssistant:
                     
                     # Use orchestrator to include conversation history
                     async for chunk in self.orchestrator.run_response_only(
-                        buffer_text,
+                        final_text,
                         use_context=True
                     ):
                         # Beep once when the first content arrives from the agent
@@ -501,7 +543,7 @@ class HomeAssistant:
                         self._tts_partial_ref = cleaned
                         print(f"\n🎙️  Speech during TTS: '+{new_words}' (total: {self.interruption_word_count}) -> {cleaned}")
                     
-                    if self.interruption_word_count >= 3:
+                    if self.interruption_word_count >= 1:
                         print("🛑 TTS interrupted - stopping audio")
                         try:
                             self.orchestrator.tts.stop_audio()
@@ -561,8 +603,6 @@ class HomeAssistant:
                     # Clear partial line then print final to avoid leftover characters
                     self._clear_partial_line()
                     print(f"📝 [FINAL] {display_text}")
-                else:
-                    self._print_partial(display_text)
                     
         except Exception as e:
             print(f"\n❌ Transcription error: {e}")
@@ -643,7 +683,7 @@ class HomeAssistant:
                 # Phase 2: Safe transition from wake word to transcription
                 await self.stop_wake_word()
                 await safe_audio_transition("wakeword", "transcription", delay=AUDIO_HANDOFF_DELAY)
-                
+
                 # Phase 3: Process transcriptions
                 await self.process_transcriptions()
                 

@@ -106,7 +106,7 @@ Configuration
 - Default providers: AssemblyAI STT, OpenAI WebSocket (Realtime) response with MCP, Google TTS, Unified context, OpenWakeWord.
 - System prompt and operational phrases:
   - Termination phrases: `TERMINATION_PHRASES = ["over out", "stop listening", "end session", "over, out"]`
-  - Send phrases: `SEND_PHRASES = ["send message", "process this", "respond to this", "send this", "send it", "sir"]`
+  - Send phrases: `SEND_PHRASES = ["send message", "process this", "respond to this", "send this", "send it", "sir", "king"]`
 - Presets: `CONFIG_PRESET` (`prod` | `dev` | `test` | `default`) with helpers to set active preset at runtime.
 
 Required environment variables (typical)

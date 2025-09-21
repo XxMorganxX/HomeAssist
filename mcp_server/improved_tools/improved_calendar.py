@@ -10,8 +10,8 @@ sys.path.insert(0, '../..')
 
 from core.calendar_component import CalendarComponent
 from mcp_server.improved_base_tool import ImprovedBaseTool
-from typing import Dict, Any, List, Literal
-from datetime import datetime, timezone
+from typing import Dict, Any, List
+from datetime import datetime
 from config import LOG_TOOLS
 try:
     import config
@@ -94,15 +94,15 @@ class ImprovedCalendarTool(ImprovedBaseTool):
                             },
                             "event_description": {
                                 "type": "string",
-                                "description": "Detailed description of the event when creating new events. Include agenda, location details, preparation notes, or other relevant information."
+                                "description": "Detailed description of the event when creating events. Include agenda, location details, preparation notes, or other relevant information."
                             },
                             "start_time": {
                                 "type": "string",
-                                "description": "Start time in HH:MM format (24-hour) when creating events. e.g., '09:00' for 9 AM, '14:30' for 2:30 PM. Required for event creation."
+                                "description": "Start time for event creation. Accepts 12-hour (e.g., '11pm', '11:30AM') or 24-hour HH:MM (e.g., '23:00'). The tool will normalize to 24-hour internally. Required for event creation."
                             },
                             "end_time": {
                                 "type": "string",
-                                "description": "End time in HH:MM format (24-hour) when creating events. Must be after start_time. e.g., '10:00' for 10 AM, '15:30' for 3:30 PM. Required for event creation."
+                                "description": "End time for event creation. Accepts 12-hour (e.g., '11:30pm') or 24-hour HH:MM (e.g., '23:30'). Must be after start_time."
                             },
                             "location": {
                                 "type": "string",
@@ -149,16 +149,14 @@ class ImprovedCalendarTool(ImprovedBaseTool):
     def execute(self, params: Dict[str, Any]) -> Dict[str, Any]:
         """
         Execute the calendar operations.
-        
-        Args:
-            params: Tool parameters containing commands array
-            
-        Returns:
-            Dictionary containing execution results for all commands
         """
         try:
             commands = params.get("commands", [])
-            
+            # Normalize loose inputs (ISO datetimes, write_type alias, 12h times)
+            commands = [self._normalize_command(cmd) for cmd in commands]
+            if LOG_TOOLS:
+                self.logger.info("Normalized Calendar Commands -- %s", commands)
+
             if not commands:
                 return {
                     "success": False,
@@ -168,10 +166,8 @@ class ImprovedCalendarTool(ImprovedBaseTool):
                 }
             
             if LOG_TOOLS:
-                # Use logger to ensure logs flow through stderr and appear in the agent terminal
                 self.logger.info("Executing Tool: Calendar -- %s", params)
             
-            # Validate single user restriction
             users_in_request = set(cmd.get("user") for cmd in commands if cmd.get("user"))
             if len(users_in_request) > 1:
                 return {
@@ -181,7 +177,6 @@ class ImprovedCalendarTool(ImprovedBaseTool):
                     "restriction": "Single user per request only"
                 }
             
-            # Validate commands before execution
             validation_errors = self._validate_commands(commands)
             if validation_errors:
                 return {
@@ -192,7 +187,6 @@ class ImprovedCalendarTool(ImprovedBaseTool):
                     "available_actions": self.available_actions
                 }
             
-            # Execute commands
             results = []
             for i, cmd in enumerate(commands):
                 try:
@@ -206,7 +200,6 @@ class ImprovedCalendarTool(ImprovedBaseTool):
                         "error": str(e)
                     })
             
-            # Analyze overall results
             successful_commands = [r for r in results if r.get("success")]
             failed_commands = [r for r in results if not r.get("success")]
             
@@ -219,7 +212,6 @@ class ImprovedCalendarTool(ImprovedBaseTool):
                 "user": list(users_in_request)[0] if users_in_request else "unknown",
                 "timestamp": self._get_current_timestamp()
             }
-            
         except Exception as e:
             self.logger.error(f"Error executing calendar operations: {e}")
             return {
@@ -229,7 +221,7 @@ class ImprovedCalendarTool(ImprovedBaseTool):
                 "successful_commands": 0,
                 "failed_commands": len(params.get("commands", []))
             }
-    
+
     def _validate_commands(self, commands: List[Dict[str, Any]]) -> List[str]:
         """Validate all commands before execution."""
         errors = []
@@ -428,7 +420,6 @@ class ImprovedCalendarTool(ImprovedBaseTool):
     def _handle_write_command(self, calendar_instance: CalendarComponent, cmd: Dict[str, Any], cmd_index: int) -> Dict[str, Any]:
         """Handle calendar write operations."""
         try:
-            # Extract event details
             event_data = {
                 "title": cmd["event_title"],
                 "description": cmd.get("event_description", ""),
@@ -440,10 +431,7 @@ class ImprovedCalendarTool(ImprovedBaseTool):
                 "calendar_name": cmd.get("calendar_name", "primary"),
                 "time_zone": cmd.get("time_zone")
             }
-            
-            # Create the event
             created_event = calendar_instance.create_event(event_data)
-            
             return {
                 "success": True,
                 "command_index": cmd_index,
@@ -456,7 +444,6 @@ class ImprovedCalendarTool(ImprovedBaseTool):
                 "calendar": cmd.get("calendar_name", "primary"),
                 "user": cmd["user"]
             }
-            
         except Exception as e:
             return {
                 "success": False,
@@ -464,6 +451,84 @@ class ImprovedCalendarTool(ImprovedBaseTool):
                 "error": f"Event creation failed: {str(e)}",
                 "command": cmd
             }
+
+    def _normalize_command(self, cmd: Dict[str, Any]) -> Dict[str, Any]:
+        """Normalize inputs for write/create_event commands.
+        - Accept 'write_type': 'create_event' alias by mapping to read_or_write
+        - Accept ISO datetimes in start_time/end_time and derive date/HH:MM
+        - Accept HH:MM:SS by truncating to HH:MM
+        - Accept 12h formats like '11pm'/'11:30am'
+        """
+        try:
+            normalized = dict(cmd)
+            # Map common title synonyms to event_title
+            if not normalized.get("event_title"):
+                for alt in ("event_name", "title", "summary", "name"):
+                    if isinstance(normalized.get(alt), str) and normalized.get(alt).strip():
+                        normalized["event_title"] = normalized[alt].strip()
+                        break
+            wt = normalized.get("write_type")
+            if wt and not normalized.get("read_or_write"):
+                normalized["read_or_write"] = "create_event" if wt == "create_event" else "write"
+            for key in ("start_time", "end_time"):
+                val = normalized.get(key)
+                if not val or not isinstance(val, str):
+                    continue
+                parsed = self._parse_time_like(val)
+                if parsed:
+                    if not normalized.get("date") and parsed.get("date"):
+                        normalized["date"] = parsed["date"]
+                    if parsed.get("time"):
+                        normalized[key] = parsed["time"]
+            dval = normalized.get("date")
+            if isinstance(dval, str) and "T" in dval:
+                try:
+                    iso = dval.replace("Z", "+00:00")
+                    dt = datetime.fromisoformat(iso)
+                    normalized["date"] = dt.date().isoformat()
+                except Exception:
+                    try:
+                        normalized["date"] = dval.split("T", 1)[0]
+                    except Exception:
+                        pass
+            if not normalized.get("calendar_name"):
+                normalized["calendar_name"] = "primary"
+            return normalized
+        except Exception:
+            return cmd
+
+    def _parse_time_like(self, value: str) -> Dict[str, Any]:
+        """Parse various time string formats into {'date':..., 'time':...}."""
+        try:
+            v = value.strip().rstrip(".,;:!")  # tolerate trailing punctuation from speech
+            if "T" in v or (len(v) >= 10 and v[:10].count("-") == 2):
+                try:
+                    iso = v.replace("Z", "+00:00")
+                    dt = datetime.fromisoformat(iso)
+                    return {"date": dt.date().isoformat(), "time": dt.strftime("%H:%M")}
+                except Exception:
+                    pass
+            import re as _re
+            m = _re.match(r"^(\d{1,2}):(\d{2})(?::\d{2})?$", v)
+            if m:
+                hh = int(m.group(1))
+                mm = int(m.group(2))
+                if 0 <= hh <= 23 and 0 <= mm <= 59:
+                    return {"time": f"{hh:02d}:{mm:02d}"}
+            m2 = _re.match(r"^(\d{1,2})(?::(\d{2}))?\s*([ap]m)$", v, flags=_re.IGNORECASE)
+            if m2:
+                hh = int(m2.group(1))
+                mm = int(m2.group(2) or 0)
+                ap = m2.group(3).lower()
+                if hh == 12:
+                    hh = 0
+                if ap == 'pm':
+                    hh += 12
+                if 0 <= hh <= 23 and 0 <= mm <= 59:
+                    return {"time": f"{hh:02d}:{mm:02d}"}
+            return {}
+        except Exception:
+            return {}
     
     def _get_calendar_instance(self, user: str) -> CalendarComponent:
         """Get or create calendar instance for user."""
@@ -473,7 +538,6 @@ class ImprovedCalendarTool(ImprovedBaseTool):
             except Exception as e:
                 self.logger.error(f"Failed to create calendar instance for {user}: {e}")
                 return None
-        
         return self.calendar_instances[user]
     
     def _is_valid_time_format(self, time_str: str) -> bool:
@@ -495,7 +559,6 @@ class ImprovedCalendarTool(ImprovedBaseTool):
     def _get_current_timestamp(self) -> str:
         """Get current timestamp for logging."""
         try:
-            from datetime import datetime
             return datetime.now().isoformat()
-        except:
+        except Exception:
             return "unknown"

@@ -30,7 +30,7 @@ from mcp_server.tool_registry import ToolRegistry
 from mcp_server.improved_mcp_adapter import ImprovedMCPToolAdapter
 
 
-def create_mcp_server(host: str = "127.0.0.1", port: int = 3000) -> FastMCP:
+def create_mcp_server(host: str = "127.0.0.1", port: int = 3000) -> tuple[FastMCP, ToolRegistry]:
     """
     Create and configure the FastMCP server with all tools.
     
@@ -39,7 +39,7 @@ def create_mcp_server(host: str = "127.0.0.1", port: int = 3000) -> FastMCP:
         port: Port to bind to (default: 3000)
         
     Returns:
-        Configured FastMCP server instance
+        Tuple of (Configured FastMCP server instance, ToolRegistry instance)
     """
     # Initialize FastMCP server
     mcp = FastMCP(name="Smart Home Assistant")
@@ -72,15 +72,16 @@ def create_mcp_server(host: str = "127.0.0.1", port: int = 3000) -> FastMCP:
         logger.error(f"Tool discovery/registration failed: {e}")
         raise
     
-    return mcp
+    return mcp, tool_registry
 
 
-def get_server_info(mcp: FastMCP) -> None:
+def get_server_info(mcp: FastMCP, tool_registry: ToolRegistry) -> None:
     """
     Display server information.
     
     Args:
         mcp: FastMCP server instance
+        tool_registry: ToolRegistry instance with discovered tools
     """
     # Safe to print here; guarded by transport in main()
     print("\n=== MCP Server Information ===")
@@ -89,11 +90,8 @@ def get_server_info(mcp: FastMCP) -> None:
     print(f"Transport: HTTP")
     print("\n=== Available Tools ===")
     
-    # Note: FastMCP doesn't expose registered tools directly,
-    # but we can show what we attempted to register
-    tool_registry = ToolRegistry()
+    # Use the existing tool_registry instead of creating a new one
     try:
-        tool_registry.discover_tools()
         available_tools = tool_registry.get_available_tools()
         for tool_name in available_tools:
             if tool_registry.validate_tool(tool_name):
@@ -116,10 +114,10 @@ def main():
     try:
         # Create and configure MCP server
         logger.info("Initializing MCP server...")
-        mcp = create_mcp_server(args.host, args.port)
+        mcp, tool_registry = create_mcp_server(args.host, args.port)
         
         # Display server information
-        get_server_info(mcp)
+        get_server_info(mcp, tool_registry)
         
         # Start the server
         logger.info(f"Starting MCP server on {args.host}:{args.port} using {args.transport} transport")

@@ -120,14 +120,17 @@ class OpenWakeWordProvider(WakeWordInterface):
         if self._is_listening:
             return
 
-        # Retry device acquisition once if first attempt fails due to transient device issues
-        for attempt in range(2):
-            # Acquire audio resources (soft handoff)
-            self._audio = self.audio_manager.acquire_audio("wakeword", force_cleanup=False)
+        # Retry device acquisition with increasing force if needed
+        for attempt in range(3):
+            # First attempt: soft handoff, then force cleanup if needed
+            force_cleanup = (attempt > 0)
+            self._audio = self.audio_manager.acquire_audio("wakeword", force_cleanup=force_cleanup)
             if self._audio:
                 break
-            # Backoff before retry
-            await asyncio.sleep(0.3)
+            # Backoff before retry with increasing delay
+            await asyncio.sleep(0.3 * (attempt + 1))
+            if attempt > 0:
+                print(f"⚠️  Retrying audio acquisition (attempt {attempt + 1}/3) with force_cleanup")
         if not self._audio:
             raise RuntimeError("Failed to acquire audio resources for wake word detection")
 
@@ -241,14 +244,24 @@ class OpenWakeWordProvider(WakeWordInterface):
         except Exception as e:
             print(f"⚠️  Error stopping wake word stream: {e}")
             self._mic_stream = None
-        
-        # Release audio resources (don't force cleanup here to avoid double cleanup)
-        try:
-            self.audio_manager.release_audio("wakeword", force_cleanup=False)
-            self._audio = None
-        except Exception as e:
-            print(f"⚠️  Error releasing wake word audio: {e}")
-            self._audio = None
+
+        # Release audio resources only if we own them
+        if self._audio:
+            try:
+                # Check if we still own the audio before releasing
+                status = self.audio_manager.get_status()
+                if status['current_owner'] == "wakeword":
+                    self.audio_manager.release_audio("wakeword", force_cleanup=False)
+                    print("✅ Wake word audio resources released")
+                elif status['current_owner'] is None:
+                    print("ℹ️  Audio already released (no owner)")
+                else:
+                    print(f"ℹ️  Audio owned by {status['current_owner']}, skipping release")
+            except Exception as e:
+                print(f"⚠️  Error releasing wake word audio: {e}")
+            finally:
+                self._audio = None
+
 
     @property
     def is_listening(self) -> bool:

@@ -6,8 +6,7 @@ better type safety, and comprehensive filtering options.
 """
 
 import json
-import os
-from typing import Dict, List, Optional, Any, Literal
+from typing import Dict, List, Optional, Any
 from pathlib import Path
 from mcp_server.improved_base_tool import ImprovedBaseTool
 from config import LOG_TOOLS
@@ -17,7 +16,7 @@ class ImprovedGetNotificationsTool(ImprovedBaseTool):
     
     name = "improved_get_notifications"
     description = "Check for pending notifications with comprehensive filtering options. Use when user asks about notifications, messages, emails, or news updates. Supports filtering by user, type, and limiting results. Always returns detailed notification content with timestamps and metadata. IMPORTANT: Only query ONE user per request - never multiple users simultaneously."
-    version = "1.0.1"
+    version = "1.1.0"
     
     def __init__(self):
         """Initialize the improved notifications tool."""
@@ -88,6 +87,18 @@ class ImprovedGetNotificationsTool(ImprovedBaseTool):
         try:
             # Extract parameters with defaults
             user = params.get("user", "Morgan")
+            # Normalize user input to title-case and handle simple aliases
+            try:
+                if isinstance(user, str):
+                    lowered = user.strip().lower()
+                    if lowered in {"morgan", "spencer"}:
+                        user = lowered.title()
+                    elif lowered in {"me", "my", "default"}:
+                        user = "Morgan"
+                    else:
+                        user = user.title()
+            except Exception:
+                user = "Morgan"
             type_filter = params.get("type_filter", "all")
             limit = params.get("limit", 10)
             mark_as_read = params.get("mark_as_read", False)
@@ -222,11 +233,12 @@ class ImprovedGetNotificationsTool(ImprovedBaseTool):
             }
     
     def _load_notifications(self) -> Dict[str, List[Dict]]:
-        """Load notifications from the state file with backward compatibility.
+        """Load notifications from state, including email topic entries.
 
-        Supports two structures:
-        1) New format: top-level key "notifications": { "Morgan": [ ... ], ... }
+        Supports structures:
+        1) New format: state["notifications"][user] -> list of normalized notifications
         2) Legacy format: state["autonomous_state"]["notification_queue"][user]["notifications"]
+        3) Emails list: state["autonomous_state"]["notification_queue"][user]["emails"] -> list of email topic entries
         """
         try:
             if not self.state_file.exists():
@@ -240,7 +252,7 @@ class ImprovedGetNotificationsTool(ImprovedBaseTool):
             if isinstance(state.get("notifications"), dict):
                 return state["notifications"]
 
-            # Fallback to legacy format and normalize
+            # Fallback to legacy format and normalize; also merge 'emails' entries
             autonomous_state = state.get("autonomous_state", {})
             notification_queue = autonomous_state.get("notification_queue", {})
             if not isinstance(notification_queue, dict):
@@ -271,6 +283,39 @@ class ImprovedGetNotificationsTool(ImprovedBaseTool):
                         "source": source,
                         "read_status": raw.get("read_status", "unread")
                     })
+
+                # Merge 'emails' queue items as notifications of type 'email'
+                emails_list = (user_data or {}).get("emails", [])
+                for email_item in emails_list:
+                    try:
+                        email_content = email_item.get("content", "")
+                        email_title = email_item.get("title") or "Email Update"
+                        content = email_content
+                        notif_type = "email"
+                        priority = self._normalize_priority(email_item.get("priority"))
+                        timestamp = self._coerce_timestamp(email_item.get("timestamp"))
+                        source = email_item.get("source", "email_summarizer")
+                        notif_id = email_item.get("id") or self._generate_notification_id(
+                            f"{email_title}|{email_content}", notif_type, timestamp
+                        )
+
+                        normalized_entry = {
+                            "id": notif_id,
+                            "content": content,
+                            "type": notif_type,
+                            "priority": priority,
+                            "timestamp": timestamp,
+                            "source": source,
+                            "read_status": email_item.get("read_status", "unread"),
+                            # Preserve helpful metadata
+                            "title": email_title,
+                            "topic": email_item.get("topic"),
+                            "email_ids": email_item.get("email_ids"),
+                        }
+                        normalized_list.append(normalized_entry)
+                    except Exception:
+                        # Skip malformed email entries
+                        continue
                 normalized[user] = normalized_list
 
             return normalized

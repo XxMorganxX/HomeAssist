@@ -24,13 +24,13 @@ class SharedAudioManager:
     Manages shared PyAudio instance to prevent resource conflicts.
     Ensures only one component can access audio at a time.
     """
-    
+
     def __init__(self):
         self._audio: Optional[pyaudio.PyAudio] = None
         self._lock = threading.Lock()
         self._current_owner: Optional[str] = None
         self._owner_count = 0
-        self._cleanup_delay = 0.5  # Seconds to wait before cleanup
+        self._cleanup_delay = 0.5
         
     def acquire_audio(self, owner_name: str, force_cleanup: bool = True) -> Optional[pyaudio.PyAudio]:
         """
@@ -58,7 +58,6 @@ class SharedAudioManager:
                 # Create new PyAudio instance if needed
                 if not self._audio:
                     print(f"🎤 Initializing audio for {owner_name}")
-                    # Avoid double beeps: tones already played by caller when needed
                     self._audio = pyaudio.PyAudio()
                     self._current_owner = owner_name
                     self._owner_count = 1
@@ -85,7 +84,7 @@ class SharedAudioManager:
     def release_audio(self, owner_name: str, force_cleanup: bool = False):
         """
         Release PyAudio instance from the given owner.
-        
+
         Args:
             owner_name: Name of the component releasing audio
             force_cleanup: Whether to force immediate cleanup
@@ -93,16 +92,19 @@ class SharedAudioManager:
         with self._lock:
             # Handle case where audio was already cleaned up
             if self._current_owner is None and self._audio is None:
-                print(f"📤 Audio already released for {owner_name}")
+                # Silent return - this is expected after force_cleanup
                 return
-                
+
             if self._current_owner != owner_name:
-                print(f"⚠️  {owner_name} tried to release audio, but {self._current_owner} owns it")
+                # Only warn if there's an actual owner mismatch
+                if self._current_owner is not None:
+                    print(f"⚠️  {owner_name} tried to release audio owned by {self._current_owner}")
+                # Silent return if no owner (already released)
                 return
-            
+
             self._owner_count = max(0, self._owner_count - 1)
             print(f"📤 Audio released by {owner_name} (count: {self._owner_count})")
-            
+
             # Keep PyAudio instance alive when not owned to avoid frequent terminate/init cycles
             if self._owner_count <= 0:
                 self._current_owner = None
@@ -121,10 +123,10 @@ class SharedAudioManager:
                 self._audio = None
                 self._current_owner = None
                 self._owner_count = 0
-                
+
                 # Now terminate the stored reference
                 audio_to_cleanup.terminate()
-                print(f"✅ Audio cleanup completed")
+                print("✅ Audio cleanup completed")
             except Exception as e:
                 print(f"⚠️  Error terminating PyAudio: {e}")
                 # Ensure state is cleared even on error

@@ -7,6 +7,10 @@ from newspaper import Article, ArticleException
 
 load_dotenv()
 
+BASE_DIR = os.path.dirname(__file__)
+EPHEMERAL_DIR = os.path.join(BASE_DIR, "ephemeral_data")
+
+
 class NewsHeadlineScraper:
     def __init__(self):
         self.curr_key_index = 0
@@ -100,8 +104,8 @@ class NewsHeadlineScraper:
 
 
     def update_headlines(self, new_headlines: list, searched_keywords=None):
-        headlines_dir = "ephemeral_data"
-        headlines_path = f"{headlines_dir}/headlines.json"
+        headlines_dir = EPHEMERAL_DIR
+        headlines_path = os.path.join(headlines_dir, "headlines.json")
         os.makedirs(headlines_dir, exist_ok=True)
         # Load existing headlines or start with empty list
         if os.path.exists(headlines_path):
@@ -146,8 +150,8 @@ class NewsHeadlineScraper:
         """
         Fetch top headlines matching the given keywords and filters.
         """
-        headlines_dir = "ephemeral_data"
-        headlines_path = f"{headlines_dir}/headlines.json"
+        headlines_dir = EPHEMERAL_DIR
+        headlines_path = os.path.join(headlines_dir, "headlines.json")
         # Load searched_keywords from headlines.json if it exists
         already_searched = set()
         if os.path.exists(headlines_path):
@@ -222,7 +226,9 @@ class NewsHeadlineScraper:
     
     
     def get_num_results_found(self):
-        with open("ephemeral_data/headlines.json", "r") as f:
+        path = os.path.join(EPHEMERAL_DIR, "headlines.json")
+        os.makedirs(os.path.dirname(path), exist_ok=True)
+        with open(path, "r") as f:
             data = json.load(f)
             metadata = data[0]
             print(f"\n=== Scraping Summary ===")
@@ -276,11 +282,14 @@ class NewsScraper:
                 "publish_date": article.publish_date.isoformat() if article.publish_date else None,
                 "url": article.url
             }
-        with open("ephemeral_data/news.json", "w") as f:
+        out_path = os.path.join(EPHEMERAL_DIR, "news.json")
+        os.makedirs(os.path.dirname(out_path), exist_ok=True)
+        with open(out_path, "w") as f:
             json.dump(dump_articles, f, indent=2)
 
     def get_news(self):
-        with open("ephemeral_data/news.json", "r") as f:
+        path = os.path.join(EPHEMERAL_DIR, "news.json")
+        with open(path, "r") as f:
             self.articles = json.load(f)
         return self.articles
     

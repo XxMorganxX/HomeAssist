@@ -3,7 +3,6 @@ Dynamic tool discovery and registration system.
 Automatically finds and loads MCP tools from the tools directory.
 """
 
-import os
 import importlib
 import inspect
 from typing import Dict, List, Type, Any
@@ -107,14 +106,13 @@ class ToolRegistry:
             logger.error(f"Error loading tool module {module_name}: {e}")
     
     def _is_tool_class(self, obj: Type) -> bool:
-        """Check if a class is a valid tool class."""
+        """Check if a class is a valid tool class (Improved only)."""
         # Import here to avoid circular imports
-        from mcp_server.base_tool import BaseTool
         from mcp_server.improved_base_tool import ImprovedBaseTool
         
         return (inspect.isclass(obj) and 
-                (issubclass(obj, BaseTool) or issubclass(obj, ImprovedBaseTool)) and 
-                obj not in (BaseTool, ImprovedBaseTool))
+                issubclass(obj, ImprovedBaseTool) and 
+                obj is not ImprovedBaseTool)
     
     def get_tool_instance(self, tool_name: str) -> Any:
         """

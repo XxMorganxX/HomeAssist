@@ -644,25 +644,36 @@ class CalendarComponent:
             start_datetime = f"{event_data['date']}T{event_data['start_time']}:00"
             end_datetime = f"{event_data['date']}T{event_data['end_time']}:00"
             
-            # Apply timezone if provided
-            if event_data.get('time_zone'):
-                start_datetime += f"+{event_data['time_zone']}"
-                end_datetime += f"+{event_data['time_zone']}"
+            # Apply timezone if provided (use timeZone field for IANA IDs),
+            # otherwise use default from config if present.
+            time_zone = event_data.get('time_zone') or getattr(config, 'DEFAULT_TIME_ZONE', None)
+            if time_zone and isinstance(time_zone, str) and '/' in time_zone:
+                event_body = {
+                    'summary': event_data['title'],
+                    'description': event_data.get('description', ''),
+                    'start': {
+                        'dateTime': start_datetime,
+                        'timeZone': time_zone,
+                    },
+                    'end': {
+                        'dateTime': end_datetime,
+                        'timeZone': time_zone,
+                    },
+                }
             else:
-                # Default to UTC
+                # Default to UTC when no valid IANA zone is provided
                 start_datetime += "Z"
                 end_datetime += "Z"
-            
-            event_body = {
-                'summary': event_data['title'],
-                'description': event_data.get('description', ''),
-                'start': {
-                    'dateTime': start_datetime,
-                },
-                'end': {
-                    'dateTime': end_datetime,
-                },
-            }
+                event_body = {
+                    'summary': event_data['title'],
+                    'description': event_data.get('description', ''),
+                    'start': {
+                        'dateTime': start_datetime,
+                    },
+                    'end': {
+                        'dateTime': end_datetime,
+                    },
+                }
             
             # Add location if provided
             if event_data.get('location'):
@@ -675,8 +686,14 @@ class CalendarComponent:
             # Get calendar ID
             calendar_id = event_data.get('calendar_name', 'primary')
             if calendar_id != 'primary':
-                # Map calendar name to ID if needed
-                calendar_id = 'primary'  # For now, default to primary
+                # Map calendar name to ID if possible, else fallback to primary
+                try:
+                    resolved = self.calendar_name_to_id(calendar_id)
+                    if resolved and resolved != calendar_id:
+                        calendar_id = resolved
+                    # If name lookup returns the same name, it's likely already an ID or not found
+                except Exception:
+                    calendar_id = 'primary'
             
             # Create the event
             created_event = self.service.events().insert(

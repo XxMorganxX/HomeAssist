@@ -37,6 +37,7 @@ load_dotenv()
 # If modifying these scopes, delete the file token.json.
 SCOPES = ['https://www.googleapis.com/auth/gmail.readonly']
 STATE_FILE = os.path.join(EMAIL_SUMMARIZER_DIRECTORY, 'email_script_state.json')
+MAX_EMAILS = 25
 
 class EmailManager:
     def __init__(self, token_file: str = GOOGLE_TOKEN_FILE, credentials_file: str = GOOGLE_CREDENTIALS_FILE, window_index: int = None):
@@ -51,6 +52,25 @@ class EmailManager:
         self.last_processed_date_str, self.last_processed_timestamp = self.load_last_processed_date(window_index)
         print(f"🕒 Loaded state: date_str='{self.last_processed_date_str}', timestamp={self.last_processed_timestamp}")
     
+    def _is_headless(self) -> bool:
+        """Detect if running in a headless/non-interactive environment."""
+        try:
+            return (
+                os.getenv("EMAIL_SUMMARIZER_HEADLESS", "0") == "1"
+                or os.getenv("CI") == "true"
+                or not sys.stdout.isatty()
+            )
+        except Exception:
+            return True
+
+    def _notify_reauth_required(self, reason: str) -> None:
+        """Log that re-authorization is required. Do not write to app_state."""
+        try:
+            print(f"⚠️  Gmail re-authorization required: {reason}")
+            print("   Please run: python scripts/scheduled/email_summarizer/reauth_gmail.py")
+        except Exception:
+            pass
+
     def _resolve_credential_paths(self):
         """Resolve token and credential file paths with env overrides and fallbacks."""
         try:
@@ -101,6 +121,8 @@ class EmailManager:
                 return creds
             except Exception as e:
                 print(f"⚠️  Failed to refresh using environment variables: {e}")
+                if self._is_headless():
+                    self._notify_reauth_required("Environment refresh token failed to refresh Gmail access.")
         return None
         
     def authenticate(self):
@@ -119,6 +141,17 @@ class EmailManager:
         if not creds and os.path.exists(self.token_file):
             with open(self.token_file, 'r') as token:
                 creds = Credentials.from_authorized_user_info(json.load(token), SCOPES)
+            # If token file lacks a refresh token, upgrade to offline access if interactive is allowed
+            if creds and not getattr(creds, 'refresh_token', None):
+                if self._is_headless():
+                    self._notify_reauth_required("Existing Gmail credentials are missing a refresh token (offline access).")
+                    raise RuntimeError("Headless mode: missing refresh token. Run the Gmail reauth script to grant offline access.")
+                print("♻️  Upgrading Gmail credentials to include refresh token (offline access)...")
+                flow = InstalledAppFlow.from_client_secrets_file(self.credentials_file, SCOPES)
+                creds = flow.run_local_server(port=0, access_type='offline', prompt='consent')
+                os.makedirs(os.path.dirname(self.token_file), exist_ok=True)
+                with open(self.token_file, 'w') as token:
+                    token.write(creds.to_json())
         
         # If there are no (valid) credentials available, let the user log in
         if not creds or not creds.valid:
@@ -128,21 +161,27 @@ class EmailManager:
                     creds.refresh(Request())
                 except RefreshError as e:
                     print(f"⚠️  OAuth refresh failed ({e}). Removing stale token and reauthorizing...")
+                    if 'invalid_grant' in str(e):
+                        self._notify_reauth_required("Gmail refresh token has been revoked or expired.")
                     try:
                         os.remove(self.token_file)
                     except Exception:
                         pass
+                    if self._is_headless():
+                        raise RuntimeError(
+                            "Headless mode: cannot perform interactive OAuth. "
+                            "Run: python scripts/scheduled/email_summarizer/reauth_gmail.py"
+                        )
                     creds = None
             
             if not creds or not creds.valid:
+                if self._is_headless():
+                    raise RuntimeError(
+                        "Headless mode: Gmail OAuth reauthorization required. "
+                        "Run: python scripts/scheduled/email_summarizer/reauth_gmail.py"
+                    )
                 flow = InstalledAppFlow.from_client_secrets_file(self.credentials_file, SCOPES)
-                # Allow headless reauth when running scheduled jobs (no browser)
-                use_console = os.getenv("EMAIL_SUMMARIZER_HEADLESS", "0") == "1" or os.getenv("CI") == "true"
-                if use_console:
-                    print("🔐 Opening console-based OAuth flow (headless mode)...")
-                    creds = flow.run_console(access_type='offline', prompt='consent')
-                else:
-                    creds = flow.run_local_server(port=0, access_type='offline', prompt='consent')
+                creds = flow.run_local_server(port=0, access_type='offline', prompt='consent')
             
             # Save the credentials for the next run
             os.makedirs(os.path.dirname(self.token_file), exist_ok=True)
@@ -184,12 +223,12 @@ class EmailManager:
                             # Default to most recent entry
                             last_run = history[-1]
                         
-                        last_date = last_run.get('last_processed_date')
+                        last_date = last_run.get('last_processed_email_date') or last_run.get('last_processed_date')
                     else:
                         # Fallback to old format
                         if window_index is not None:
                             print("⚠️ Warning: No processing history available, ignoring window parameter")
-                        last_date = state.get('last_processed_date')
+                        last_date = state.get('last_processed_email_date') or state.get('last_processed_date')
                     
                     if last_date:
                         # Keep the full timestamp for precise filtering
@@ -225,10 +264,10 @@ class EmailManager:
                 print("📅 No previous state found. Fetching recent emails...")
             
             # Call the Gmail API to fetch messages
-            print(f"🔍 Calling Gmail API with max_results={max_emails * 2}...")
+            print(f"🔍 Calling Gmail API with max_results={max_emails}...")
             results = self.service.users().messages().list(
                 userId='me',
-                maxResults=max_emails * 2,  # Fetch more to account for filtering
+                maxResults=max_emails,  # Fetch more to account for filtering
                 q=query
             ).execute()
             
@@ -332,23 +371,49 @@ class EmailManager:
     
     def get_email_body(self, payload: Dict[str, Any]) -> str:
         """Extract the text body from a Gmail API payload."""
-        body = ""
-        
-        if 'parts' in payload:
-            for part in payload['parts']:
-                if part['mimeType'] == 'text/plain':
-                    data = part['body']['data']
-                    body = base64.urlsafe_b64decode(data).decode('utf-8', errors='ignore')
-                    break
-                elif 'parts' in part:
-                    # Recursively check nested parts
-                    body = self.get_email_body(part)
-                    if body:
-                        break
-        elif payload['body'].get('data'):
-            body = base64.urlsafe_b64decode(payload['body']['data']).decode('utf-8', errors='ignore')
-        
-        return body
+        def decode_b64_to_text(b64_str: str) -> str:
+            try:
+                # Add padding if missing
+                padding = '=' * (-len(b64_str) % 4)
+                return base64.urlsafe_b64decode(b64_str + padding).decode('utf-8', errors='ignore')
+            except Exception:
+                return ""
+
+        # Prefer text/plain, then text/html, search recursively as needed
+        if not isinstance(payload, dict):
+            return ""
+
+        # Direct body on this payload
+        body_dict = payload.get('body', {}) if isinstance(payload.get('body', {}), dict) else {}
+        data_here = body_dict.get('data')
+        if data_here:
+            return decode_b64_to_text(data_here)
+
+        # If there are parts, iterate
+        parts = payload.get('parts', [])
+        if isinstance(parts, list):
+            # First pass: look for text/plain
+            for part in parts:
+                mime = part.get('mimeType')
+                if mime == 'text/plain':
+                    data = part.get('body', {}).get('data')
+                    if data:
+                        return decode_b64_to_text(data)
+            # Second pass: allow text/html
+            for part in parts:
+                mime = part.get('mimeType')
+                if mime == 'text/html':
+                    data = part.get('body', {}).get('data')
+                    if data:
+                        return decode_b64_to_text(data)
+            # Third pass: recurse into multipart children
+            for part in parts:
+                if 'parts' in part or isinstance(part.get('body'), dict):
+                    nested = self.get_email_body(part)
+                    if nested:
+                        return nested
+
+        return ""
     
     def get_email_timestamp(self, msg: Dict[str, Any]) -> datetime:
         """Extract the timestamp from a Gmail API message."""
@@ -422,9 +487,11 @@ class EmailManager:
                     last_email_timestamp = datetime.now(timezone.utc).isoformat()
             
             # Create new processing entry
+            ts = last_email_timestamp or datetime.now(timezone.utc).isoformat()
             new_entry = {
                 "last_processed_email_id": last_email['id'] if last_email else None,
-                "last_processed_date": last_email_timestamp or datetime.now(timezone.utc).isoformat(),
+                "last_processed_email_date": ts,
+                "last_processed_date": ts,  # backward compatibility
                 "processing_run_date": datetime.now(timezone.utc).isoformat(),
                 "total_emails_processed": len(emails)
             }
@@ -433,9 +500,11 @@ class EmailManager:
             if 'processing_history' not in existing_state:
                 # Migrate old format if it exists
                 if 'last_processed_email_id' in existing_state:
+                    migrated_ts = existing_state.get('last_processed_email_date') or existing_state.get('last_processed_date')
                     existing_state['processing_history'] = [{
                         "last_processed_email_id": existing_state.get('last_processed_email_id'),
-                        "last_processed_date": existing_state.get('last_processed_date'),
+                        "last_processed_email_date": migrated_ts,
+                        "last_processed_date": migrated_ts,
                         "total_emails_processed": existing_state.get('total_emails_processed', 0)
                     }]
                 else:
@@ -473,6 +542,11 @@ class EmailManager:
                 return False
         else:
             print("ℹ️ No new emails to process.")
+            # Proactively remove any stale file so the summarizer does not reprocess old emails
+            try:
+                self.save_emails_to_json([])
+            except Exception:
+                pass
             if self.window_index is not None:
                 print(f"💾 State update skipped (using historical window {self.window_index})")
             return True  # This is not an error condition
@@ -532,13 +606,13 @@ def fetch_and_save_emails(window_index: int = None):
     if os.path.exists(STATE_FILE):
         with open(STATE_FILE, 'r') as f:
             state = json.load(f)
-            last_date = state.get('last_processed_date', 'Never')
+            last_date = state.get('last_processed_email_date') or state.get('last_processed_date', 'Never')
             last_count = state.get('total_emails_processed', 0)
             print(f"📊 Previous run: {last_count} emails processed, last date: {last_date}")
     
     try:
         email_manager = EmailManager(window_index=window_index)
-        success = email_manager.fetch_and_save_emails(max_emails=1000)
+        success = email_manager.fetch_and_save_emails(max_emails=MAX_EMAILS)
         return success
     except Exception as e:
         print(f"❌ Error fetching emails: {e}")

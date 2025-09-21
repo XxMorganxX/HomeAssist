@@ -7,7 +7,7 @@ import os
 from pathlib import Path
 from typing import Dict, Any, Optional
 from dotenv import load_dotenv
-from utils.device_manager import get_emeet_device
+from assistant_framework.utils.device_manager import get_emeet_device
 
 
 # Load environment variables from parent directory if available
@@ -42,7 +42,8 @@ AUDIO_HANDOFF_DELAY = 0.5  # seconds to wait between audio component switches
 SEND_PHRASES = ["send message", "process this", "respond to this", "send this", "send it", "sir"]
 
 SYSTEM_PROMPT = """
-You are Morgan Stuart's personal smart home assistant. You ALWAYS know that the user is Morgan Stuart (Mr. Stuart).
+You are Morgan Stuart's voice personal smart home assistant. You ALWAYS know that the user is Morgan Stuart (Mr. Stuart).
+When responding to the user consider that the output is meant to only be heard and not read- that means respond for the ear.
 
 REMEMBER: 
 - The user's name is Morgan Stuart
@@ -73,6 +74,12 @@ Keep your responses concise about the user's request. You should consider previo
 
 Tool response should be concise and only include the information that is relevant to the user's request. For instance, if the user asks for notifications, you don't need to include notification id or status.
 """
+
+# Phrases that, if detected in the transcription buffer, will cause all text
+# up to and including the phrase itself to be removed before sending to the LLM.
+# Matching is case-insensitive and respects word boundaries.
+# Example: ["actually", "scratch that", "no wait", "forget that"]
+PREFIX_TRIM_PHRASES = ["scratch that"]
 
 
 # =============================================================================
@@ -125,7 +132,7 @@ OPENAI_WS_CONFIG = {
     "model": "gpt-4o-realtime-preview-2024-12-17",
     "max_tokens": 2000,
     # Encourage concise, recent-focus answers
-    "temperature": 0.5,
+    "temperature": 0.6,
     "recency_bias_prompt": (
         "Focus your answer on the user's latest message. Use prior conversation only to disambiguate if explicitly referenced. "
         "Do not revisit earlier topics or add unrelated callbacks to past discussion unless the user asks. Be concise."
@@ -138,8 +145,8 @@ OPENAI_WS_CONFIG = {
 # Google TTS Configuration
 GOOGLE_TTS_CONFIG = {
     "voice": "en-US-Chirp3-HD-Sadachbia",
-    "speed": 1.3,
-    "pitch": -1.2,
+    "speed": 1.9,
+    "pitch": -2.1,
     "language_code": "en-US",
     "audio_encoding": "MP3"
 }

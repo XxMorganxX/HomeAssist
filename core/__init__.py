@@ -1,41 +1,61 @@
 """
-Core audio processing and speech services.
-This module contains the efficient, deterministic logic for audio processing.
+Lightweight core package initializer.
+
+This module avoids importing heavy dependencies (numpy, webrtcvad) and any
+speech service implementations at import time. Instead, it provides lazy
+accessors so that importing submodules like `core.state_management.statemanager`
+does not trigger realtime/audio initialization or configuration prints.
 """
 
-# Avoid importing heavy numpy-dependent modules at package import time
-try:
-    from .audio_processing import VADChunker, wav_bytes_from_frames, calculate_rms
-except Exception:
-    VADChunker = None  # type: ignore
-    wav_bytes_from_frames = None  # type: ignore
-    calculate_rms = None  # type: ignore
+from typing import List
 
-try:
-    from .streaming_chatbot import StreamingChatbot
-except Exception:
-    StreamingChatbot = None  # type: ignore
-
-
-# Conditionally import speech services based on config
-try:
-    import config
-    if config.USE_REALTIME_API:
-        try:
-            from .speech_services_realtime import SpeechServices, ConversationManager
-        except ImportError:
-            from .speech_services import SpeechServices, ConversationManager
-    else:
-        from .speech_services import SpeechServices, ConversationManager
-except ImportError:
-    # Fallback if config is not available during import
-    from .speech_services import SpeechServices, ConversationManager
-
-__all__ = [
+__all__: List[str] = [
     'VADChunker',
-    'wav_bytes_from_frames', 
+    'wav_bytes_from_frames',
     'calculate_rms',
     'SpeechServices',
     'ConversationManager',
-    'StreamingChatbot'
+    'StreamingChatbot',
 ]
+
+
+def __getattr__(name):
+    """Lazily import heavy modules and conditionally expose symbols.
+
+    - Audio processing symbols are imported from `.audio_processing` on demand.
+    - Speech services are resolved on demand, deciding realtime vs traditional
+      only when accessed, to avoid importing `config` during package import.
+    - `StreamingChatbot` is imported on demand from `.streaming_chatbot`.
+    """
+    if name in {'VADChunker', 'wav_bytes_from_frames', 'calculate_rms'}:
+        from . import audio_processing as _audio
+        return getattr(_audio, name)
+
+    if name in {'SpeechServices', 'ConversationManager'}:
+        # Decide which implementation to expose only when needed
+        try:
+            import config as _config  # type: ignore
+            use_realtime = bool(getattr(_config, 'USE_REALTIME_API', False))
+        except Exception:
+            use_realtime = False
+
+        if use_realtime:
+            try:
+                from .speech_services_realtime import SpeechServices as _SS, ConversationManager as _CM
+                return _SS if name == 'SpeechServices' else _CM
+            except Exception:
+                from .speech_services import SpeechServices as _SS, ConversationManager as _CM
+                return _SS if name == 'SpeechServices' else _CM
+        else:
+            from .speech_services import SpeechServices as _SS, ConversationManager as _CM
+            return _SS if name == 'SpeechServices' else _CM
+
+    if name == 'StreamingChatbot':
+        from .streaming_chatbot import StreamingChatbot as _SC
+        return _SC
+
+    raise AttributeError(f"module 'core' has no attribute '{name}'")
+
+
+def __dir__():
+    return sorted(list(globals().keys()) + __all__)

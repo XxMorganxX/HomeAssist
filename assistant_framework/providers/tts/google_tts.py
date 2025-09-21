@@ -9,6 +9,7 @@ import time
 from pathlib import Path
 from typing import Optional, Dict, Any
 from datetime import datetime
+import re
 
 from google.cloud import texttospeech
 
@@ -126,6 +127,10 @@ class GoogleTTSProvider(TextToSpeechInterface):
         # Determine if text is SSML
         is_ssml = text.lstrip().startswith("<speak>")
         
+        # Sanitize plain text to avoid reading ASCII markup/punctuation literally
+        if not is_ssml:
+            text = self._sanitize_text_for_tts(text)
+        
         # Create synthesis input
         synthesis_input = (
             texttospeech.SynthesisInput(ssml=text)
@@ -208,6 +213,30 @@ class GoogleTTSProvider(TextToSpeechInterface):
                 'is_ssml': is_ssml
             }
         )
+
+    def _sanitize_text_for_tts(self, raw: str) -> str:
+        """Remove or normalize ASCII markup so it isn't read literally.
+
+        - Remove asterisks used for bullets/markdown emphasis
+        - Strip backticks and code fences
+        - Replace colons used as punctuation with a short pause (comma)
+          but keep time-like patterns (e.g., 12:30)
+        - Collapse excessive punctuation/whitespace
+        """
+        try:
+            text = raw
+            # Remove code fences/backticks
+            text = text.replace("```", " ").replace("`", "")
+            # Remove asterisks
+            text = text.replace("*", "")
+            # Replace punctuation colons not between digits with a comma pause
+            text = re.sub(r"(?<!\\d):(?!\\d)", ", ", text)
+            # Normalize multiple commas/spaces
+            text = re.sub(r",\s*,+", ", ", text)
+            text = re.sub(r"\s+", " ", text).strip()
+            return text
+        except Exception:
+            return raw
     
     def _extract_language_code(self, voice_name: str) -> str:
         """Extract language code from voice name."""

@@ -60,7 +60,7 @@ class BaseAnalysis(ABC):
 class HeadlineAnalysis(BaseAnalysis):
     def __init__(self):
         super().__init__()
-        self.output_filepath = "ephemeral_data/top_headlines.json"
+        self.output_filepath = os.path.join(os.path.dirname(__file__), "ephemeral_data", "top_headlines.json")
         
         if os.path.exists(self.output_filepath):
             print("Headlines already analyzed. Skipping...")
@@ -128,9 +128,9 @@ class HeadlineAnalysis(BaseAnalysis):
         
 
     def get_headlines(self):
-        if not os.path.exists("ephemeral_data/headlines.json"):
+        if not os.path.exists(os.path.join(os.path.dirname(__file__), "ephemeral_data", "headlines.json")):
             return []
-        with open("ephemeral_data/headlines.json", "r") as f:
+        with open(os.path.join(os.path.dirname(__file__), "ephemeral_data", "headlines.json"), "r") as f:
             self.headlines = json.load(f)
         
         return self.headlines[1:]
@@ -167,7 +167,7 @@ class HeadlineAnalysis(BaseAnalysis):
     def get_urls(self):
         data = None
         urls = []
-        with open("ephemeral_data/top_headlines.json", "r") as f:
+        with open(os.path.join(os.path.dirname(__file__), "ephemeral_data", "top_headlines.json"), "r") as f:
             data = json.load(f)
 
         for key, value in data.items():
@@ -181,8 +181,8 @@ class FullArticleAnalysis(BaseAnalysis):
     
     def __init__(self):
         super().__init__()
-        self.output_filepath = "ephemeral_data/full_article_analysis.json"
-        self.news_filepath = "ephemeral_data/news.json"
+        self.output_filepath = os.path.join(os.path.dirname(__file__), "ephemeral_data", "full_article_analysis.json")
+        self.news_filepath = os.path.join(os.path.dirname(__file__), "ephemeral_data", "news.json")
         self.max_tokens = 2000  # Increase for more detailed analysis
         
         if os.path.exists(self.output_filepath):

@@ -4,17 +4,68 @@
     "chat_phase": "listening (active)",
     "notification_queue": {
       "Morgan": {
-        "notifications": [
+        "notifications": [],
+        "emails": [
           {
-            "id": "a1b2c3d4e5f6g7h8",
-            "content": "What is the weather in San Francisco?",
-            "type": "news",
-            "priority": "normal",
-            "timestamp": 1723372800,
-            "source": "rss",
-            "read_status": "unread",
-            "title": "Morning Briefing",
-            "url": "https://example.com/post/123"
+            "id": "d1c2de9bc56849e5",
+            "notification_type": "email",
+            "title": "Academic: Oral Comms Update",
+            "content": "Oral Comms confirms next week's lecture and sections are set, including a lecture on September 16th. Students are reminded to complete required reading and prepare questions about Aristotle before the lecture.",
+            "timestamp": 1757606491,
+            "topic": "academic",
+            "count": 1,
+            "email_ids": [
+              "199396722192ff50"
+            ]
+          },
+          {
+            "id": "3738132970f54a66",
+            "notification_type": "email",
+            "title": "Academic: Oral Comms Lecture & Reminders",
+            "content": "Your Oral Comms lecture and sections are confirmed for next week, with a lecture scheduled for September 16th. Students are reminded to complete the required reading before the lecture. Please also prepare any questions you have regarding Aristotle for discussion.",
+            "timestamp": 1757912093,
+            "topic": "academic",
+            "count": 1,
+            "email_ids": [
+              "199396722192ff50"
+            ]
+          },
+          {
+            "id": "2a749b8aa18f494f",
+            "notification_type": "email",
+            "title": "Academic: Oral Comms Next Week",
+            "content": "Oral Comms confirms next week's lecture and sections are set, including a lecture on September 16th. Students are reminded to complete required reading before the lecture and to bring any questions about Aristotle.",
+            "timestamp": 1757912560,
+            "topic": "academic",
+            "count": 1,
+            "email_ids": [
+              "199396722192ff50"
+            ]
+          },
+          {
+            "id": "bb7dcfee74a54a3d",
+            "notification_type": "email",
+            "title": "Admin: Cornell eBill Ready",
+            "content": "Your Cornell eBill from the Bursar's Office is now available. Access it online to view your statement and manage other payers.",
+            "timestamp": 1757913193,
+            "topic": "admin",
+            "count": 1,
+            "email_ids": [
+              "1994027a0dab45b6"
+            ]
+          },
+          {
+            "id": "44536add832d4ed0",
+            "notification_type": "email",
+            "title": "Academic Updates",
+            "content": "Stay informed on your academic progress. COMM 2010 LAs are offering 20-minute coaching sessions for speeches, where you can earn 3 Deepening Practice points. Additionally, your 'Prep: Reading - Images' assignment for INFO 1300 has been graded.",
+            "timestamp": 1757913201,
+            "topic": "academic",
+            "count": 2,
+            "email_ids": [
+              "1993e9d74e428934",
+              "1993a7831aa206fc"
+            ]
           }
         ]
       },

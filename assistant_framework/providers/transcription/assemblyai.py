@@ -95,21 +95,36 @@ class AssemblyAITranscriptionProvider(TranscriptionInterface):
             # Store the current event loop for the WebSocket callback
             self._loop = asyncio.get_running_loop()
             
-            # Acquire audio resources (soft handoff, avoid tearing down CoreAudio)
-            self.audio = self.audio_manager.acquire_audio("transcription", force_cleanup=False)
+            # Acquire audio resources (force cleanup if necessary for clean state)
+            print("🎯 Transcription attempting to acquire audio...")
+            status_before = self.audio_manager.get_status()
+            print(f"🔍 Audio status before acquisition: {status_before}")
+
+            self.audio = self.audio_manager.acquire_audio("transcription", force_cleanup=True)
             if not self.audio:
+                status_after = self.audio_manager.get_status()
+                print(f"❌ Audio acquisition failed. Status: {status_after}")
                 raise RuntimeError("Failed to acquire audio resources")
-            
+
+            print(f"✅ Transcription acquired audio successfully: {type(self.audio)}")
+
             # Open microphone stream
-            self.stream = self.audio.open(
-                input=True,
-                frames_per_buffer=self.frames_per_buffer,
-                channels=self.channels,
-                format=self.format,
-                rate=self.sample_rate,
-            )
+            print("🎙️  Opening transcription audio stream...")
+            try:
+                self.stream = self.audio.open(
+                    input=True,
+                    frames_per_buffer=self.frames_per_buffer,
+                    channels=self.channels,
+                    format=self.format,
+                    rate=self.sample_rate,
+                )
+                print("✅ Transcription audio stream opened successfully")
+            except Exception as e:
+                print(f"❌ Failed to open transcription audio stream: {e}")
+                raise
             
             # Create WebSocket app
+            print("🌐 Creating WebSocket connection...")
             self.ws_app = websocket.WebSocketApp(
                 self.api_endpoint,
                 header={"Authorization": self.api_key},
@@ -118,14 +133,18 @@ class AssemblyAITranscriptionProvider(TranscriptionInterface):
                 on_error=self._on_error,
                 on_close=self._on_close,
             )
+            print("✅ WebSocket app created")
             
             # Start WebSocket in thread
+            print("🔄 Starting WebSocket thread...")
             self.ws_thread = threading.Thread(target=self.ws_app.run_forever)
             self.ws_thread.daemon = True
             self.ws_thread.start()
-            
+            print("✅ WebSocket thread started")
+
             self._is_active = True
-            
+            print("🎯 Starting transcription result loop...")
+
             # Yield transcription results as they arrive
             while self._is_active:
                 try:
@@ -196,13 +215,22 @@ class AssemblyAITranscriptionProvider(TranscriptionInterface):
             if self.audio_thread and self.audio_thread.is_alive():
                 self.audio_thread.join(timeout=0.2)
             
-            # Release audio resources (don't force cleanup here to avoid double cleanup)
-            try:
-                self.audio_manager.release_audio("transcription", force_cleanup=False)
-                self.audio = None
-            except Exception as e:
-                print(f"⚠️  Error releasing AssemblyAI audio: {e}")
-                self.audio = None
+            # Release audio resources only if we own them
+            if self.audio:
+                try:
+                    # Check if we still own the audio before releasing
+                    status = self.audio_manager.get_status()
+                    if status['current_owner'] == "transcription":
+                        self.audio_manager.release_audio("transcription", force_cleanup=False)
+                        print("✅ Transcription audio resources released")
+                    elif status['current_owner'] is None:
+                        print("ℹ️  Audio already released (no owner)")
+                    else:
+                        print(f"ℹ️  Audio owned by {status['current_owner']}, skipping release")
+                except Exception as e:
+                    print(f"⚠️  Error releasing AssemblyAI audio: {e}")
+                finally:
+                    self.audio = None
             
             # Clear any remaining results from the queue
             try:

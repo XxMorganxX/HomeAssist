@@ -106,13 +106,13 @@ class OpenAIWebSocketResponseProvider(ResponseInterface):
             if self.mcp_session:
                 try:
                     await self.mcp_session.__aexit__(None, None, None)
-                except:
+                except e:
                     pass
                 self.mcp_session = None
             if self.stdio_client:
                 try:
                     await self.stdio_client.__aexit__(None, None, None)
-                except:
+                except e:
                     pass
                 self.stdio_client = None
             # Don't fail the entire initialization if MCP fails
@@ -308,6 +308,15 @@ class OpenAIWebSocketResponseProvider(ResponseInterface):
                                             is_complete=False
                                         )
                             
+                            elif etype == "response.function_call_arguments.delta":
+                                # Streaming function call args; accumulate per active call
+                                name = data.get("name", "")
+                                arguments_delta = data.get("delta", "")
+                                if name:
+                                    if not function_calls or function_calls[-1].get("name") != name:
+                                        function_calls.append({"name": name, "arguments": arguments_delta})
+                                    else:
+                                        function_calls[-1]["arguments"] += arguments_delta
                             elif etype == "response.function_call_arguments.done":
                                 name = data.get("name", "")
                                 arguments = data.get("arguments", "{}")
@@ -348,10 +357,32 @@ class OpenAIWebSocketResponseProvider(ResponseInterface):
                                         finish_reason="stop"
                                     )
                                 else:
-                                    # Yield final chunk
+                                    # No function call emitted; try heuristic fallback for inbox queries
+                                    final_text = "".join(collected_text)
+                                    fallback_tool_calls = []
+                                    try:
+                                        heuristic = ("inbox" in (messages[-1].get("content", "").lower()) or
+                                                     "email" in (messages[-1].get("content", "").lower()))
+                                        if heuristic and self.available_tools.get("improved_get_notifications"):
+                                            args = {"user": "Morgan", "type_filter": "email", "limit": 10}
+                                            tool_call = ToolCall(name="improved_get_notifications", arguments=args)
+                                            result = await self.execute_tool("improved_get_notifications", args)
+                                            tool_call.result = result
+                                            fallback_tool_calls.append(tool_call)
+                                            # Compose final answer using tool result
+                                            final_text = await self._compose_final_answer(
+                                                user_message=messages[-1].get("content", ""),
+                                                context=[m for m in messages if m.get("role") in ("user", "assistant")],
+                                                tool_calls=fallback_tool_calls,
+                                                pre_text=""
+                                            )
+                                    except Exception:
+                                        pass
+
                                     yield ResponseChunk(
-                                        content="".join(collected_text),
+                                        content=final_text,
                                         is_complete=True,
+                                        tool_calls=fallback_tool_calls if fallback_tool_calls else None,
                                         finish_reason="stop"
                                     )
                                 break
@@ -451,7 +482,7 @@ class OpenAIWebSocketResponseProvider(ResponseInterface):
             result = await client.chat.completions.create(
                 model="gpt-4o-mini",
                 messages=messages,
-                temperature=0.5,
+                temperature=0.6,
                 max_tokens=min(self.max_tokens, 800),
             )
             content = result.choices[0].message.content if result and result.choices else ""

@@ -1,0 +1,26 @@
+[
+  {
+    "id": "0333d2569e2a4502",
+    "notification_type": "email",
+    "title": "Admin: New Cornell eBill Available",
+    "content": "Your latest Cornell eBill is now available from the Bursar's Office. Access it online to view details and manage payments. Instructions are provided on how to view the bill and set up other payers.",
+    "timestamp": 1757914059,
+    "topic": "admin",
+    "count": 1,
+    "email_ids": [
+      "1994027a0dab45b6"
+    ]
+  },
+  {
+    "id": "a309b7c07ba149ad",
+    "notification_type": "email",
+    "title": "COMM 2010 Speech Coaching Sessions Available",
+    "content": "COMM 2010 LAs are offering 20-minute coaching sessions to help students with their speeches. These valuable sessions begin next week, providing an excellent opportunity to deepen your practice. Attending a session and actively working on your speech will earn you 3 Deepening Practice points.",
+    "timestamp": 1757914065,
+    "topic": "academic",
+    "count": 1,
+    "email_ids": [
+      "1993e9d74e428934"
+    ]
+  }
+]

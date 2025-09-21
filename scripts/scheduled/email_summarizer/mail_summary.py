@@ -12,6 +12,9 @@ GENERATE_EMAIL_SUMMARIES = True
 GENERATE_DAILY_SUMMARY = True
 GENERATE_KEY_POINTS = True
 
+# Deterministic relevance mode
+RELEVANCE_DETERMINISTIC = True
+
 # Load environment variables
 load_dotenv()
 
@@ -25,15 +28,30 @@ class GeminiEmailProcessor:
         genai.configure(api_key=self.api_key)
         # Default to fast model; change to 'gemini-1.5-pro' if you prefer higher quality
         self.model_name = os.getenv("GEMINI_MODEL", "gemini-2.5-flash")
+        # Summarization model (slightly creative)
         self.model = genai.GenerativeModel(
             self.model_name,
             generation_config={
                 "temperature": 0.3,
                 "max_output_tokens": 1200,
-                # Ask for JSON to simplify parsing
                 "response_mime_type": "application/json",
             },
         )
+        # Relevance model (deterministic, low variance)
+        if RELEVANCE_DETERMINISTIC:
+            self.relevance_model = genai.GenerativeModel(
+                self.model_name,
+                generation_config={
+                    "temperature": 0.0,
+                    "top_p": 0.0,
+                    "top_k": 1,
+                    "candidate_count": 1,
+                    "max_output_tokens": 256,
+                    "response_mime_type": "application/json",
+                },
+            )
+        else:
+            self.relevance_model = self.model
         
         # Create ephemeral_data folder if it doesn't exist (prefer module path if exists)
         module_ephemeral = "scripts/scheduled/email_summarizer/ephemeral_data"
@@ -46,6 +64,61 @@ class GeminiEmailProcessor:
             "scripts/scheduled/email_summarizer/email_criteria.txt",
             "email_criteria.txt",
         ]
+
+    def _extract_text_summary(self, raw_summary: Any) -> str:
+        """Ensure we return a concise text summary, not a JSON blob.
+
+        - If raw_summary looks like JSON, try to parse and extract the 'summary' field.
+        - If parsing fails, attempt a simple regex extraction; otherwise return the raw string.
+        """
+        try:
+            if isinstance(raw_summary, dict):
+                return str(raw_summary.get('summary', ''))
+            if isinstance(raw_summary, str):
+                candidate = raw_summary.strip()
+                if candidate.startswith('{') or candidate.startswith('['):
+                    try:
+                        obj = json.loads(candidate)
+                        if isinstance(obj, dict) and 'summary' in obj:
+                            return str(obj.get('summary', ''))
+                        return json.dumps(obj)[:500]
+                    except Exception:
+                        # Fallback regex to find a "summary": "..." field
+                        import re
+                        m = re.search(r'"summary"\s*:\s*"([^"]+)"', candidate)
+                        if m:
+                            return m.group(1)
+                return candidate
+            return str(raw_summary)
+        except Exception:
+            return str(raw_summary)
+
+    def generate_concise_digest(self, summaries: List[Dict[str, Any]], max_subjects: int = 5) -> str:
+        """Create a concise digest text for notifications from processed summaries."""
+        valid = [s for s in summaries if 'error' not in s]
+        if not valid:
+            return "No relevant emails."
+
+        priorities = {"high": 0, "medium": 0, "low": 0}
+        for s in valid:
+            p = (s.get('priority') or 'medium').lower()
+            if p in priorities:
+                priorities[p] += 1
+
+        subjects = []
+        for s in valid[:max_subjects]:
+            subj = s.get('original_subject') or 'No subject'
+            subjects.append(subj.strip())
+
+        total = len(valid)
+        key_line = "; ".join(subjects)
+        digest = (
+            f"Email digest: {total} relevant (High {priorities['high']}, "
+            f"Med {priorities['medium']}, Low {priorities['low']}). "
+        )
+        if key_line:
+            digest += f"Key: {key_line}"
+        return digest[:600]
 
     def load_relevance_criteria(self, override_path: Optional[str] = None) -> str:
         """Load relevance criteria text from file; return default template if missing."""
@@ -66,13 +139,6 @@ class GeminiEmailProcessor:
             except Exception as e:
                 print(f"Warning: Could not read criteria from {path}: {e}")
 
-        # Fallback default criteria template - STRICT version
-        return (
-            "An email is RELEVANT ONLY if it REQUIRES immediate action, has URGENT deadlines within 7 days, "
-            "is about job interviews/offers, bills to pay, or critical academic issues.\n"
-            "An email is NOT relevant if it is marketing, newsletters, receipts, notifications, "
-            "general announcements, or anything you can safely ignore without consequences."
-        )
 
     def create_relevance_prompt(self, email: Dict[str, Any], criteria_text: str) -> str:
         """Create a prompt that asks Gemini to classify email relevance based on criteria text."""
@@ -85,7 +151,7 @@ class GeminiEmailProcessor:
         current_date_str = current_time.strftime("%Y-%m-%d %H:%M")
         current_day = current_time.strftime("%A")
         
-        prompt = f"""You are a strict relevance classifier. Your job is to filter OUT emails, keeping only the truly important ones.
+        prompt = f"""You are a strict and deterministic relevance classifier. Your job is to filter OUT emails, keeping only the truly important ones.
 
 CURRENT DATE/TIME: {current_date_str} ({current_day})
 Use this to evaluate deadlines and time-sensitive content.
@@ -102,13 +168,13 @@ Snippet: {email.get('snippet', 'No snippet')}
 Body (first {body_limit} chars):
 {cleaned_body[:body_limit]}
 
-IMPORTANT: 
+DETERMINISTIC RULES:
 - Be VERY SELECTIVE. Most emails should be marked as NOT relevant.
 - Only mark as relevant if the email CLEARLY requires action or has a deadline within 7 days of the current date.
-- Past deadlines should be marked NOT relevant.
-- When in doubt, mark as NOT RELEVANT.
+- Past deadlines are NOT relevant.
+- If uncertain or ambiguous, ALWAYS return relevant=false.
 
-Respond with a JSON object:
+Respond with EXACTLY this JSON object (NO extra text, no markdown):
 {{
   "relevant": true or false,
   "reason": "brief explanation"
@@ -123,7 +189,9 @@ Respond with a JSON object:
                 print(f"    Individual assessment for: {email.get('subject', 'No subject')[:50]}")
                 email_date = email.get('date', 'Unknown date')
                 print(f"    Email date: {email_date}")
-            response = self.model.generate_content(prompt)
+            # Use deterministic model for relevance if enabled
+            model_for_relevance = getattr(self, "relevance_model", self.model)
+            response = model_for_relevance.generate_content(prompt)
 
             # Robust extraction as used for summaries
             content = ""
@@ -149,20 +217,8 @@ Respond with a JSON object:
                 try:
                     decision = json.loads(content)
                 except json.JSONDecodeError:
-                    # Fallback: simple heuristic if model didn't format JSON
-                    lowered = content.lower()
-                    relevant = False
-                    if '"relevant": true' in lowered or 'relevant: true' in lowered:
-                        relevant = True
-                    elif '"relevant": false' in lowered or 'relevant: false' in lowered:
-                        relevant = False
-                    else:
-                        spaced = f" {lowered} "
-                        relevant = (' yes ' in spaced) or (' action ' in spaced) or (' deadline ' in spaced)
-                    decision = {
-                        "relevant": relevant,
-                        "reason": content[:200]
-                    }
+                    # Strict mode: default to NOT relevant on invalid response
+                    return {"relevant": False, "reason": "invalid_response"}
             return decision
         except Exception as e:
             if os.getenv("DEBUG_RELEVANCE") == "1":
@@ -261,7 +317,7 @@ Return a JSON array with one object per email in the same order:
                 time.sleep(0.1)  # 100ms delay between emails
 
         # Print summary with more detail
-        print(f"\nRelevance filtering complete:")
+        print("\nRelevance filtering complete:")
         print(f"  Total emails: {len(emails)}")
         print(f"  Relevant emails: {len(relevant_emails)}")
         if len(emails) > 0:
@@ -300,15 +356,14 @@ Return a JSON array with one object per email in the same order:
             try:
                 with open(path, 'r', encoding='utf-8') as file:
                     emails = json.load(file)
-                print(f"Loaded {len(emails)} emails from {path}")
+                    print(f"Loaded {len(emails)} emails from {path}")
                 return emails
             except FileNotFoundError:
                 continue
             except json.JSONDecodeError as e:
                 print(f"Error parsing JSON from {path}: {e}")
+                print("Error: new_mail.json not found in expected locations")
                 return []
-        print("Error: new_mail.json not found in expected locations")
-        return []
     
     def clean_email_body(self, body: str) -> str:
         """Clean HTML and formatting from email body."""
@@ -443,8 +498,8 @@ Return a JSON array with one object per email in the same order:
             summaries.append(summary)
             
             # Add a small delay to avoid rate limiting
-            import time
-            time.sleep(0.5)
+            import time as _time
+            _time.sleep(0.5)
         
         return summaries
     
@@ -516,7 +571,7 @@ Key emails requiring attention:
                 summary_text += "-" * 40 + "\n"
                 for job in handshake_jobs:
                     subject = job.get('original_subject', 'No subject')
-                    summary = job.get('summary', 'No summary available')
+                    summary = self._extract_text_summary(job.get('summary', 'No summary available'))
                     key_points = job.get('key_points', [])
                     priority = job.get('priority', 'medium').upper()
                     
@@ -538,7 +593,7 @@ Key emails requiring attention:
             for i, email in enumerate(valid_summaries, 1):
                 subject = email.get('original_subject', 'No subject')
                 sender = email.get('original_sender', 'Unknown')
-                summary = email.get('summary', 'No summary available')
+                summary = self._extract_text_summary(email.get('summary', 'No summary available'))
                 key_points = email.get('key_points', [])
                 priority = email.get('priority', 'medium').upper()
                 
@@ -731,6 +786,19 @@ def main_mail_summary():
         processor.save_relevance_results(decisions)
         if not relevant_emails:
             print("No relevant emails found.")
+            # Overwrite summaries with empty list to prevent stale notifications
+            try:
+                processor.save_summaries([])
+            except Exception:
+                pass
+            # Remove any stale notifications file from previous runs
+            try:
+                notifs_path = os.path.join(processor.data_folder, "email_notifications.json")
+                if os.path.exists(notifs_path):
+                    os.remove(notifs_path)
+                    print(f"🧹 Removed stale notifications file: {notifs_path}")
+            except Exception:
+                pass
             return
 
         # Step 2: Process only relevant emails
@@ -755,6 +823,7 @@ def main_mail_summary():
             print(f"\nDaily summary saved to {file_path}")
         else:
             print("Daily summary generation is disabled")
+
         
     except Exception as e:
         print(f"Error in main process: {e}")

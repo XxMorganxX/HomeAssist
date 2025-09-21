@@ -7,6 +7,8 @@ import os
 
 # Debug mode
 DEBUG_MODE = True
+# Default IANA time zone for calendar events when none is provided by the tool
+DEFAULT_TIME_ZONE = os.environ.get("DEFAULT_TIME_ZONE", "America/New_York")
 
 
 # Light configuration
