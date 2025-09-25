@@ -5,6 +5,8 @@ Manages the state machine between wake word detection and transcription.
 """
 
 import asyncio
+import os
+import faulthandler
 import re
 import sys
 import signal
@@ -49,7 +51,7 @@ except Exception:
         def detect_voice_activity(self, energy: float) -> None:
             return
 
-from assistant_framework.config import (
+from assistant_framework.config import (  # noqa: E402
     get_framework_config,
     validate_environment,
     TERMINATION_PHRASES,
@@ -59,9 +61,9 @@ from assistant_framework.config import (
     SEND_PHRASES,
     PREFIX_TRIM_PHRASES
 )
-from assistant_framework.orchestrator import create_orchestrator
-from assistant_framework.utils.audio_manager import safe_audio_transition, get_audio_manager
-from assistant_framework.utils.tones import (
+from assistant_framework.orchestrator import create_orchestrator  # noqa: E402
+from assistant_framework.utils.audio_manager import safe_audio_transition, get_audio_manager  # noqa: E402
+from assistant_framework.utils.tones import (  # noqa: E402
     beep_wake_detected,
     beep_agent_message,
     beep_transcription_end,
@@ -614,14 +616,17 @@ class HomeAssistant:
             previous_state = self.state
             self.state = SystemState.PROCESSING
             
-            # Stop any TTS first to avoid conflicts
-            if self.tts_playing:
-                try:
+            # Always stop any TTS/output audio to ensure output stream is terminated
+            try:
+                if self.orchestrator and self.orchestrator.tts:
                     self.orchestrator.tts.stop_audio()
                     self.tts_playing = False
-                    print("🔄 TTS stopped during transcription cleanup")
-                except Exception as e:
-                    print(f"⚠️  Error stopping TTS: {e}")
+                    print("🔇 TTS output stopped")
+            except Exception as e:
+                print(f"⚠️  Error stopping TTS: {e}")
+            
+            # Small delay to let CoreAudio settle output side before touching input
+            await asyncio.sleep(0.1)
             
             # Clear the audio callback first to stop new data
             if self.orchestrator.transcription:
@@ -653,6 +658,13 @@ class HomeAssistant:
                     beep_transcription_end()
                 except Exception:
                     pass
+            
+            # Ensure TTS is fully stopped after transcription teardown as well
+            try:
+                if self.orchestrator and self.orchestrator.tts:
+                    self.orchestrator.tts.stop_audio()
+            except Exception:
+                pass
             
             # Restore previous state if needed
             if previous_state == SystemState.TRANSCRIBING:
@@ -814,6 +826,21 @@ async def main():
     signal.signal(signal.SIGINT, signal_handler)
     signal.signal(signal.SIGTERM, signal_handler)
     
+    # Enable faulthandler when AUDIO_DEBUG is set, optionally log to file
+    try:
+        if str(os.getenv("AUDIO_DEBUG", "")).lower() in ("1", "true", "yes", "on"):
+            dbg_file = os.getenv("AUDIO_DEBUG_FILE")
+            if dbg_file:
+                try:
+                    _fh = open(dbg_file, "a", encoding="utf-8")
+                    faulthandler.enable(file=_fh, all_threads=True)
+                except Exception:
+                    faulthandler.enable(all_threads=True)
+            else:
+                faulthandler.enable(all_threads=True)
+    except Exception:
+        pass
+
     try:
         await assistant.main_loop()
     except Exception as e:

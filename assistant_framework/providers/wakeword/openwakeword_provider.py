@@ -5,6 +5,8 @@ OpenWakeWord-based wake word detection provider.
 import asyncio
 import os
 import time
+from datetime import datetime
+import threading
 from enum import Enum
 from typing import AsyncIterator, Dict, Any, Optional
 
@@ -103,6 +105,9 @@ class OpenWakeWordProvider(WakeWordInterface):
         self._audio: Optional[pyaudio.PyAudio] = None
         self._mic_stream = None
         self.audio_manager = get_audio_manager()
+        # Debug controls
+        self._debug_enabled = str(os.getenv("AUDIO_DEBUG", "")).lower() in ("1", "true", "yes", "on")
+        self._debug_file_path = os.getenv("AUDIO_DEBUG_FILE")
 
         # Async coordination
         self._is_listening: bool = False
@@ -152,6 +157,12 @@ class OpenWakeWordProvider(WakeWordInterface):
         await asyncio.sleep(0.25)
         self._mic_stream.start_stream()
         print("✅ Wake word audio stream started")
+        if self._debug_enabled:
+            self._log_debug("stream_opened", {
+                "chunk": self.chunk,
+                "sample_rate": self.sample_rate,
+                "input_device_index": self.input_device_index,
+            })
 
         self._is_listening = True
         self._stop_event.clear()
@@ -182,13 +193,13 @@ class OpenWakeWordProvider(WakeWordInterface):
             # Non-blocking async loop yielding events
             while self._is_listening and not self._stop_event.is_set():
                 try:
-                    audio = np.frombuffer(
-                        self._mic_stream.read(self.chunk, exception_on_overflow=False),
-                        dtype=np.int16,
-                    )
+                    audio_bytes = self._mic_stream.read(self.chunk, exception_on_overflow=False)
+                    audio = np.frombuffer(audio_bytes, dtype=np.int16)
                 except Exception as e:
                     if self.verbose:
                         print(f"Audio read error: {e}")
+                    if self._debug_enabled:
+                        self._log_debug("read_error", {"error": str(e)})
                     await asyncio.sleep(0.01)
                     continue
 
@@ -213,6 +224,8 @@ class OpenWakeWordProvider(WakeWordInterface):
                             self._state[model_name] = _ListenerState.COOLDOWN
                             self._last_activation_time[model_name] = current_time
                             event = WakeWordEvent(model_name=model_name, score=float(curr_score))
+                            if self._debug_enabled:
+                                self._log_debug("wakeword_detected", {"model": model_name, "score": float(curr_score)})
                             yield event
                     else:
                         time_since_activation = current_time - self._last_activation_time.get(model_name, 0.0)
@@ -241,6 +254,8 @@ class OpenWakeWordProvider(WakeWordInterface):
                 self._mic_stream.close()
                 self._mic_stream = None
                 print("✅ Wake word audio stream stopped")
+                if self._debug_enabled:
+                    self._log_debug("stream_stopped", {})
         except Exception as e:
             print(f"⚠️  Error stopping wake word stream: {e}")
             self._mic_stream = None
@@ -253,6 +268,8 @@ class OpenWakeWordProvider(WakeWordInterface):
                 if status['current_owner'] == "wakeword":
                     self.audio_manager.release_audio("wakeword", force_cleanup=False)
                     print("✅ Wake word audio resources released")
+                    if self._debug_enabled:
+                        self._log_debug("audio_released", {"status_after": self.audio_manager.get_status()})
                 elif status['current_owner'] is None:
                     print("ℹ️  Audio already released (no owner)")
                 else:
@@ -273,6 +290,19 @@ class OpenWakeWordProvider(WakeWordInterface):
         # Audio cleanup is handled by the audio manager
         self._audio = None
         self._mic_stream = None
+
+    def _log_debug(self, event: str, details: Dict[str, Any]) -> None:
+        try:
+            ts = datetime.now().strftime("%H:%M:%S.%f")
+            thread_name = threading.current_thread().name
+            line = f"[WAKEWORD][{ts}][{thread_name}] {event} {details}"
+            print(line)
+            debug_file = os.getenv("AUDIO_DEBUG_FILE")
+            if debug_file:
+                with open(debug_file, "a", encoding="utf-8") as f:
+                    f.write(line + "\n")
+        except Exception:
+            pass
 
     @property
     def capabilities(self) -> dict:

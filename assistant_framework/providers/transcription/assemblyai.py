@@ -4,11 +4,12 @@ AssemblyAI WebSocket streaming transcription provider.
 
 import asyncio
 import json
+import os
+from datetime import datetime
 import pyaudio
 import websocket
 import threading
-from typing import AsyncIterator, Optional, Dict, Any
-from datetime import datetime
+from typing import AsyncIterator, Dict, Any
 from urllib.parse import urlencode
 
 try:
@@ -72,6 +73,9 @@ class AssemblyAITranscriptionProvider(TranscriptionInterface):
         self._is_active = False
         self.audio_manager = get_audio_manager()
         self._cleanup_lock = threading.Lock()
+        # Debug controls
+        self._debug_enabled = str(os.getenv("AUDIO_DEBUG", "")).lower() in ("1", "true", "yes", "on")
+        self._debug_file_path = os.getenv("AUDIO_DEBUG_FILE")
         
         # Async queue for transcription results
         self.result_queue = asyncio.Queue()
@@ -119,6 +123,12 @@ class AssemblyAITranscriptionProvider(TranscriptionInterface):
                     rate=self.sample_rate,
                 )
                 print("✅ Transcription audio stream opened successfully")
+                if self._debug_enabled:
+                    self._log_debug("stream_opened", {
+                        "frames_per_buffer": self.frames_per_buffer,
+                        "channels": self.channels,
+                        "sample_rate": self.sample_rate,
+                    })
             except Exception as e:
                 print(f"❌ Failed to open transcription audio stream: {e}")
                 raise
@@ -178,15 +188,39 @@ class AssemblyAITranscriptionProvider(TranscriptionInterface):
             self.stop_event.set()
             self._is_active = False
             
-            # Stop audio stream (before closing WebSocket).
+            # Stop audio stream and ensure the audio thread has exited before closing the stream
+            # This ordering prevents PortAudio/CoreAudio races that can segfault on macOS.
             try:
                 if self.stream:
                     print("🎤 Stopping AssemblyAI audio stream")
-                    if hasattr(self.stream, 'is_active') and self.stream.is_active():
-                        self.stream.stop_stream()
-                    self.stream.close()
-                    self.stream = None
+                    # First, stop the stream so any blocking read() unblocks with an error
+                    try:
+                        if hasattr(self.stream, 'is_active') and self.stream.is_active():
+                            self.stream.stop_stream()
+                    except Exception:
+                        # Ignore errors while stopping; we'll still proceed to join and close
+                        pass
+                    
+                    # Give the audio thread a brief moment to observe stop_event
+                    try:
+                        await asyncio.sleep(0)
+                    except Exception:
+                        pass
+                    
+                    # Join audio thread before closing the stream to avoid concurrent read/close
+                    if self.audio_thread and self.audio_thread.is_alive():
+                        self.audio_thread.join(timeout=0.8)
+                    
+                    # Now it is safe to close the stream
+                    try:
+                        self.stream.close()
+                    except Exception:
+                        pass
+                    finally:
+                        self.stream = None
                     print("✅ AssemblyAI audio stream stopped")
+                    if self._debug_enabled:
+                        self._log_debug("stream_stopped", {})
             except Exception as e:
                 print(f"⚠️  Error stopping AssemblyAI stream: {e}")
                 self.stream = None
@@ -208,12 +242,9 @@ class AssemblyAITranscriptionProvider(TranscriptionInterface):
             except Exception:
                 pass
             
-            # Wait for threads with short timeout
+            # Wait for the WebSocket thread with a short timeout (audio thread already joined above)
             if self.ws_thread and self.ws_thread.is_alive():
-                self.ws_thread.join(timeout=0.2)
-            
-            if self.audio_thread and self.audio_thread.is_alive():
-                self.audio_thread.join(timeout=0.2)
+                self.ws_thread.join(timeout=0.3)
             
             # Release audio resources only if we own them
             if self.audio:
@@ -223,6 +254,8 @@ class AssemblyAITranscriptionProvider(TranscriptionInterface):
                     if status['current_owner'] == "transcription":
                         self.audio_manager.release_audio("transcription", force_cleanup=False)
                         print("✅ Transcription audio resources released")
+                        if self._debug_enabled:
+                            self._log_debug("audio_released", {"status_after": self.audio_manager.get_status()})
                     elif status['current_owner'] is None:
                         print("ℹ️  Audio already released (no owner)")
                     else:
@@ -300,6 +333,8 @@ class AssemblyAITranscriptionProvider(TranscriptionInterface):
         self.audio_thread = threading.Thread(target=stream_audio)
         self.audio_thread.daemon = True
         self.audio_thread.start()
+        if self._debug_enabled:
+            self._log_debug("audio_thread_started", {})
     
     def _on_message(self, ws, message):
         """WebSocket message received callback."""
@@ -329,6 +364,8 @@ class AssemblyAITranscriptionProvider(TranscriptionInterface):
                             self.result_queue.put(result),
                             self._loop
                         )
+                    if self._debug_enabled and is_formatted:
+                        self._log_debug("final_result", {"text_len": len(transcript)})
                         
             elif msg_type == "Termination":
                 self._is_active = False
@@ -347,6 +384,21 @@ class AssemblyAITranscriptionProvider(TranscriptionInterface):
         """WebSocket closed callback."""
         # Do not close the audio stream here to avoid double-close races.
         self.stop_event.set()
+        if self._debug_enabled:
+            self._log_debug("ws_closed", {"code": close_status_code, "msg": close_msg})
+
+    def _log_debug(self, event: str, details: Dict[str, Any]) -> None:
+        try:
+            ts = datetime.now().strftime("%H:%M:%S.%f")
+            thread_name = threading.current_thread().name
+            line = f"[TRANSCRIPTION][{ts}][{thread_name}] {event} {details}"
+            print(line)
+            debug_file = os.getenv("AUDIO_DEBUG_FILE")
+            if debug_file:
+                with open(debug_file, "a", encoding="utf-8") as f:
+                    f.write(line + "\n")
+        except Exception:
+            pass
     
     @property
     def capabilities(self) -> dict:
