@@ -1,5 +1,5 @@
 from news_scraper import NewsHeadlineScraper, NewsScraper
-from news_ai import HeadlineAnalysis, FullArticleAnalysis
+from news_ai import HeadlineAnalysis, FullArticleAnalysis, NewsSummaryGenerator
 
 
 if __name__ == "__main__":
@@ -32,12 +32,17 @@ if __name__ == "__main__":
         print("\n=== Step 4: Full Article Analysis ===")
         full_analysis = FullArticleAnalysis()
         
+        # Step 2e: Generate concise summary
+        print("\n=== Step 5: News Summary Generation ===")
+        summary_generator = NewsSummaryGenerator()
+        
         print("\n🎉 Complete analysis pipeline finished!")
         print("Check the following files for results:")
         print("  - ephemeral_data/headlines.json (scraped headlines)")
         print("  - ephemeral_data/top_headlines.json (best headlines)")
         print("  - ephemeral_data/news.json (article content)")
         print("  - ephemeral_data/full_article_analysis.json (detailed analysis)")
+        print("  - ephemeral_data/news_summary.json (concise summary)")
         
     except ImportError as e:
         print(f"\nAnalysis modules not available: {e}")

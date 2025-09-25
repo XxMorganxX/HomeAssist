@@ -316,6 +316,51 @@ class ImprovedGetNotificationsTool(ImprovedBaseTool):
                     except Exception:
                         # Skip malformed email entries
                         continue
+
+                # Merge 'news' data as a notification of type 'news'
+                news_data = (user_data or {}).get("news")
+                if news_data and isinstance(news_data, dict):
+                    try:
+                        news_summary = news_data.get("summary", "")
+                        news_title = "Tech News Summary"
+                        content = news_summary
+                        notif_type = "news"
+                        priority = "normal"  # News summaries are typically normal priority
+                        
+                        # Use generated_at timestamp if available, otherwise current time
+                        generated_at = news_data.get("generated_at")
+                        if generated_at:
+                            try:
+                                from datetime import datetime
+                                timestamp = int(datetime.fromisoformat(generated_at).timestamp())
+                            except Exception:
+                                timestamp = self._coerce_timestamp(None)
+                        else:
+                            timestamp = self._coerce_timestamp(None)
+                        
+                        source = "news_summarizer"
+                        notif_id = self._generate_notification_id(
+                            f"{news_title}|{news_summary}", notif_type, timestamp
+                        )
+
+                        normalized_entry = {
+                            "id": notif_id,
+                            "content": content,
+                            "type": notif_type,
+                            "priority": priority,
+                            "timestamp": timestamp,
+                            "source": source,
+                            "read_status": "unread",
+                            # Preserve helpful metadata
+                            "title": news_title,
+                            "generated_at": generated_at,
+                            "source_articles_count": news_data.get("source_articles_count"),
+                            "source_file": news_data.get("source_file"),
+                        }
+                        normalized_list.append(normalized_entry)
+                    except Exception:
+                        # Skip malformed news entries
+                        continue
                 normalized[user] = normalized_list
 
             return normalized
@@ -427,10 +472,33 @@ class ImprovedGetNotificationsTool(ImprovedBaseTool):
 
                 initial_count = len(raw_list)
                 user_block["notifications"] = remaining
+                
+                # Check if any news notifications were marked as read and remove the news key
+                news_data = user_block.get("news")
+                if news_data and isinstance(news_data, dict):
+                    # Generate the news notification ID to check if it should be removed
+                    news_summary = news_data.get("summary", "")
+                    news_title = "Tech News Summary"
+                    generated_at = news_data.get("generated_at")
+                    if generated_at:
+                        try:
+                            from datetime import datetime
+                            timestamp = int(datetime.fromisoformat(generated_at).timestamp())
+                        except Exception:
+                            timestamp = 0
+                    else:
+                        timestamp = 0
+                    
+                    news_id = self._generate_notification_id(f"{news_title}|{news_summary}", "news", timestamp)
+                    if news_id in notification_ids:
+                        # Remove the news key entirely
+                        user_block.pop("news", None)
+                        marked_count += 1  # Count the news notification as marked
+                
                 queue[user] = user_block
                 autonomous_state["notification_queue"] = queue
                 state["autonomous_state"] = autonomous_state
-                marked_count = initial_count - len(remaining)
+                marked_count += initial_count - len(remaining)
 
             # Save updated state
             with open(self.state_file, 'w') as f:

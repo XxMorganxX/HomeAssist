@@ -1,8 +1,9 @@
-import json,os
+import json
+import os
 from abc import ABC, abstractmethod
 from openai import OpenAI
 from dotenv import load_dotenv
-from newspaper import Article, ArticleException
+# from newspaper import Article, ArticleException  # Unused imports
 from news_scraper import NewsScraper
 
 load_dotenv()
@@ -128,11 +129,30 @@ class HeadlineAnalysis(BaseAnalysis):
         
 
     def get_headlines(self):
-        if not os.path.exists(os.path.join(os.path.dirname(__file__), "ephemeral_data", "headlines.json")):
-            return []
-        with open(os.path.join(os.path.dirname(__file__), "ephemeral_data", "headlines.json"), "r") as f:
-            self.headlines = json.load(f)
+        headlines_filepath = os.path.join(os.path.dirname(__file__), "ephemeral_data", "headlines.json")
         
+        if not os.path.exists(headlines_filepath):
+            print(f"No headlines file found at {headlines_filepath}")
+            return []
+            
+        try:
+            with open(headlines_filepath, "r") as f:
+                content = f.read().strip()
+                if not content:
+                    print(f"Warning: {headlines_filepath} is empty")
+                    return []
+                self.headlines = json.loads(content)
+        except json.JSONDecodeError as e:
+            print(f"Error parsing {headlines_filepath}: {e}")
+            return []
+        except Exception as e:
+            print(f"Error loading headlines: {type(e).__name__}: {str(e)}")
+            return []
+        
+        if not self.headlines or len(self.headlines) <= 1:
+            print("No headlines found or insufficient data")
+            return []
+            
         return self.headlines[1:]
 
     def analyze(self):
@@ -167,11 +187,28 @@ class HeadlineAnalysis(BaseAnalysis):
     def get_urls(self):
         data = None
         urls = []
-        with open(os.path.join(os.path.dirname(__file__), "ephemeral_data", "top_headlines.json"), "r") as f:
-            data = json.load(f)
+        filepath = os.path.join(os.path.dirname(__file__), "ephemeral_data", "top_headlines.json")
+        
+        try:
+            with open(filepath, "r") as f:
+                content = f.read().strip()
+                if not content:
+                    print(f"Warning: {filepath} is empty")
+                    return []
+                data = json.loads(content)
+        except json.JSONDecodeError as e:
+            print(f"Error parsing {filepath}: {e}")
+            return []
+        except FileNotFoundError:
+            print(f"File not found: {filepath}")
+            return []
+
+        if not data:
+            print("No data found in top_headlines.json")
+            return []
 
         for key, value in data.items():
-            if key in ['1', '2', '3', '4', '5']:
+            if key in ['1', '2', '3', '4', '5'] and isinstance(value, dict) and 'url' in value:
                 urls.append(value['url'])
         return urls
 
@@ -205,7 +242,14 @@ class FullArticleAnalysis(BaseAnalysis):
             
         try:
             with open(self.news_filepath, "r") as f:
-                return json.load(f)
+                content = f.read().strip()
+                if not content:
+                    print(f"Warning: {self.news_filepath} is empty")
+                    return None
+                return json.loads(content)
+        except json.JSONDecodeError as e:
+            print(f"Error parsing {self.news_filepath}: {e}")
+            return None
         except Exception as e:
             print(f"Error loading articles: {type(e).__name__}: {str(e)}")
             return None
@@ -288,7 +332,7 @@ class FullArticleAnalysis(BaseAnalysis):
                 results[article_key] = analysis
                 
         if results:
-            print(f"\n=== Full Article Analysis Complete ===")
+            print("\n=== Full Article Analysis Complete ===")
             print(f"Successfully analyzed {len(results)} out of {len(self.articles)} articles")
             
             # Calculate average innovation score
@@ -306,7 +350,152 @@ class FullArticleAnalysis(BaseAnalysis):
         pass
 
 
+class NewsSummaryGenerator(BaseAnalysis):
+    """Generate a concise paragraph summary from full article analysis"""
+    
+    def __init__(self):
+        super().__init__()
+        self.analysis_filepath = os.path.join(os.path.dirname(__file__), "ephemeral_data", "full_article_analysis.json")
+        self.output_filepath = os.path.join(os.path.dirname(__file__), "ephemeral_data", "news_summary.json")
+        self.max_tokens = 500  # Shorter for concise summary
+        
+        if os.path.exists(self.output_filepath):
+            print("News summary already generated. Skipping...")
+            return
             
+        self.analysis_data = self.load_analysis_data()
+        if not self.analysis_data:
+            print("No analysis data found to summarize")
+            return
+            
+        print(f"\nGenerating summary from {len(self.analysis_data)} analyzed articles...")
+        self.generate_summary()
+        
+    def load_analysis_data(self):
+        """Load the full article analysis data"""
+        if not os.path.exists(self.analysis_filepath):
+            print(f"No analysis file found at {self.analysis_filepath}")
+            return None
+            
+        try:
+            with open(self.analysis_filepath, "r") as f:
+                content = f.read().strip()
+                if not content:
+                    print(f"Warning: {self.analysis_filepath} is empty")
+                    return None
+                return json.loads(content)
+        except json.JSONDecodeError as e:
+            print(f"Error parsing {self.analysis_filepath}: {e}")
+            return None
+        except Exception as e:
+            print(f"Error loading analysis data: {type(e).__name__}: {str(e)}")
+            return None
+            
+    def init_openai_params(self):
+        """Initialize OpenAI parameters for summary generation"""
+        self.prompt = """
+            You are a technology news analyst. You have been given detailed analysis of multiple tech articles.
+            Your task is to write a single, concise paragraph (150-200 words) that summarizes the key technological trends and innovations from all the articles.
+            You will be provided a set of pre-filtered articles that are already determined to be relevant. 
+
+            
+            Focus on:
+            - The most significant technological breakthroughs or innovations
+            - Emerging trends in AI, hardware, and software
+            - Industry impact and future implications
+            - How these developments connect to broader tech landscape
+            
+            Refer the articles as you summarize them. Don't blend the articles into a single article.
+            Write in a professional, engaging style that captures the essence of technological progress.
+            Avoid listing individual articles - instead synthesize the information into a cohesive narrative.
+            Write the summary in a way that is meant to be heard and listened to by a human, not read.
+        """
+        
+        # Prepare the analysis data for the prompt
+        analysis_summary = []
+        for key, article in self.analysis_data.items():
+            analysis_summary.append(f"""
+            Article: {article.get('title', 'Unknown')}
+            Innovation Score: {article.get('innovation_score', 'N/A')}/10
+            Key Insights: {', '.join(article.get('key_insights', []))}
+            Tech Impact: {article.get('tech_impact', 'N/A')}
+            Categories: {', '.join(article.get('categories', []))}
+            """)
+        
+        analysis_text = "\n".join(analysis_summary)
+        
+        self.messages = [
+            {"role": "system", "content": self.prompt},
+            {"role": "user", "content": f"Here is the detailed analysis of the articles:\n\n{analysis_text}"}
+        ]
+        
+    def generate_summary(self):
+        """Generate the concise summary"""
+        self.init_openai_params()
+        result = self.call_openai(self.messages)
+        
+        if not result:
+            print("Failed to generate summary from OpenAI")
+            return None
+            
+        # Create the summary data structure
+        summary_data = {
+            "generated_at": self.get_current_timestamp(),
+            "source_articles_count": len(self.analysis_data),
+            "summary": result.strip(),
+            "source_file": "full_article_analysis.json"
+        }
+        
+        # Save the summary
+        if self.save_results(summary_data, self.output_filepath):
+            print("\n=== News Summary Generated ===")
+            print(f"Summary saved to: {self.output_filepath}")
+            print("\nSummary Preview:")
+            print("-" * 50)
+            print(result[:200] + "..." if len(result) > 200 else result)
+            print("-" * 50)
+            self.write_to_state_file(summary_data)
+            return summary_data
+        else:
+            print("Failed to save summary")
+            return None
+            
+    def get_current_timestamp(self):
+        """Get current timestamp for metadata"""
+        from datetime import datetime
+        return datetime.now().isoformat()
+    
+    def write_to_state_file(self, summary_data):
+        """Write the news summary to the state management system"""
+        try:
+            # Import StateManager with proper path handling
+            import sys
+            import os
+            
+            # Add the project root to the path so we can import core
+            project_root = os.path.abspath(os.path.join(os.path.dirname(__file__), '..', '..', '..'))
+            if project_root not in sys.path:
+                sys.path.insert(0, project_root)
+            
+            from core.state_management.statemanager import StateManager
+            
+            # Initialize state manager and refresh the news summary
+            state_manager = StateManager()
+            state_manager.refresh_news_summary(summary_data)
+            
+            print("News summary successfully written to state file")
+            return True
+            
+        except Exception as e:
+            print(f"Error writing to state file: {type(e).__name__}: {str(e)}")
+            return False
+
+        
+        
+    def analyze(self):
+        """Required by BaseAnalysis but not used directly"""
+        pass
+
 
 if __name__ == "__main__":
     # Step 1: Analyze headlines to find the best ones
@@ -327,3 +516,7 @@ if __name__ == "__main__":
     # Step 4: Analyze full articles
     print("\n=== Step 3: Full Article Analysis ===")
     full_analysis = FullArticleAnalysis()
+    
+    # Step 5: Generate concise summary
+    print("\n=== Step 4: News Summary Generation ===")
+    summary_generator = NewsSummaryGenerator()

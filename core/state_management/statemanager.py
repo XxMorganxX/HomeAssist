@@ -99,6 +99,28 @@ class StateManager:
         else:
             target.append(notifications)
         self.save()
+    
+
+    def refresh_news_summary(self, summary: dict):
+        """Write a new news_summary to Morgan's states with 'news' as the key and the summary as the value. This should overwrite any existing news summary and should populate the key-value pair if it doesn't exist."""
+        self.load()
+        
+        # Ensure the autonomous_state structure exists
+        if "autonomous_state" not in self.state or not isinstance(self.state.get("autonomous_state"), dict):
+            self.state["autonomous_state"] = {}
+        
+        # Ensure the notification_queue structure exists
+        if "notification_queue" not in self.state["autonomous_state"] or not isinstance(self.state["autonomous_state"].get("notification_queue"), dict):
+            self.state["autonomous_state"]["notification_queue"] = {}
+        
+        # Ensure Morgan's entry exists
+        if "Morgan" not in self.state["autonomous_state"]["notification_queue"] or not isinstance(self.state["autonomous_state"]["notification_queue"].get("Morgan"), dict):
+            self.state["autonomous_state"]["notification_queue"]["Morgan"] = {}
+        
+        # Set the news summary (this will overwrite any existing news key)
+        self.state["autonomous_state"]["notification_queue"]["Morgan"]["news"] = summary
+        
+        self.save()
 
     def _map_topic_notification(self, raw_notification):
         """Map a topic notification into the main notifications schema, preserving content.

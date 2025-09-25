@@ -38,7 +38,7 @@ class ImprovedCalendarTool(ImprovedBaseTool):
         self.available_users = ["morgan_personal", "morgan_school", "spencer"]
         self.available_actions = ["read", "write", "create_event"]
         self.available_read_types = ["next_events", "day_summary", "week_summary", "specific_date"]
-        self.available_calendar_names = ["primary", "personal", "work", "school", "class"]
+        self.available_calendar_names = ["primary", "personal", "work", "school", "class", "default"]
     
     def get_schema(self) -> Dict[str, Any]:
         """
@@ -73,7 +73,7 @@ class ImprovedCalendarTool(ImprovedBaseTool):
                             },
                             "calendar_name": {
                                 "type": "string",
-                                "description": "Specific calendar to access within the user's account. 'primary' for main calendar, 'personal' for personal events, 'work' for work-related events, 'school'/'class' for academic events. Use 'class' when user asks about classes or academic schedule.",
+                                "description": "Specific calendar to access within the user's account. 'primary'/'default' for main calendar, 'personal' for personal events, 'work' for work-related events, 'school'/'class' for academic events. Use 'class' when user asks about classes or academic schedule.",
                                 "enum": self.available_calendar_names,
                                 "default": "primary"
                             },
@@ -493,6 +493,16 @@ class ImprovedCalendarTool(ImprovedBaseTool):
                         pass
             if not normalized.get("calendar_name"):
                 normalized["calendar_name"] = "primary"
+            
+            # Map common calendar name aliases
+            calendar_name_mapping = {
+                "default": "primary",
+                "main": "primary",
+                "default_calendar": "primary"
+            }
+            if normalized.get("calendar_name") in calendar_name_mapping:
+                normalized["calendar_name"] = calendar_name_mapping[normalized["calendar_name"]]
+            
             return normalized
         except Exception:
             return cmd
