@@ -413,29 +413,50 @@ class HomeAssistant:
                     has_streamed = False
                     beeped_for_agent = False
                     
-                    # Use orchestrator to include conversation history
-                    async for chunk in self.orchestrator.run_response_only(
-                        final_text,
-                        use_context=True
-                    ):
-                        # Beep once when the first content arrives from the agent
-                        if chunk.content:
-                            if not beeped_for_agent:
-                                try:
-                                    beep_agent_message()
-                                except Exception:
-                                    pass
-                                beeped_for_agent = True
-                            if not chunk.is_complete:
-                                # Stream partial responses (deltas)
-                                print(chunk.content, end="", flush=True)
-                                full_response += chunk.content
-                                has_streamed = True
-                            elif not has_streamed:
-                                # Only show final response if we haven't streamed yet
-                                print(chunk.content, end="", flush=True)
-                                full_response = chunk.content
-                    print()  # New line after response
+                    try:
+                        # Use orchestrator to include conversation history
+                        async for chunk in self.orchestrator.run_response_only(
+                            final_text,
+                            use_context=True
+                        ):
+                            # Beep once when the first content arrives from the agent
+                            if chunk.content:
+                                if not beeped_for_agent:
+                                    try:
+                                        beep_agent_message()
+                                    except Exception:
+                                        pass
+                                    beeped_for_agent = True
+                                if not chunk.is_complete:
+                                    # Stream partial responses (deltas)
+                                    print(chunk.content, end="", flush=True)
+                                    full_response += chunk.content
+                                    has_streamed = True
+                                elif not has_streamed:
+                                    # Only show final response if we haven't streamed yet
+                                    print(chunk.content, end="", flush=True)
+                                    full_response = chunk.content
+                        print()  # New line after response
+                    except Exception as e:
+                        print()  # Ensure we're on a new line
+                        # Check for OpenAI-specific errors
+                        error_str = str(e).lower()
+                        error_type = type(e).__name__
+                        
+                        if any(keyword in error_str for keyword in ['api_key', 'api key', 'authentication', 'unauthorized', 'invalid_api_key']):
+                            print(f"❌ OpenAI API Key Error: {e}")
+                            print("   Please check your OPENAI_API_KEY environment variable")
+                        elif 'rate_limit' in error_str or 'rate limit' in error_str:
+                            print(f"❌ OpenAI Rate Limit Error: {e}")
+                            print("   Please wait a moment before trying again")
+                        elif 'openai' in error_str or 'openai' in error_type.lower():
+                            print(f"❌ OpenAI API Error: {e}")
+                        else:
+                            print(f"❌ AI Response Error: {e}")
+                        
+                        # Clear transcription buffer on error
+                        self.clear_transcription_buffer()
+                        return
                     
                     # Persist assistant reply to context for memory
                     try:

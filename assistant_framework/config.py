@@ -16,6 +16,28 @@ env_path = parent_dir / ".env"
 if env_path.exists():
     load_dotenv(env_path)
 
+# Auto-configure Google Cloud credentials if not set or if the set path doesn't exist
+existing_creds = os.getenv("GOOGLE_APPLICATION_CREDENTIALS")
+needs_config = (
+    not existing_creds or 
+    not Path(existing_creds).exists()
+)
+
+if needs_config:
+    # Try common credential file locations
+    possible_creds = [
+        Path(__file__).parent / "google_creds" / "tts-qwiklab.json",
+        parent_dir / "google_creds" / "tts-qwiklab.json",
+        parent_dir / "assistant_framework" / "google_creds" / "tts-qwiklab.json",
+    ]
+    for cred_path in possible_creds:
+        if cred_path.exists():
+            if existing_creds:
+                print(f"⚠️  Overriding invalid Google credentials path: {existing_creds}")
+            os.environ["GOOGLE_APPLICATION_CREDENTIALS"] = str(cred_path)
+            print(f"🔑 Auto-configured Google credentials: {cred_path}")
+            break
+
 
 # =============================================================================
 # PROVIDER SELECTION (Static, set at startup)

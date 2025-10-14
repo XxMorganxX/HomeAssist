@@ -8,6 +8,7 @@ with enhanced parameter descriptions and detailed action specifications.
 import os
 import spotipy
 from spotipy.oauth2 import SpotifyOAuth
+from spotipy.cache_handler import CacheFileHandler
 from typing import Dict, Any, Optional, Literal
 from mcp_server.improved_base_tool import ImprovedBaseTool
 from dotenv import load_dotenv
@@ -37,25 +38,42 @@ class ImprovedSpotifyPlaybackTool(ImprovedBaseTool):
         
         # Spotify credentials for multiple users
         self.SPOTIPY_CLIENT_ID = {
-            "Morgan": os.getenv("MORGAN_SPOTIFY_CLIENT_ID"),
+            "Morgan": os.getenv("SPOTIFY_CLIENT_ID"),
             "Spencer": os.getenv("SPENCER_SPOTIFY_CLIENT_ID")
         }
         self.SPOTIPY_CLIENT_SECRET = {
-            "Morgan": os.getenv("MORGAN_SPOTIFY_CLIENT_SECRET"),
+            "Morgan": os.getenv("SPOTIFY_CLIENT_SECRET"),
             "Spencer": os.getenv("SPENCER_SPOTIFY_CLIENT_SECRET")
         }
         
+        # Debug: Log what was loaded from environment
+        self.logger.info("🔍 Spotify Credentials Debug:")
+        for user in ["Morgan", "Spencer"]:
+            client_id = self.SPOTIPY_CLIENT_ID.get(user)
+            client_secret = self.SPOTIPY_CLIENT_SECRET.get(user)
+            self.logger.info(f"  {user}:")
+            self.logger.info(f"    CLIENT_ID present: {bool(client_id)} (length: {len(client_id) if client_id else 0})")
+            self.logger.info(f"    CLIENT_SECRET present: {bool(client_secret)} (length: {len(client_secret) if client_secret else 0})")
+        
         # Use config values if available, otherwise fallbacks
+        # Check environment variable first, then config, then default to port 8889 (8888 conflicts with MCP server)
+        default_redirect_uri = os.getenv("SPOTIFY_REDIRECT_URI", "http://127.0.0.1:8888/callback")
+        
         if config:
             self.SPOTIPY_REDIRECT_URI = {
-                "Morgan": getattr(config, 'MORGAN_SPOTIFY_URI', "http://localhost:8888/callback"),
-                "Spencer": getattr(config, 'SPENCER_SPOTIFY_URI', "http://localhost:8888/callback")
+                "Morgan": getattr(config, 'MORGAN_SPOTIFY_URI', default_redirect_uri),
+                "Spencer": getattr(config, 'SPENCER_SPOTIFY_URI', default_redirect_uri)
             }
         else:
             self.SPOTIPY_REDIRECT_URI = {
-                "Morgan": "http://localhost:8888/callback",
-                "Spencer": "http://localhost:8888/callback"
+                "Morgan": default_redirect_uri,
+                "Spencer": default_redirect_uri
             }
+        
+        # Log redirect URIs for debugging
+        self.logger.info("🔍 Spotify Redirect URIs:")
+        for user, uri in self.SPOTIPY_REDIRECT_URI.items():
+            self.logger.info(f"  {user}: {uri}")
         
         self.SCOPE = "user-read-playback-state user-modify-playback-state user-read-private user-library-read"
         
@@ -66,7 +84,7 @@ class ImprovedSpotifyPlaybackTool(ImprovedBaseTool):
         self.CACHE_TIMEOUT = 30  # seconds
         
         # Available users and actions
-        self.available_users = ["Morgan", "Spencer"]
+        self.available_users = ["Morgan"]
         self.available_actions = ["play", "pause", "next", "previous", "volume", "search_track", "search_artist", "status", "devices", "shuffle", "repeat"]
     
     def get_schema(self) -> Dict[str, Any]:
@@ -189,6 +207,13 @@ class ImprovedSpotifyPlaybackTool(ImprovedBaseTool):
                 "timestamp": self._get_current_timestamp()
             })
             
+            # Log final output for visibility
+            if LOG_TOOLS:
+                try:
+                    self.logger.info("Spotify tool output: %s", result)
+                except Exception:
+                    pass
+            
             return result
             
         except Exception as e:
@@ -235,25 +260,49 @@ class ImprovedSpotifyPlaybackTool(ImprovedBaseTool):
             client_secret = self.SPOTIPY_CLIENT_SECRET.get(user)
             redirect_uri = self.SPOTIPY_REDIRECT_URI.get(user)
             
+            # Enhanced debugging
+            self.logger.info(f"🔍 Attempting to create Spotify client for {user}:")
+            self.logger.info(f"  client_id: {'✅ present' if client_id else '❌ MISSING'}")
+            self.logger.info(f"  client_secret: {'✅ present' if client_secret else '❌ MISSING'}")
+            self.logger.info(f"  redirect_uri: {'✅ present' if redirect_uri else '❌ MISSING'}")
+            
             if not all([client_id, client_secret, redirect_uri]):
-                self.logger.error(f"Missing Spotify credentials for {user}")
+                missing_items = []
+                if not client_id:
+                    missing_items.append("CLIENT_ID (env: MORGAN_SPOTIFY_CLIENT_ID)")
+                if not client_secret:
+                    missing_items.append("CLIENT_SECRET (env: MORGAN_SPOTIFY_CLIENT_SECRET)")
+                if not redirect_uri:
+                    missing_items.append("REDIRECT_URI")
+                self.logger.error(f"❌ Missing Spotify credentials for {user}: {', '.join(missing_items)}")
                 return None
             
-            # Create OAuth handler
+            # Create OAuth handler with modern CacheFileHandler
+            # Use open_browser=False to avoid port conflicts with MCP server
+            cache_handler = CacheFileHandler(cache_path=f".spotify_cache")
+            
             auth_manager = SpotifyOAuth(
                 client_id=client_id,
                 client_secret=client_secret,
                 redirect_uri=redirect_uri,
                 scope=self.SCOPE,
-                cache_path=f".spotify_cache_{user.lower()}"
+                cache_handler=cache_handler,
+                open_browser=False  # Prevents starting local server on port 8889
             )
             
             # Create Spotify client
             sp = spotipy.Spotify(auth_manager=auth_manager)
             self.sp_clients[user] = sp
             
-            # Test the connection
-            sp.current_user()
+            # Test the connection and log the authenticated user
+            try:
+                info = sp.current_user()
+                display_name = (info or {}).get('display_name')
+                user_id = (info or {}).get('id')
+                self.logger.info(f"✅ Spotify client ready for {user}: {display_name} ({user_id})")
+            except Exception as _e:
+                # Still return the client; action handlers may provide richer error context
+                self.logger.info(f"✅ Spotify client created for {user}, but could not fetch profile: {_e}")
             return sp
             
         except Exception as e:

@@ -11,4 +11,10 @@ news.json
 top_headlines.json
 daily_key_points.json
 daily_summary.txt
-email_summaries.json
+email_summaries.json.env
+.env.*
+*.env
+.env.backup.env
+.env.*
+*.env
+.env.backup

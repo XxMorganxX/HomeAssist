@@ -1,0 +1,42 @@
+[
+  {
+    "summary": "{\n  \"summary\": \"This email from Cornell University's Bursar's Office notifies the recipient that their e-bill is now available for viewing online. It provides instructions on how to access the bill, set up other payers, and warns about finance charges and enrollment holds if payment is not received by the due date. Contact information for Bursar Account Services is also provided for questions.\",\n  \"key_points\": [\n    \"Your Cornell e-bill is available online at https://bursar.cornell.edu/students-parents/paying-your-bill/cashnet.\",\n    \"Students must set up other users/payers to grant them access to the bill; instructions are available online.\",\n    \"Payment must be received each month by the billing due date to avoid finance charges and enrollment holds.\",\n    \"The current billing statement due date is listed on the top of the e-bill.\",\n    \"Contact Bursar Account Services at bursar@cornell.edu or (607)255-2336 (M-F, 10am-1pm & 2pm-4pm) for assistance.\",\n    \"Do not respond to this email.\"\n  ],\n  \"category\": \"Financial Notification\",\n  \"priority\": \"high\",\n  \"dates_deadlines\": [\n    \"Current billing statement due date (listed",
+    "key_points": [],
+    "category": "unknown",
+    "priority": "medium",
+    "dates_deadlines": [],
+    "action_required": false,
+    "raw_response": "{\n  \"summary\": \"This email from Cornell University's Bursar's Office notifies the recipient that their e-bill is now available for viewing online. It provides instructions on how to access the bill, set up other payers, and warns about finance charges and enrollment holds if payment is not received by the due date. Contact information for Bursar Account Services is also provided for questions.\",\n  \"key_points\": [\n    \"Your Cornell e-bill is available online at https://bursar.cornell.edu/students-parents/paying-your-bill/cashnet.\",\n    \"Students must set up other users/payers to grant them access to the bill; instructions are available online.\",\n    \"Payment must be received each month by the billing due date to avoid finance charges and enrollment holds.\",\n    \"The current billing statement due date is listed on the top of the e-bill.\",\n    \"Contact Bursar Account Services at bursar@cornell.edu or (607)255-2336 (M-F, 10am-1pm & 2pm-4pm) for assistance.\",\n    \"Do not respond to this email.\"\n  ],\n  \"category\": \"Financial Notification\",\n  \"priority\": \"high\",\n  \"dates_deadlines\": [\n    \"Current billing statement due date (listed",
+    "original_email_id": "1994027a0dab45b6",
+    "original_subject": "Your Cornell eBill is Now Available",
+    "original_sender": "cashnet-noreply@bursar.cornell.edu",
+    "original_date": "Fri, 12 Sep 2025 22:59:13 +0000 (UTC)",
+    "processed_at": "2025-09-15T01:27:25.562576"
+  },
+  {
+    "summary": "This email announces that COMM 2010 LAs will be offering 20-minute coaching sessions starting next week to help students with their speeches. Attending a session and actively working on their speech will earn students 3 Deepening Practice points (or bananas). Students must sign up using a provided Google Sheet and follow specific rules regarding scheduling and attendance.",
+    "key_points": [
+      "20-minute coaching sessions are available with LAs for COMM 2010.",
+      "Sessions start next week.",
+      "Earn 3 Deepening Practice points (bananas) for attending and actively participating.",
+      "Sessions can help with brainstorming, outlining, practicing, and citing sources.",
+      "Sign up using the provided Google Sheet, including your name and email.",
+      "Note whether your meeting is on Zoom or in person.",
+      "Do not bump other students or edit the Google Sheet.",
+      "Reschedule or cancel at least 2 hours before your meeting by emailing the LA directly.",
+      "Sign up only once to allow everyone a chance."
+    ],
+    "category": "Course Announcement/Instructional",
+    "priority": "medium",
+    "dates_deadlines": [
+      "Sessions start next week",
+      "2 hours before scheduled meeting (for rescheduling/cancellation)"
+    ],
+    "action_required": true,
+    "original_email_id": "1993e9d74e428934",
+    "original_subject": "Coaching Sessions with COMM 2010 LAs: Sign-Up for Deepening Practice Bananas!: Oral Comms",
+    "original_sender": "Oral Comms <notifications@instructure.com>",
+    "original_date": "Fri, 12 Sep 2025 15:48:46 +0000",
+    "processed_at": "2025-09-15T01:27:31.911821"
+  }
+]
