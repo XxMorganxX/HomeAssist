@@ -36,19 +36,19 @@ class ImprovedSpotifyPlaybackTool(ImprovedBaseTool):
         """Initialize the improved Spotify playback tool."""
         super().__init__()
         
-        # Spotify credentials for multiple users
+        # Spotify credentials for multiple users (use lowercase keys)
         self.SPOTIPY_CLIENT_ID = {
-            "Morgan": os.getenv("SPOTIFY_CLIENT_ID"),
-            "Spencer": os.getenv("SPENCER_SPOTIFY_CLIENT_ID")
+            "morgan": os.getenv("SPOTIFY_CLIENT_ID"),
+            "spencer": os.getenv("SPENCER_SPOTIFY_CLIENT_ID")
         }
         self.SPOTIPY_CLIENT_SECRET = {
-            "Morgan": os.getenv("SPOTIFY_CLIENT_SECRET"),
-            "Spencer": os.getenv("SPENCER_SPOTIFY_CLIENT_SECRET")
+            "morgan": os.getenv("SPOTIFY_CLIENT_SECRET"),
+            "spencer": os.getenv("SPENCER_SPOTIFY_CLIENT_SECRET")
         }
         
         # Debug: Log what was loaded from environment
         self.logger.info("🔍 Spotify Credentials Debug:")
-        for user in ["Morgan", "Spencer"]:
+        for user in ["morgan", "spencer"]:
             client_id = self.SPOTIPY_CLIENT_ID.get(user)
             client_secret = self.SPOTIPY_CLIENT_SECRET.get(user)
             self.logger.info(f"  {user}:")
@@ -61,13 +61,13 @@ class ImprovedSpotifyPlaybackTool(ImprovedBaseTool):
         
         if config:
             self.SPOTIPY_REDIRECT_URI = {
-                "Morgan": getattr(config, 'MORGAN_SPOTIFY_URI', default_redirect_uri),
-                "Spencer": getattr(config, 'SPENCER_SPOTIFY_URI', default_redirect_uri)
+                "morgan": getattr(config, 'MORGAN_SPOTIFY_URI', default_redirect_uri),
+                "spencer": getattr(config, 'SPENCER_SPOTIFY_URI', default_redirect_uri)
             }
         else:
             self.SPOTIPY_REDIRECT_URI = {
-                "Morgan": default_redirect_uri,
-                "Spencer": default_redirect_uri
+                "morgan": default_redirect_uri,
+                "spencer": default_redirect_uri
             }
         
         # Log redirect URIs for debugging
@@ -75,7 +75,8 @@ class ImprovedSpotifyPlaybackTool(ImprovedBaseTool):
         for user, uri in self.SPOTIPY_REDIRECT_URI.items():
             self.logger.info(f"  {user}: {uri}")
         
-        self.SCOPE = "user-read-playback-state user-modify-playback-state user-read-private user-library-read"
+        # Match the scope used by auth_script.py exactly
+        self.SCOPE = "user-read-playback-state user-modify-playback-state playlist-read-private"
         
         # Spotify client instances (lazy initialization)
         self.sp_clients = {}
@@ -83,8 +84,8 @@ class ImprovedSpotifyPlaybackTool(ImprovedBaseTool):
         self._devices_cache_time = {}
         self.CACHE_TIMEOUT = 30  # seconds
         
-        # Available users and actions
-        self.available_users = ["Morgan"]
+        # Available users and actions (use lowercase for consistency)
+        self.available_users = ["morgan", "spencer"]
         self.available_actions = ["play", "pause", "next", "previous", "volume", "search_track", "search_artist", "status", "devices", "shuffle", "repeat"]
     
     def get_schema(self) -> Dict[str, Any]:
@@ -104,9 +105,9 @@ class ImprovedSpotifyPlaybackTool(ImprovedBaseTool):
                 },
                 "user": {
                     "type": "string",
-                    "description": "Which user's Spotify account to control. Each user has separate playlists, preferences, and playback state. Morgan typically has work/focus playlists, Spencer has personal/entertainment music. Default is Morgan if not specified.",
+                    "description": "Which user's Spotify account to control (case-insensitive). Each user has separate playlists, preferences, and playback state. Morgan typically has work/focus playlists, Spencer has personal/entertainment music. Default is morgan if not specified.",
                     "enum": self.available_users,
-                    "default": "Morgan"
+                    "default": "morgan"
                 },
                 "query": {
                     "type": "string",
@@ -154,7 +155,8 @@ class ImprovedSpotifyPlaybackTool(ImprovedBaseTool):
         """
         try:
             action = params.get("action")
-            user = params.get("user", "Morgan")
+            # Normalize user to lowercase for case-insensitive matching
+            user = params.get("user", "morgan").lower() if params.get("user") else "morgan"
             
             # Validate parameters
             if not action:
@@ -167,6 +169,7 @@ class ImprovedSpotifyPlaybackTool(ImprovedBaseTool):
             
             if LOG_TOOLS:
                 # Use structured logging so it shows in the agent terminal
+                print(f"🎵 SPOTIFY TOOL CALLED: action={action}, user={user}")
                 self.logger.info("Executing Tool: Spotify -- %s", params)
             
             if action not in self.available_actions:
@@ -191,10 +194,33 @@ class ImprovedSpotifyPlaybackTool(ImprovedBaseTool):
             # Initialize Spotify client for user
             sp_client = self._get_spotify_client(user)
             if not sp_client:
+                # Check for specific missing components to provide better error messages
+                import os as _os
+                cache_exists = _os.path.exists(".spotify_cache")
+                has_credentials = bool(self.SPOTIPY_CLIENT_ID.get(user) and self.SPOTIPY_CLIENT_SECRET.get(user))
+
+                if not cache_exists:
+                    error_msg = (
+                        "Spotify not authenticated. Please run 'python authenticate_spotify.py' "
+                        "or 'python auth_script.py' first to authorize Spotify access."
+                    )
+                elif not has_credentials:
+                    error_msg = (
+                        "Spotify credentials missing. Please check your .env file has "
+                        "SPOTIFY_CLIENT_ID and SPOTIFY_CLIENT_SECRET (without spaces around '=')."
+                    )
+                else:
+                    error_msg = (
+                        "Spotify authentication failed. Please re-run the authentication script "
+                        "to refresh your access tokens."
+                    )
+
                 return {
                     "success": False,
-                    "error": f"Failed to initialize Spotify client for {user}. Check credentials and authentication.",
-                    "user": user
+                    "error": error_msg,
+                    "user": user,
+                    "authentication_required": not cache_exists,
+                    "credentials_missing": not has_credentials
                 }
             
             # Execute the action
@@ -254,33 +280,64 @@ class ImprovedSpotifyPlaybackTool(ImprovedBaseTool):
         """Get or create Spotify client for user."""
         if user in self.sp_clients:
             return self.sp_clients[user]
-        
+
         try:
             client_id = self.SPOTIPY_CLIENT_ID.get(user)
             client_secret = self.SPOTIPY_CLIENT_SECRET.get(user)
             redirect_uri = self.SPOTIPY_REDIRECT_URI.get(user)
-            
+
             # Enhanced debugging
             self.logger.info(f"🔍 Attempting to create Spotify client for {user}:")
             self.logger.info(f"  client_id: {'✅ present' if client_id else '❌ MISSING'}")
             self.logger.info(f"  client_secret: {'✅ present' if client_secret else '❌ MISSING'}")
             self.logger.info(f"  redirect_uri: {'✅ present' if redirect_uri else '❌ MISSING'}")
-            
+
             if not all([client_id, client_secret, redirect_uri]):
                 missing_items = []
                 if not client_id:
-                    missing_items.append("CLIENT_ID (env: MORGAN_SPOTIFY_CLIENT_ID)")
+                    missing_items.append("CLIENT_ID (env: SPOTIFY_CLIENT_ID)")
                 if not client_secret:
-                    missing_items.append("CLIENT_SECRET (env: MORGAN_SPOTIFY_CLIENT_SECRET)")
+                    missing_items.append("CLIENT_SECRET (env: SPOTIFY_CLIENT_SECRET)")
                 if not redirect_uri:
                     missing_items.append("REDIRECT_URI")
                 self.logger.error(f"❌ Missing Spotify credentials for {user}: {', '.join(missing_items)}")
+                self.logger.error("   Please check your .env file has SPOTIFY_CLIENT_ID and SPOTIFY_CLIENT_SECRET (without spaces around =)")
                 return None
-            
+
+            # Check if cache file exists - use absolute path to project root
+            import os as _os
+            import json as _json
+            from pathlib import Path as _Path
+
+            # Get the absolute path to the cache file in the project root
+            project_root = _Path(__file__).parent.parent.parent
+            cache_path = str(project_root / ".spotify_cache")
+
+            self.logger.info(f"🔍 Looking for cache at: {cache_path}")
+
+            if not _os.path.exists(cache_path):
+                self.logger.error(f"❌ Spotify authentication cache not found at: {cache_path}")
+                self.logger.error("   Please run one of these authentication scripts first:")
+                self.logger.error("   - python authenticate_spotify.py (manual browser auth)")
+                self.logger.error("   - python auth_script.py (automatic browser auth)")
+                self.logger.error("   This will create the required .spotify_cache file")
+                return None
+
             # Create OAuth handler with modern CacheFileHandler
             # Use open_browser=False to avoid port conflicts with MCP server
-            cache_handler = CacheFileHandler(cache_path=f".spotify_cache")
-            
+            cache_handler = CacheFileHandler(cache_path=cache_path)
+
+            self.logger.info(f"📁 Using cache file: {cache_path}")
+
+            # Debug: Check what's actually in the cache file
+            try:
+                with open(cache_path, 'r') as f:
+                    cache_content = _json.load(f)
+                    self.logger.info(f"   Cache has token: {'access_token' in cache_content}")
+                    self.logger.info(f"   Cache has refresh: {'refresh_token' in cache_content}")
+            except Exception as e:
+                self.logger.error(f"   Could not read cache file: {e}")
+
             auth_manager = SpotifyOAuth(
                 client_id=client_id,
                 client_secret=client_secret,
@@ -289,24 +346,48 @@ class ImprovedSpotifyPlaybackTool(ImprovedBaseTool):
                 cache_handler=cache_handler,
                 open_browser=False  # Prevents starting local server on port 8889
             )
-            
+
+            # Check if token is valid and not expired
+            token_info = auth_manager.get_cached_token()
+            if not token_info:
+                self.logger.error("❌ No valid token in cache file")
+                self.logger.error("   The cache file exists but doesn't contain valid tokens")
+                self.logger.error("   Please re-run the authentication script")
+                return None
+
+            if auth_manager.is_token_expired(token_info):
+                self.logger.info("🔄 Token expired, attempting refresh...")
+                try:
+                    token_info = auth_manager.refresh_access_token(token_info['refresh_token'])
+                    self.logger.info("✅ Token refreshed successfully")
+                except Exception as refresh_error:
+                    self.logger.error(f"❌ Failed to refresh token: {refresh_error}")
+                    self.logger.error("   Please re-run the authentication script")
+                    return None
+
             # Create Spotify client
             sp = spotipy.Spotify(auth_manager=auth_manager)
             self.sp_clients[user] = sp
-            
+
             # Test the connection and log the authenticated user
             try:
                 info = sp.current_user()
                 display_name = (info or {}).get('display_name')
                 user_id = (info or {}).get('id')
                 self.logger.info(f"✅ Spotify client ready for {user}: {display_name} ({user_id})")
-            except Exception as _e:
-                # Still return the client; action handlers may provide richer error context
-                self.logger.info(f"✅ Spotify client created for {user}, but could not fetch profile: {_e}")
+            except Exception as test_error:
+                self.logger.error(f"❌ Failed to verify Spotify connection: {test_error}")
+                self.logger.error("   This likely means authentication has failed")
+                self.logger.error("   Please re-run the authentication script")
+                return None
+
             return sp
-            
+
         except Exception as e:
-            self.logger.error(f"Failed to create Spotify client for {user}: {e}")
+            self.logger.error(f"❌ Failed to create Spotify client for {user}: {e}")
+            self.logger.error("   This may be due to missing dependencies or configuration issues")
+            import traceback
+            self.logger.error(f"   Full error: {traceback.format_exc()}")
             return None
     
     def _execute_spotify_action(self, sp_client, action: str, params: Dict[str, Any], user: str) -> Dict[str, Any]:
@@ -348,26 +429,69 @@ class ImprovedSpotifyPlaybackTool(ImprovedBaseTool):
     
     def _handle_play(self, sp_client, params: Dict[str, Any]) -> Dict[str, Any]:
         """Handle play action."""
-        device_id = params.get("device_id")
-        sp_client.start_playback(device_id=device_id)
-        
-        # Get current track info
-        current = sp_client.current_playback()
-        track_info = self._extract_track_info(current) if current else {}
-        
-        return {
-            "success": True,
-            "message": "Playback started",
-            "current_track": track_info
-        }
+        try:
+            device_id = params.get("device_id")
+            sp_client.start_playback(device_id=device_id)
+            
+            # Get current track info
+            current = sp_client.current_playback()
+            track_info = self._extract_track_info(current) if current else {}
+            
+            return {
+                "success": True,
+                "message": "Playback started",
+                "current_track": track_info
+            }
+        except Exception as e:
+            error_str = str(e).lower()
+            if "403" in error_str and "restriction" in error_str:
+                return {
+                    "success": False,
+                    "error": "Cannot resume playback: Spotify restrictions apply. Try using Spotify Premium or a different device.",
+                    "details": str(e)
+                }
+            elif "404" in error_str:
+                return {
+                    "success": False,
+                    "error": "No active Spotify device found. Please open Spotify on a device first.",
+                    "details": str(e)
+                }
+            else:
+                return {
+                    "success": False,
+                    "error": f"Failed to start playback: {str(e)}",
+                    "details": str(e)
+                }
     
     def _handle_pause(self, sp_client) -> Dict[str, Any]:
         """Handle pause action."""
-        sp_client.pause_playback()
-        return {
-            "success": True,
-            "message": "Playback paused"
-        }
+        try:
+            sp_client.pause_playback()
+            return {
+                "success": True,
+                "message": "Playback paused"
+            }
+        except Exception as e:
+            error_str = str(e).lower()
+            # Check for common Spotify API errors
+            if "403" in error_str and "restriction" in error_str:
+                return {
+                    "success": False,
+                    "error": "Cannot pause: Spotify playback restrictions apply to this device or content. Try using a Spotify Premium account or a different playback device.",
+                    "details": str(e)
+                }
+            elif "404" in error_str:
+                return {
+                    "success": False,
+                    "error": "No active Spotify device found. Please start playing music on a Spotify device first.",
+                    "details": str(e)
+                }
+            else:
+                return {
+                    "success": False,
+                    "error": f"Failed to pause playback: {str(e)}",
+                    "details": str(e)
+                }
     
     def _handle_next(self, sp_client) -> Dict[str, Any]:
         """Handle next track action."""

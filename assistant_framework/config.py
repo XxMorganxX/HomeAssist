@@ -58,7 +58,7 @@ WAKEWORD_PROVIDER = "openwakeword"
 TERMINATION_PHRASES = ["over out", "stop listening", "end session", "over, out"]
 TERMINATION_CHECK_MODE = "final"  # "final" or "partial" - when to check for termination
 TERMINATION_TIMEOUT = 120  # seconds before auto-terminating transcription
-AUDIO_HANDOFF_DELAY = 0.5  # seconds to wait between audio component switches
+AUDIO_HANDOFF_DELAY = 1.5  # seconds to wait between audio component switches (increased to prevent segfaults)
 
 # Send phrases that trigger sending transcription buffer to response component
 SEND_PHRASES = ["send message", "process this", "respond to this", "send this", "send it", "sir"]

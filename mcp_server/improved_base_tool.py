@@ -115,12 +115,15 @@ class ImprovedBaseTool(ABC):
                     if param_name not in filtered_params and default_val is not None:
                         filtered_params[param_name] = default_val
                 
-                # Log tool call in dev mode
+                # Always log tool calls for visibility
+                import json
+                print(f"🔧 MCP TOOL CALL → {self.name}: {json.dumps(filtered_params, ensure_ascii=False, indent=None)[:200]}")
+
+                # Additional dev mode logging if needed
                 try:
                     from assistant_framework.config import get_active_preset
                     if get_active_preset().lower().startswith("dev"):
-                        import json
-                        print(f"[DEV] TOOL CALL → {self.name}: {json.dumps(filtered_params, ensure_ascii=False)}")
+                        print(f"[DEV] Full params: {json.dumps(filtered_params, ensure_ascii=False, indent=2)}")
                 except Exception:
                     pass
                 

@@ -34,8 +34,8 @@ DISABLED_TOOLS = [
 # Tool-specific configuration
 TOOL_CONFIG = {
     "spotify_playback": {
-        "default_user": "Morgan",  # Default Spotify user if not specified
-        "allowed_users": ["Morgan", "Spencer"],
+        "default_user": "morgan",  # Default Spotify user if not specified
+        "allowed_users": ["morgan"],
     },
     "get_notifications": {
         "auto_mark_read": False,  # Don't automatically mark as read

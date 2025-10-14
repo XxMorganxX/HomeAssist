@@ -33,15 +33,15 @@ from mcp_server.improved_mcp_adapter import ImprovedMCPToolAdapter
 def create_mcp_server(host: str = "127.0.0.1", port: int = 3000) -> tuple[FastMCP, ToolRegistry]:
     """
     Create and configure the FastMCP server with all tools.
-    
+
     Args:
         host: Host to bind to (default: localhost)
         port: Port to bind to (default: 3000)
-        
+
     Returns:
         Tuple of (Configured FastMCP server instance, ToolRegistry instance)
     """
-    # Initialize FastMCP server
+    # Initialize FastMCP server with verbose logging for tool calls
     mcp = FastMCP(name="Smart Home Assistant")
     
     # Initialize tool registry and improved adapter

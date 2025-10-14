@@ -420,7 +420,10 @@ class OpenAIWebSocketResponseProvider(ResponseInterface):
             return "Error: MCP not initialized"
         
         try:
+            print(f"🔧 Executing MCP tool: {tool_name} with args: {arguments}")
             result = await self.mcp_session.call_tool(tool_name, arguments)
+            print(f"📥 Tool result type: {type(result)}")
+            print(f"📥 Tool result: {result}")
             
             # Extract text content from result
             if hasattr(result, 'content') and result.content:
@@ -430,12 +433,20 @@ class OpenAIWebSocketResponseProvider(ResponseInterface):
                         content_parts.append(content_item.text)
                     else:
                         content_parts.append(str(content_item))
-                return '\n'.join(content_parts)
+                result_text = '\n'.join(content_parts)
+                print(f"📥 Extracted result text: {result_text}")
+                return result_text
             else:
-                return str(result)
+                result_text = str(result)
+                print(f"📥 Converted result to string: {result_text}")
+                return result_text
                 
         except Exception as e:
-            return f"Error calling tool {tool_name}: {e}"
+            error_msg = f"Error calling tool {tool_name}: {e}"
+            print(f"❌ Tool execution error: {error_msg}")
+            import traceback
+            traceback.print_exc()
+            return error_msg
     
     async def _compose_final_answer(self,
                                     user_message: str,
@@ -467,6 +478,10 @@ class OpenAIWebSocketResponseProvider(ResponseInterface):
                 if tc and tc.result:
                     tool_summaries.append(f"{tc.name} result:\n{tc.result}")
             tools_block = "\n\n".join(tool_summaries) if tool_summaries else ""
+            
+            print(f"🔍 Composing final answer with tool results:")
+            print(f"   Tool calls: {len(tool_calls)}")
+            print(f"   Tools block: {tools_block[:500]}")
 
             guidance = (
                 "You have executed tools for the user's request. "

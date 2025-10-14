@@ -81,12 +81,26 @@ class CallbackHandler(BaseHTTPRequestHandler):
 
     def do_GET(self):
         try:
-            full_url = f"{REDIRECT_URI.split('/callback')[0]}{self.path}"
-            redirect_result["full_url"] = full_url
-            self.send_response(200)
-            self.send_header("Content-Type", "text/plain; charset=utf-8")
-            self.end_headers()
-            self.wfile.write(b"OK - You can close this tab and return to the app.")
+            # Only capture the callback URL with the code parameter, ignore other requests
+            if self.path.startswith('/callback') and 'code=' in self.path:
+                full_url = f"{REDIRECT_URI.split('/callback')[0]}{self.path}"
+                redirect_result["full_url"] = full_url
+                self.send_response(200)
+                self.send_header("Content-Type", "text/html; charset=utf-8")
+                self.end_headers()
+                success_html = """
+                <html>
+                <body style="font-family: sans-serif; text-align: center; padding: 50px;">
+                    <h1 style="color: #1DB954;">✅ Success!</h1>
+                    <p>Spotify authentication complete. You can close this tab and return to the terminal.</p>
+                </body>
+                </html>
+                """
+                self.wfile.write(success_html.encode())
+            else:
+                # Ignore other requests (like favicon.ico)
+                self.send_response(404)
+                self.end_headers()
         except Exception:
             try:
                 self.send_response(500)
