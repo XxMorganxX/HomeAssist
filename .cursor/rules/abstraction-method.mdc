@@ -1,0 +1,21 @@
+---
+alwaysApply: false
+---
+When operating in large codebases, any new stack component must:
+
+- Define an abstract base class (ABC) that is the only contract other components depend on.
+- Provide one or more concrete implementations that strictly subclass the ABC.
+- Be constructed via a factory or dependency-injection boundary that returns the ABC type.
+- Keep provider-specific types out of the ABC surface (use typed DTOs/dataclasses where needed).
+- Expose clear lifecycle methods on the ABC (initialize/start/stop/cleanup) and capability metadata when relevant.
+- Prevent direct imports of concrete implementations outside composition/wiring code.
+- Organize files consistently (e.g., interfaces/<domain>.py, providers/<domain>/..., factory mapping name→class).
+
+Rationale: This enforces stable contracts and allows implementations to be swapped without touching calling code.
+
+Checklist (required for new components):
+- ABC created with fully typed methods and docstrings.
+- At least one concrete implementation exists and passes against the ABC.
+- Factory updated to map provider name → concrete class; callers receive the ABC.
+- Call sites import only the ABC (and DTOs), not concretes.
+- Tests validate ABC conformance and factory wiring.
