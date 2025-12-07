@@ -19,6 +19,10 @@ try:
     from .utils.error_handling import ErrorHandler, ComponentError, ErrorSeverity
     from .utils.barge_in import BargeInDetector, BargeInConfig, BargeInMode
     from .utils.conversation_recorder import ConversationRecorder
+    from .utils.tones import (
+        beep_system_ready, beep_wake_detected, beep_listening_start,
+        beep_send_detected, beep_ready_to_listen, beep_shutdown
+    )
     from .providers.wakeword_v2 import IsolatedOpenWakeWordProvider
     from .providers.transcription_v2 import AssemblyAIAsyncProvider
     from .providers.context import UnifiedContextProvider
@@ -36,6 +40,10 @@ except ImportError:
     from assistant_framework.utils.error_handling import ErrorHandler, ComponentError, ErrorSeverity
     from assistant_framework.utils.barge_in import BargeInDetector, BargeInConfig, BargeInMode
     from assistant_framework.utils.conversation_recorder import ConversationRecorder
+    from assistant_framework.utils.tones import (
+        beep_system_ready, beep_wake_detected, beep_listening_start,
+        beep_send_detected, beep_ready_to_listen, beep_shutdown
+    )
     from assistant_framework.providers.wakeword_v2 import IsolatedOpenWakeWordProvider
     from assistant_framework.providers.transcription_v2 import AssemblyAIAsyncProvider
     from assistant_framework.providers.context import UnifiedContextProvider
@@ -139,6 +147,7 @@ class RefactoredOrchestrator:
             self.is_initialized = True
             print("\n✅ All providers initialized and ready")
             print("💡 Providers will be reused across conversations (cleanup on transitions)")
+            beep_system_ready()  # 🔔 System ready sound
             return True
             
         except Exception as e:
@@ -312,6 +321,7 @@ class RefactoredOrchestrator:
             print("👂 Listening for wake word...")
             async for event in wakeword.start_detection():
                 print(f"🔔 Wake word detected: {event.model_name} (score: {event.score:.3f})")
+                beep_wake_detected()  # 🔔 Wake word sound
                 yield event
             
         except Exception as e:
@@ -357,6 +367,7 @@ class RefactoredOrchestrator:
             # Start streaming
             print("🎙️  Transcribing...")
             print(f"💡 Say one of these to send: {', '.join(SEND_PHRASES)}")
+            beep_listening_start()  # 🔔 Listening start sound
             
             accumulated_text = ""
             
@@ -375,6 +386,7 @@ class RefactoredOrchestrator:
                     for send_phrase in SEND_PHRASES:
                         if send_phrase.lower() in accumulated_lower:
                             print(f"✅ Send phrase detected in final: '{send_phrase}'")
+                            beep_send_detected()  # 🔔 Send phrase sound
                             # Remove the send phrase from the accumulated text (case-insensitive)
                             import re
                             pattern = re.compile(re.escape(send_phrase), re.IGNORECASE)
@@ -387,6 +399,7 @@ class RefactoredOrchestrator:
                     for term_phrase in TERMINATION_PHRASES:
                         if term_phrase.lower() in accumulated_lower:
                             print(f"🛑 Termination phrase detected: '{term_phrase}'")
+                            beep_shutdown()  # 🔔 Shutdown/goodbye sound
                             return None
                 else:
                     # Check partials too for faster response
@@ -400,6 +413,7 @@ class RefactoredOrchestrator:
                     for send_phrase in SEND_PHRASES:
                         if send_phrase.lower() in full_text_lower:
                             print(f"⚡ Send phrase detected in partial: '{send_phrase}' (instant send!)")
+                            beep_send_detected()  # 🔔 Send phrase sound
                             # Remove the send phrase
                             import re
                             pattern = re.compile(re.escape(send_phrase), re.IGNORECASE)
@@ -411,6 +425,7 @@ class RefactoredOrchestrator:
                     for term_phrase in TERMINATION_PHRASES:
                         if term_phrase.lower() in full_text_lower:
                             print(f"🛑 Termination phrase detected in partial: '{term_phrase}'")
+                            beep_shutdown()  # 🔔 Shutdown/goodbye sound
                             return None
             
             # If stream ends naturally without send phrase, return accumulated text
@@ -462,6 +477,9 @@ class RefactoredOrchestrator:
             
             # Use pre-initialized provider
             response = self._response
+            if not response:
+                print("❌ Response provider not available (MCP not started?)")
+                return None
             
             # Get conversation context for the response
             context = None
@@ -473,7 +491,7 @@ class RefactoredOrchestrator:
                 tool_context = self._context.get_tool_context()
             
             # Stream response with context
-            print(f"💭 Generating response...")
+            print("💭 Generating response...")
             full_response = ""
             streamed_deltas = False
             
@@ -655,18 +673,9 @@ class RefactoredOrchestrator:
             
             print(f"\n🤖 Assistant: {assistant_text}\n")
             
-            # Record assistant message and tool calls
+            # Record assistant message
             if self._recorder and self._recorder.current_session_id:
-                msg_id = await self._recorder.record_message("assistant", assistant_text)
-                # Record any tool calls that were executed
-                if msg_id and self._last_tool_calls:
-                    for tc in self._last_tool_calls:
-                        await self._recorder.record_tool_call(
-                            tool_name=tc.name,
-                            arguments=tc.arguments,
-                            result=tc.result,
-                            message_id=msg_id
-                        )
+                await self._recorder.record_message("assistant", assistant_text)
             
             # 4. Speak response with barge-in support
             speech_completed = await self.run_tts(assistant_text, transition_to_idle=True, enable_barge_in=True)
@@ -719,7 +728,7 @@ class RefactoredOrchestrator:
                 if self._context:
                     self._context.reset()
                     print("🧠 Conversation context reset for new session")
-                
+
                 # 2. Enter multi-turn conversation mode
                 print("💬 Conversation mode active (say termination phrase to exit)")
                 conversation_active = True
@@ -748,18 +757,9 @@ class RefactoredOrchestrator:
                     
                     print(f"\n🤖 Assistant: {assistant_text}\n")
                     
-                    # Record assistant message and tool calls
+                    # Record assistant message
                     if self._recorder and self._recorder.current_session_id:
-                        msg_id = await self._recorder.record_message("assistant", assistant_text)
-                        # Record any tool calls that were executed
-                        if msg_id and self._last_tool_calls:
-                            for tc in self._last_tool_calls:
-                                await self._recorder.record_tool_call(
-                                    tool_name=tc.name,
-                                    arguments=tc.arguments,
-                                    result=tc.result,
-                                    message_id=msg_id
-                                )
+                        await self._recorder.record_message("assistant", assistant_text)
                     
                     # Speak response with barge-in enabled
                     # If user interrupts, we'll immediately start transcribing
@@ -773,6 +773,7 @@ class RefactoredOrchestrator:
                         # Normal completion - transition to IDLE then back to transcription
                         await self.state_machine.transition_to(AudioState.IDLE)
                         print("🎤 Ready for next question (or say termination phrase)...\n")
+                        beep_ready_to_listen()  # 🔔 Ready for next question sound
                     else:
                         # Barge-in occurred! Skip IDLE and go directly to transcription
                         # The captured audio will be prefilled to transcription
@@ -876,7 +877,5 @@ class RefactoredOrchestrator:
                 'enabled': self._recording_enabled,
                 'initialized': self._recorder.is_initialized if self._recorder else False,
                 'current_session': self._recorder.current_session_id if self._recorder else None
-            },
-            'context': self._context.get_summary() if self._context else None
+            }
         }
-

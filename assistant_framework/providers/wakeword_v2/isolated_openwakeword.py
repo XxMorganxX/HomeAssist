@@ -37,6 +37,12 @@ def _wake_word_worker(config: Dict[str, Any], event_queue: mp.Queue, stop_event:
     from openwakeword.model import Model
     import time
     
+    # Import tones for audio feedback
+    try:
+        from assistant_framework.utils.tones import beep_wake_model_ready
+    except ImportError:
+        beep_wake_model_ready = lambda: None  # Fallback if import fails
+    
     # Extract config
     sample_rate = config['sample_rate']
     chunk = config['chunk']
@@ -72,6 +78,7 @@ def _wake_word_worker(config: Dict[str, Any], event_queue: mp.Queue, stop_event:
         )
         stream.start()
         print(f"✅ [Worker] Audio stream started")
+        beep_wake_model_ready()  # 🔔 Wake word model ready sound
         
         # Detection state
         last_detection = {}

@@ -235,7 +235,7 @@ TERMINATION_CHECK_MODE = "final"  # "final" or "partial"
 TERMINATION_TIMEOUT = 120  # seconds before auto-terminating
 
 # Phrases that trigger sending the buffer to the LLM
-SEND_PHRASES = ["send message", "process this", "respond to this", "send this", "send it", "sir"]
+SEND_PHRASES = ["send message", "process this", "respond to this", "send this", "send it", "sir", "shorty"]
 
 # Phrases that clear preceding text from the buffer
 PREFIX_TRIM_PHRASES = ["scratch that"]

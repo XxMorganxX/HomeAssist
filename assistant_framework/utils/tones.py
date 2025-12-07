@@ -167,3 +167,108 @@ def _beep_impl_send() -> None:
     )
 
 
+def beep_system_ready() -> None:
+    """Play sound when system is fully initialized and ready."""
+    _play_async(_beep_impl_system_ready)
+
+
+def beep_listening_start() -> None:
+    """Play sound when transcription/listening begins."""
+    _play_async(_beep_impl_listening)
+
+
+def beep_response_start() -> None:
+    """Play sound when assistant starts generating response."""
+    _play_async(_beep_impl_response)
+
+
+def beep_error() -> None:
+    """Play sound on error."""
+    _play_async(_beep_impl_error)
+
+
+def _beep_impl_system_ready() -> None:
+    """Ascending two-tone chime for system ready."""
+    _beep_platform(
+        mac_sounds=["Blow", "Glass"],
+        linux_ids=["service-login", "device-added"],
+        win_tone=(800, 100),
+    )
+    # Small delay then second tone
+    import time
+    time.sleep(0.1)
+    _beep_platform(
+        mac_sounds=["Glass"],
+        linux_ids=["bell"],
+        win_tone=(1200, 100),
+    )
+
+
+def _beep_impl_listening() -> None:
+    """Short high beep for listening start."""
+    _beep_platform(
+        mac_sounds=["Tink"],
+        linux_ids=["audio-channel-front-center"],
+        win_tone=(1500, 80),
+    )
+
+
+def _beep_impl_response() -> None:
+    """Soft tone for response starting."""
+    _beep_platform(
+        mac_sounds=["Morse"],
+        linux_ids=["message"],
+        win_tone=(700, 100),
+    )
+
+
+def _beep_impl_error() -> None:
+    """Low tone for errors."""
+    _beep_platform(
+        mac_sounds=["Basso", "Sosumi"],
+        linux_ids=["dialog-error", "dialog-warning"],
+        win_tone=(400, 200),
+    )
+
+
+def beep_shutdown() -> None:
+    """Play sound when assistant is shutting down / session ending."""
+    _play_async(_beep_impl_shutdown)
+
+
+def beep_wake_model_ready() -> None:
+    """Play sound when wake word model is initialized and ready."""
+    _play_async(_beep_impl_wake_model_ready)
+
+
+def _beep_impl_shutdown() -> None:
+    """Descending two-tone for shutdown/goodbye."""
+    _beep_platform(
+        mac_sounds=["Glass"],
+        linux_ids=["service-logout", "bell"],
+        win_tone=(1000, 100),
+    )
+    import time
+    time.sleep(0.1)
+    _beep_platform(
+        mac_sounds=["Blow"],
+        linux_ids=["bell"],
+        win_tone=(600, 150),
+    )
+
+
+def _beep_impl_wake_model_ready() -> None:
+    """Quick double-beep for wake word model ready."""
+    _beep_platform(
+        mac_sounds=["Pop"],
+        linux_ids=["device-added", "bell"],
+        win_tone=(1100, 60),
+    )
+    import time
+    time.sleep(0.05)
+    _beep_platform(
+        mac_sounds=["Pop"],
+        linux_ids=["bell"],
+        win_tone=(1100, 60),
+    )
+

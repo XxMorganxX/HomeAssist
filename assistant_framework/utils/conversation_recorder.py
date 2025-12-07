@@ -47,6 +47,7 @@ class ConversationRecorder:
         self._client: Optional["Client"] = None
         self._current_session_id: Optional[str] = None
         self._last_message_id: Optional[int] = None
+        self._session_message_count: int = 0  # Track messages per session
         self._is_initialized = False
     
     @property
@@ -133,6 +134,7 @@ class ConversationRecorder:
             
             self._current_session_id = result.data[0]["id"]
             self._last_message_id = None
+            self._session_message_count = 0  # Reset message counter
             
             print(f"📝 Started conversation session: {self._current_session_id[:8]}...")
             return self._current_session_id
@@ -145,6 +147,8 @@ class ConversationRecorder:
         """
         End the current conversation session.
         
+        If no messages were recorded, the session is deleted instead of saved.
+        
         Args:
             metadata: Additional metadata to store with the session
         
@@ -155,6 +159,18 @@ class ConversationRecorder:
             return False
         
         try:
+            # If no messages were recorded, delete the empty session
+            if self._session_message_count == 0:
+                self._client.table("conversation_sessions").delete().eq(
+                    "id", self._current_session_id
+                ).execute()
+                print(f"🗑️  Deleted empty session: {self._current_session_id[:8]}... (no messages)")
+                self._current_session_id = None
+                self._last_message_id = None
+                self._session_message_count = 0
+                return True
+            
+            # Session has messages - update with ended_at timestamp
             update_data = {"ended_at": datetime.utcnow().isoformat()}
             if metadata:
                 # Merge with existing metadata
@@ -170,9 +186,10 @@ class ConversationRecorder:
                 "id", self._current_session_id
             ).execute()
             
-            print(f"✅ Ended session: {self._current_session_id[:8]}...")
+            print(f"✅ Ended session: {self._current_session_id[:8]}... ({self._session_message_count} messages)")
             self._current_session_id = None
             self._last_message_id = None
+            self._session_message_count = 0
             return True
             
         except Exception as e:
@@ -222,6 +239,7 @@ class ConversationRecorder:
             
             result = self._client.table("conversation_messages").insert(data).execute()
             self._last_message_id = result.data[0]["id"]
+            self._session_message_count += 1  # Increment message counter
             
             return self._last_message_id
             
