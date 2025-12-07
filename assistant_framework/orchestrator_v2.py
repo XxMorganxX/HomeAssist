@@ -11,28 +11,34 @@ try:
         TranscriptionInterface,
         ResponseInterface,
         TextToSpeechInterface,
-        WakeWordInterface
+        WakeWordInterface,
+        ContextInterface
     )
     from .models.data_models import TranscriptionResult, ResponseChunk, WakeWordEvent
     from .utils.state_machine import AudioStateMachine, AudioState
     from .utils.error_handling import ErrorHandler, ComponentError, ErrorSeverity
     from .utils.barge_in import BargeInDetector, BargeInConfig, BargeInMode
+    from .utils.conversation_recorder import ConversationRecorder
     from .providers.wakeword_v2 import IsolatedOpenWakeWordProvider
     from .providers.transcription_v2 import AssemblyAIAsyncProvider
+    from .providers.context import UnifiedContextProvider
     from .config import get_active_preset
 except ImportError:
     from assistant_framework.interfaces import (
         TranscriptionInterface,
         ResponseInterface,
         TextToSpeechInterface,
-        WakeWordInterface
+        WakeWordInterface,
+        ContextInterface
     )
     from assistant_framework.models.data_models import TranscriptionResult, ResponseChunk, WakeWordEvent
     from assistant_framework.utils.state_machine import AudioStateMachine, AudioState
     from assistant_framework.utils.error_handling import ErrorHandler, ComponentError, ErrorSeverity
     from assistant_framework.utils.barge_in import BargeInDetector, BargeInConfig, BargeInMode
+    from assistant_framework.utils.conversation_recorder import ConversationRecorder
     from assistant_framework.providers.wakeword_v2 import IsolatedOpenWakeWordProvider
     from assistant_framework.providers.transcription_v2 import AssemblyAIAsyncProvider
+    from assistant_framework.providers.context import UnifiedContextProvider
     from assistant_framework.config import get_active_preset
 
 
@@ -67,6 +73,20 @@ class RefactoredOrchestrator:
         self._barge_in_detector: Optional[BargeInDetector] = None
         self._barge_in_triggered = False  # Flag to signal TTS interruption
         self._barge_in_audio: Optional[bytes] = None  # Captured audio from barge-in
+        
+        # Conversation recording (Supabase)
+        recording_config = config.get('recording', {})
+        self._recording_enabled = recording_config.get('enabled', False)
+        self._recorder: Optional[ConversationRecorder] = None
+        self._supabase_url = recording_config.get('supabase_url')
+        self._supabase_key = recording_config.get('supabase_key')
+        
+        # Track tool calls from last response (for recording)
+        self._last_tool_calls = []
+        
+        # Context provider for conversation memory
+        context_config = config.get('context', {}).get('config', {})
+        self._context: Optional[ContextInterface] = UnifiedContextProvider(context_config)
         
         self.is_initialized = False
     
@@ -103,6 +123,15 @@ class RefactoredOrchestrator:
             
             print("🔧 Creating TTS provider...")
             self._tts = await self._create_tts_provider()
+            
+            # Initialize conversation recorder (Supabase)
+            if self._recording_enabled and self._supabase_url and self._supabase_key:
+                print("🔧 Initializing conversation recorder...")
+                self._recorder = ConversationRecorder(
+                    supabase_url=self._supabase_url,
+                    supabase_key=self._supabase_key
+                )
+                await self._recorder.initialize()
             
             # Register cleanup handlers with state machine (CRITICAL for preventing segfaults)
             self._register_cleanup_handlers()
@@ -403,7 +432,10 @@ class RefactoredOrchestrator:
         # which led to segmentation faults
     
     async def run_response(self, user_message: str) -> Optional[str]:
-        """Generate response for user message."""
+        """Generate response for user message with conversation context."""
+        # Clear previous tool calls
+        self._last_tool_calls = []
+        
         try:
             # Ensure transcription is fully stopped before starting response
             # This prevents audio device conflicts and executor thread issues
@@ -422,15 +454,30 @@ class RefactoredOrchestrator:
                 "response"
             )
             
+            # Add user message to context BEFORE generating response
+            if self._context:
+                self._context.add_message("user", user_message)
+                # Auto-trim if context is getting too long
+                self._context.auto_trim_if_needed()
+            
             # Use pre-initialized provider
             response = self._response
             
-            # Stream response
+            # Get conversation context for the response
+            context = None
+            tool_context = None
+            if self._context:
+                # Get recent context for response generation
+                context = self._context.get_recent_for_response()
+                # Get compact context for tool decisions
+                tool_context = self._context.get_tool_context()
+            
+            # Stream response with context
             print(f"💭 Generating response...")
             full_response = ""
             streamed_deltas = False
             
-            async for chunk in response.stream_response(user_message):
+            async for chunk in response.stream_response(user_message, context=context, tool_context=tool_context):
                 if chunk.content:
                     if chunk.is_complete:
                         # Final complete chunk contains the FULL text
@@ -439,6 +486,9 @@ class RefactoredOrchestrator:
                         full_response = chunk.content
                         if not streamed_deltas:
                             print(chunk.content, end="", flush=True)
+                        # Capture tool calls from final chunk
+                        if chunk.tool_calls:
+                            self._last_tool_calls = chunk.tool_calls
                     else:
                         # Streaming delta - accumulate and print
                         full_response += chunk.content
@@ -446,6 +496,11 @@ class RefactoredOrchestrator:
                         streamed_deltas = True
             
             print()  # Newline after response
+            
+            # Add assistant response to context AFTER generation
+            if self._context and full_response:
+                self._context.add_message("assistant", full_response)
+            
             return full_response if full_response else None
             
         except Exception as e:
@@ -556,8 +611,10 @@ class RefactoredOrchestrator:
         """Run complete conversation pipeline with barge-in support."""
         try:
             # 1. Wait for wake word
+            wake_model = None
             async for wake_event in self.run_wake_word_detection():
                 print(f"\n🎯 Wake word detected: {wake_event.model_name}\n")
+                wake_model = wake_event.model_name
                 break  # Got wake word, proceed
             
             # Explicitly stop wake word detection before proceeding
@@ -567,24 +624,56 @@ class RefactoredOrchestrator:
                 # Wait for subprocess to fully terminate
                 await asyncio.sleep(0.5)
             
+            # Start recording session and reset conversation context
+            if self._recorder and self._recorder.is_initialized:
+                await self._recorder.start_session(wake_word_model=wake_model)
+            if self._context:
+                self._context.reset()
+                print("🧠 Conversation context reset for new session")
+            
             # 2. Transcribe user speech
             user_text = await self.run_transcription()
             if not user_text:
                 print("⚠️  No transcription received")
+                if self._recorder and self._recorder.current_session_id:
+                    await self._recorder.end_session()
                 return
             
             print(f"\n👤 User: {user_text}\n")
+            
+            # Record user message
+            if self._recorder and self._recorder.current_session_id:
+                await self._recorder.record_message("user", user_text)
             
             # 3. Generate response
             assistant_text = await self.run_response(user_text)
             if not assistant_text:
                 print("⚠️  No response generated")
+                if self._recorder and self._recorder.current_session_id:
+                    await self._recorder.end_session()
                 return
             
             print(f"\n🤖 Assistant: {assistant_text}\n")
             
+            # Record assistant message and tool calls
+            if self._recorder and self._recorder.current_session_id:
+                msg_id = await self._recorder.record_message("assistant", assistant_text)
+                # Record any tool calls that were executed
+                if msg_id and self._last_tool_calls:
+                    for tc in self._last_tool_calls:
+                        await self._recorder.record_tool_call(
+                            tool_name=tc.name,
+                            arguments=tc.arguments,
+                            result=tc.result,
+                            message_id=msg_id
+                        )
+            
             # 4. Speak response with barge-in support
             speech_completed = await self.run_tts(assistant_text, transition_to_idle=True, enable_barge_in=True)
+            
+            # End recording session
+            if self._recorder and self._recorder.current_session_id:
+                await self._recorder.end_session()
             
             if speech_completed:
                 print("\n✅ Conversation complete\n")
@@ -593,9 +682,13 @@ class RefactoredOrchestrator:
             
         except KeyboardInterrupt:
             print("\n⚠️  Interrupted by user")
+            if self._recorder and self._recorder.current_session_id:
+                await self._recorder.end_session(metadata={"ended_reason": "keyboard_interrupt"})
             await self.state_machine.emergency_reset()
         except Exception as e:
             print(f"\n❌ Conversation error: {e}")
+            if self._recorder and self._recorder.current_session_id:
+                await self._recorder.end_session(metadata={"ended_reason": "error", "error": str(e)})
             await self.state_machine.emergency_reset()
     
     async def run_continuous_loop(self):
@@ -607,8 +700,10 @@ class RefactoredOrchestrator:
         try:
             while True:
                 # 1. Wait for wake word to start conversation
+                wake_model = None
                 async for wake_event in self.run_wake_word_detection():
                     print(f"\n🎯 Wake word detected: {wake_event.model_name}\n")
+                    wake_model = wake_event.model_name
                     break  # Got wake word, enter conversation mode
                 
                 # Explicitly stop wake word detection before entering conversation
@@ -617,6 +712,13 @@ class RefactoredOrchestrator:
                     await self._wakeword.stop_detection()
                     # Wait for subprocess to fully terminate
                     await asyncio.sleep(0.5)
+                
+                # Start recording session and reset conversation context
+                if self._recorder and self._recorder.is_initialized:
+                    await self._recorder.start_session(wake_word_model=wake_model)
+                if self._context:
+                    self._context.reset()
+                    print("🧠 Conversation context reset for new session")
                 
                 # 2. Enter multi-turn conversation mode
                 print("💬 Conversation mode active (say termination phrase to exit)")
@@ -634,6 +736,10 @@ class RefactoredOrchestrator:
                     
                     print(f"\n👤 User: {user_text}\n")
                     
+                    # Record user message
+                    if self._recorder and self._recorder.current_session_id:
+                        await self._recorder.record_message("user", user_text)
+                    
                     # Generate response
                     assistant_text = await self.run_response(user_text)
                     if not assistant_text:
@@ -641,6 +747,19 @@ class RefactoredOrchestrator:
                         continue  # Try next question
                     
                     print(f"\n🤖 Assistant: {assistant_text}\n")
+                    
+                    # Record assistant message and tool calls
+                    if self._recorder and self._recorder.current_session_id:
+                        msg_id = await self._recorder.record_message("assistant", assistant_text)
+                        # Record any tool calls that were executed
+                        if msg_id and self._last_tool_calls:
+                            for tc in self._last_tool_calls:
+                                await self._recorder.record_tool_call(
+                                    tool_name=tc.name,
+                                    arguments=tc.arguments,
+                                    result=tc.result,
+                                    message_id=msg_id
+                                )
                     
                     # Speak response with barge-in enabled
                     # If user interrupts, we'll immediately start transcribing
@@ -667,6 +786,10 @@ class RefactoredOrchestrator:
                         print("🎤 Listening (prefill audio will be processed first)...\n")
                         # Continue the loop - next iteration will run transcription
                 
+                # End recording session
+                if self._recorder and self._recorder.current_session_id:
+                    await self._recorder.end_session()
+                
                 # Conversation ended - ensure we're in IDLE before restarting wake word
                 print("✅ Conversation session ended\n")
                 
@@ -682,6 +805,8 @@ class RefactoredOrchestrator:
                 
         except KeyboardInterrupt:
             print("\n⚠️  Stopping continuous loop...")
+            if self._recorder and self._recorder.current_session_id:
+                await self._recorder.end_session(metadata={"ended_reason": "keyboard_interrupt"})
         finally:
             await self.cleanup()
     
@@ -696,6 +821,14 @@ class RefactoredOrchestrator:
             except Exception as e:
                 print(f"⚠️  Barge-in cleanup error: {e}")
             self._barge_in_detector = None
+        
+        # Cleanup conversation recorder
+        if self._recorder:
+            try:
+                await self._recorder.cleanup()
+            except Exception as e:
+                print(f"⚠️  Recorder cleanup error: {e}")
+            self._recorder = None
         
         # Only cleanup providers if they're still active
         # (State machine may have already cleaned them up)
@@ -738,6 +871,12 @@ class RefactoredOrchestrator:
                 'transcription': self._transcription is not None,
                 'response': self._response is not None,
                 'tts': self._tts is not None
-            }
+            },
+            'recording': {
+                'enabled': self._recording_enabled,
+                'initialized': self._recorder.is_initialized if self._recorder else False,
+                'current_session': self._recorder.current_session_id if self._recorder else None
+            },
+            'context': self._context.get_summary() if self._context else None
         }
 

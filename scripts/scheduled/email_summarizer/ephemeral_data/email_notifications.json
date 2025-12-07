@@ -1,0 +1,14 @@
+[
+  {
+    "id": "01253c040d144457",
+    "notification_type": "email",
+    "title": "New Meeting Invitation",
+    "content": "Beth Howland has invited Morgan to a Google Meet meeting on Dec 14, 2025, from 1pm-2pm EST. This invitation includes a list of action items for Morgan, Merrick, and Beth.",
+    "timestamp": "December 04, 2025 at 03:39 PM",
+    "topic": "scheduling",
+    "count": 1,
+    "email_ids": [
+      "19ae608fb6b63d79"
+    ]
+  }
+]

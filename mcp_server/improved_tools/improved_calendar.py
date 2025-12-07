@@ -26,7 +26,7 @@ class CalendarTool(BaseTool):
     """Enhanced tool for accessing and managing Google Calendar events with comprehensive command support."""
     
     name = "calendar_data"
-    description = "Access Google Calendar for reading and creating events across multiple users and calendars. Supports viewing upcoming events, daily summaries, and event creation. CRITICAL RESTRICTION: Only query ONE user per request - never multiple users simultaneously. For day summaries, user MUST explicitly say 'today' in their request."
+    description = "Access Google Calendar for reading and creating events across multiple users and calendars. Supports viewing upcoming events, daily summaries, and event creation. DEFAULTS: User defaults to 'morgan_personal', action defaults to 'read' (only use 'write'/'create_event' when user explicitly asks to add/create/schedule a new event). CRITICAL RESTRICTION: Only query ONE user per request - never multiple users simultaneously. For day summaries, user MUST explicitly say 'today' in their request."
     version = "1.0.1"
     
     def __init__(self):
@@ -54,19 +54,21 @@ class CalendarTool(BaseTool):
             "properties": {
                 "commands": {
                     "type": "array",
-                    "description": f"List of calendar commands to execute. CRITICAL: Only ONE user per request. Available users: {self.available_users}. For 'What classes does Spencer have today?' use [{{'read_or_write': 'read', 'user': 'spencer', 'read_type': 'day_summary', 'calendar_name': 'class'}}]. For 'What's my next meeting?' use [{{'read_or_write': 'read', 'user': 'morgan_personal', 'read_type': 'next_events', 'limit': 3}}].",
+                    "description": f"List of calendar commands to execute. DEFAULTS: user='morgan_personal', read_or_write='read'. CRITICAL: Only ONE user per request. Available users: {self.available_users}. For 'What classes does Spencer have today?' use [{{'read_or_write': 'read', 'user': 'spencer', 'read_type': 'day_summary', 'calendar_name': 'class'}}]. For 'What's my next meeting?' use [{{'read_type': 'next_events', 'limit': 3}}] (defaults to morgan_personal + read).",
                     "items": {
                         "type": "object",
                         "properties": {
                             "read_or_write": {
                                 "type": "string",
-                                "description": "Operation type. 'read' retrieves existing events and information, 'write' or 'create_event' adds new events to the calendar. Use 'read' for questions about schedules, upcoming events, or daily summaries.",
-                                "enum": ["read", "write", "create_event"]
+                                "description": "Operation type. Defaults to 'read'. 'read' retrieves existing events and information, 'write' or 'create_event' adds new events to the calendar. Use 'read' for questions about schedules, upcoming events, or daily summaries. Only use 'write'/'create_event' when user EXPLICITLY asks to add, create, or schedule a new event.",
+                                "enum": ["read", "write", "create_event"],
+                                "default": "read"
                             },
                             "user": {
                                 "type": "string",
-                                "description": "Which user's calendar to access. 'morgan_personal' for Morgan's personal calendar, 'morgan_school' for Morgan's academic calendar, 'spencer' for Spencer's calendar. Each user has different permissions and calendar access. NEVER query multiple users in a single request.",
-                                "enum": self.available_users
+                                "description": "Which user's calendar to access. Defaults to 'morgan_personal'. 'morgan_personal' for Morgan's personal calendar, 'morgan_school' for Morgan's academic calendar, 'spencer' for Spencer's calendar. Each user has different permissions and calendar access. NEVER query multiple users in a single request.",
+                                "enum": self.available_users,
+                                "default": "morgan_personal"
                             },
                             "read_type": {
                                 "type": "string",
@@ -125,7 +127,7 @@ class CalendarTool(BaseTool):
                                 "description": "Time zone for event times. Uses system default if not specified. Format like 'America/New_York', 'Europe/London', etc."
                             }
                         },
-                        "required": ["read_or_write", "user"],
+                        "required": [],  # user defaults to morgan_personal, read_or_write defaults to read
                         "if": {
                             "properties": {"read_or_write": {"const": "read"}}
                         },
@@ -455,7 +457,9 @@ class CalendarTool(BaseTool):
             }
 
     def _normalize_command(self, cmd: Dict[str, Any]) -> Dict[str, Any]:
-        """Normalize inputs for write/create_event commands.
+        """Normalize inputs for calendar commands.
+        - Default user to 'morgan_personal' unless otherwise specified
+        - Default read_or_write to 'read' unless explicitly creating an event
         - Accept 'write_type': 'create_event' alias by mapping to read_or_write
         - Accept ISO datetimes in start_time/end_time and derive date/HH:MM
         - Accept HH:MM:SS by truncating to HH:MM
@@ -463,15 +467,34 @@ class CalendarTool(BaseTool):
         """
         try:
             normalized = dict(cmd)
+            
+            # Default user to morgan_personal unless otherwise specified
+            if not normalized.get("user"):
+                normalized["user"] = "morgan_personal"
+            
             # Map common title synonyms to event_title
             if not normalized.get("event_title"):
                 for alt in ("event_name", "title", "summary", "name"):
                     if isinstance(normalized.get(alt), str) and normalized.get(alt).strip():
                         normalized["event_title"] = normalized[alt].strip()
                         break
+            
             wt = normalized.get("write_type")
             if wt and not normalized.get("read_or_write"):
                 normalized["read_or_write"] = "create_event" if wt == "create_event" else "write"
+            
+            # Default to 'read' unless explicitly creating an event (has event_title or write action)
+            if not normalized.get("read_or_write"):
+                # Only use write/create_event if there's clear intent to create
+                has_event_creation_fields = normalized.get("event_title") or normalized.get("event_name")
+                if has_event_creation_fields:
+                    normalized["read_or_write"] = "create_event"
+                else:
+                    normalized["read_or_write"] = "read"
+            
+            # Default read_type to 'next_events' for read operations without a read_type
+            if normalized.get("read_or_write") == "read" and not normalized.get("read_type"):
+                normalized["read_type"] = "next_events"
             for key in ("start_time", "end_time"):
                 val = normalized.get(key)
                 if not val or not isinstance(val, str):

@@ -152,7 +152,7 @@ LOCAL_TTS_CONFIG = {
 
 WAKEWORD_CONFIG = {
     "model_dir": os.getenv("WAKEWORD_MODEL_DIR", "./audio_data/wake_word_models"),
-    "model_name": "alexa_v0.1",
+    "model_name": "hey_honey",
     "sample_rate": 16000,
     "chunk": 1280,
     "threshold": 0.2,
@@ -245,7 +245,21 @@ AUDIO_HANDOFF_DELAY = 1.5
 
 
 # =============================================================================
-# SECTION 10: BARGE-IN CONFIGURATION
+# SECTION 10: CONVERSATION RECORDING CONFIGURATION (Supabase)
+# =============================================================================
+
+# Enable/disable conversation recording
+ENABLE_CONVERSATION_RECORDING = True
+
+# Supabase configuration (set via environment variables)
+SUPABASE_CONFIG = {
+    "url": os.getenv("SUPABASE_URL"),
+    "key": os.getenv("SUPABASE_KEY"),  # Use service role key for server-side
+}
+
+
+# =============================================================================
+# SECTION 11: BARGE-IN CONFIGURATION
 # =============================================================================
 # Controls how the barge-in (interrupt) feature behaves.
 
@@ -261,7 +275,7 @@ BARGE_IN_CONFIG = {
 
 
 # =============================================================================
-# SECTION 11: FRAMEWORK ASSEMBLY
+# SECTION 12: FRAMEWORK ASSEMBLY
 # =============================================================================
 
 def get_framework_config() -> Dict[str, Any]:
@@ -299,12 +313,17 @@ def get_framework_config() -> Dict[str, Any]:
             "provider": WAKEWORD_PROVIDER,
             "config": wakeword_config
         },
-        "barge_in": BARGE_IN_CONFIG
+        "barge_in": BARGE_IN_CONFIG,
+        "recording": {
+            "enabled": ENABLE_CONVERSATION_RECORDING,
+            "supabase_url": SUPABASE_CONFIG["url"],
+            "supabase_key": SUPABASE_CONFIG["key"]
+        }
     }
 
 
 # =============================================================================
-# SECTION 12: ENVIRONMENT PRESETS
+# SECTION 13: ENVIRONMENT PRESETS
 # =============================================================================
 
 # Active preset: "default", "dev", "prod", "test"
@@ -360,7 +379,7 @@ def get_config_for_preset(preset: Optional[str] = None) -> Dict[str, Any]:
 
 
 # =============================================================================
-# SECTION 13: RUNTIME PROVIDER SWITCHING
+# SECTION 14: RUNTIME PROVIDER SWITCHING
 # =============================================================================
 
 def set_providers(
@@ -386,7 +405,7 @@ def set_providers(
 
 
 # =============================================================================
-# SECTION 14: VALIDATION & DIAGNOSTICS
+# SECTION 15: VALIDATION & DIAGNOSTICS
 # =============================================================================
 
 def validate_environment() -> Dict[str, Any]:
@@ -421,6 +440,15 @@ def validate_environment() -> Dict[str, Any]:
         results["warnings"].append(f"Google credentials not found: {google_creds}")
     else:
         results["info"].append(f"Google credentials: {google_creds}")
+    
+    # Check Supabase configuration
+    if ENABLE_CONVERSATION_RECORDING:
+        if not SUPABASE_CONFIG["url"]:
+            results["warnings"].append("SUPABASE_URL not set (conversation recording disabled)")
+        elif not SUPABASE_CONFIG["key"]:
+            results["warnings"].append("SUPABASE_KEY not set (conversation recording disabled)")
+        else:
+            results["info"].append("Supabase conversation recording: configured")
     
     return results
 

@@ -1,0 +1,33 @@
+RELEVANCE CRITERIA (edit this file to change filtering)
+
+An email is RELEVANT ONLY if it:
+- REQUIRES immediate action or response from you (not just FYI)
+- Contains URGENT deadlines within the next 7 days from TODAY (not past deadlines)
+- Is about job interviews, offers, or application deadlines that haven't passed
+- Contains bills that are DUE SOON (not paid confirmations)
+- Is from professors about UPCOMING assignments, exams, or grade issues (not past ones)
+- Contains meeting invitations for FUTURE dates that need RSVP
+- Has personal messages from actual people requiring response (not automated)
+- Any Graded Assignments or Assessments
+- Has important information on upcoming or newly assigned class assignments or assessments
+
+An email is NOT relevant if it is:
+- Marketing, promotions, or sales of any kind
+- Newsletters or digest emails
+- Automated receipts or confirmations
+- Social media notifications
+- Security alerts or password resets (unless suspicious activity)
+- General announcements without action required
+- Event invitations you can ignore
+- Course announcements that are just informational
+- Automated system notifications
+- Emails you're CC'd on but don't need to act on
+- Old threads or follow-ups to completed items
+
+STRICT GUIDELINES:
+- Default to NOT RELEVANT unless clearly actionable
+- Must have a FUTURE deadline or required action (past deadlines = NOT relevant)
+- Generic updates and FYI emails are NOT relevant
+- If you can safely ignore it without consequences, it's NOT relevant
+- Only mark relevant if missing it would cause problems
+- Use the CURRENT DATE to evaluate if deadlines have passed or are upcoming

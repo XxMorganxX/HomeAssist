@@ -99,15 +99,16 @@ class WeatherTool(BaseTool):
             if LOG_TOOLS:
                 self.logger.info("Executing Tool: Weather -- %s", params)
 
-            # Validate inputs
-            region = params.get("region")
-            hours = params.get("hours")
-            days = params.get("days")
-            specific_date = params.get("specific_date")
-
+            # Validate inputs (also normalizes region to lowercase)
             validation_error = self._validate_parameters(params)
             if validation_error:
                 return validation_error
+
+            # Get normalized values after validation
+            region = params.get("region")  # Now lowercase after validation
+            hours = params.get("hours")
+            days = params.get("days")
+            specific_date = params.get("specific_date")
 
             # Determine region -> zip codes
             zip_codes = self.REGION_ZIP_MAP.get(region, [])
@@ -207,6 +208,11 @@ class WeatherTool(BaseTool):
         hours = params.get("hours")
         days = params.get("days")
         specific_date = params.get("specific_date")
+
+        # Normalize region to lowercase for case-insensitive matching
+        if region:
+            region = region.lower().strip()
+            params["region"] = region  # Update params with normalized value
 
         # Region must be provided and valid; no fallback to other regions
         if not region or region not in self.available_regions:

@@ -23,7 +23,7 @@ class GetNotificationsTool(BaseTool):
         super().__init__()
         
         # Path to app_state.json
-        self.state_file = Path(__file__).parent.parent.parent / "core" / "state_management" / "app_state.json"
+        self.state_file = Path(__file__).parent.parent.parent / "state_management" / "app_state.json"
         
     def get_schema(self) -> Dict[str, Any]:
         """

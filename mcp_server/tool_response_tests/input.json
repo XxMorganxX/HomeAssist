@@ -1,0 +1,9 @@
+[
+  {"Weather": ["What's the weather like today in Ithaca?", "What's the weather like today?"]},
+  {"Lights": ["Turn on the living room lights"]},
+  {"Calendar": ["What's on my calendar for tomorrow?"]},
+  {"Notifications": ["What notifications do I have?"]},
+  {"Emails": ["What emails do I have?"]},
+  {"News": ["Tell me todays news."]}
+]
+
