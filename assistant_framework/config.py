@@ -269,7 +269,7 @@ BARGE_IN_CONFIG = {
     "energy_threshold": 0.025,          # Voice energy threshold for detection
     "min_speech_duration": 0.2,         # Seconds of speech before triggering
     "cooldown_after_tts_start": 0.8,    # Ignore speech for this long after TTS starts
-    "pre_barge_in_buffer_duration": 2.0,  # Seconds of audio to buffer before barge-in
+    "pre_barge_in_buffer_duration": 1.2,  # Seconds of audio to buffer before barge-in
     "post_barge_in_capture_duration": 0.3  # Extra capture after detection
 }
 

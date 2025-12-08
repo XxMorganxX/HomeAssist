@@ -23,6 +23,10 @@ try:
         beep_system_ready, beep_wake_detected, beep_listening_start,
         beep_send_detected, beep_ready_to_listen, beep_shutdown
     )
+    from .utils.console_logger import (
+        log_boot, log_shutdown, log_conversation_end, log_wake_word,
+        log_user_message, log_assistant_response, log_tool_call, log_error
+    )
     from .providers.wakeword_v2 import IsolatedOpenWakeWordProvider
     from .providers.transcription_v2 import AssemblyAIAsyncProvider
     from .providers.context import UnifiedContextProvider
@@ -43,6 +47,10 @@ except ImportError:
     from assistant_framework.utils.tones import (
         beep_system_ready, beep_wake_detected, beep_listening_start,
         beep_send_detected, beep_ready_to_listen, beep_shutdown
+    )
+    from assistant_framework.utils.console_logger import (
+        log_boot, log_shutdown, log_conversation_end, log_wake_word,
+        log_user_message, log_assistant_response, log_tool_call, log_error
     )
     from assistant_framework.providers.wakeword_v2 import IsolatedOpenWakeWordProvider
     from assistant_framework.providers.transcription_v2 import AssemblyAIAsyncProvider
@@ -148,6 +156,7 @@ class RefactoredOrchestrator:
             print("\n✅ All providers initialized and ready")
             print("💡 Providers will be reused across conversations (cleanup on transitions)")
             beep_system_ready()  # 🔔 System ready sound
+            log_boot()  # 📡 Remote console log
             return True
             
         except Exception as e:
@@ -322,6 +331,7 @@ class RefactoredOrchestrator:
             async for event in wakeword.start_detection():
                 print(f"🔔 Wake word detected: {event.model_name} (score: {event.score:.3f})")
                 beep_wake_detected()  # 🔔 Wake word sound
+                log_wake_word(event.model_name, event.score)  # 📡 Remote console log
                 yield event
             
         except Exception as e:
@@ -400,6 +410,7 @@ class RefactoredOrchestrator:
                         if term_phrase.lower() in accumulated_lower:
                             print(f"🛑 Termination phrase detected: '{term_phrase}'")
                             beep_shutdown()  # 🔔 Shutdown/goodbye sound
+                            log_conversation_end()  # 📡 Remote console log - graceful end
                             return None
                 else:
                     # Check partials too for faster response
@@ -426,6 +437,7 @@ class RefactoredOrchestrator:
                         if term_phrase.lower() in full_text_lower:
                             print(f"🛑 Termination phrase detected in partial: '{term_phrase}'")
                             beep_shutdown()  # 🔔 Shutdown/goodbye sound
+                            log_conversation_end()  # 📡 Remote console log - graceful end
                             return None
             
             # If stream ends naturally without send phrase, return accumulated text
@@ -492,6 +504,7 @@ class RefactoredOrchestrator:
             
             # Stream response with context
             print("💭 Generating response...")
+            log_user_message(user_message)  # 📡 Remote console log
             full_response = ""
             streamed_deltas = False
             
@@ -507,6 +520,10 @@ class RefactoredOrchestrator:
                         # Capture tool calls from final chunk
                         if chunk.tool_calls:
                             self._last_tool_calls = chunk.tool_calls
+                            # Log tool calls to remote console
+                            for tc in chunk.tool_calls:
+                                tool_name = getattr(tc, 'name', None) or 'unknown'
+                                log_tool_call(tool_name)  # 📡 Remote console log
                     else:
                         # Streaming delta - accumulate and print
                         full_response += chunk.content
@@ -518,6 +535,10 @@ class RefactoredOrchestrator:
             # Add assistant response to context AFTER generation
             if self._context and full_response:
                 self._context.add_message("assistant", full_response)
+            
+            # Log response to remote console
+            if full_response:
+                log_assistant_response(full_response)  # 📡 Remote console log
             
             return full_response if full_response else None
             
@@ -814,6 +835,7 @@ class RefactoredOrchestrator:
     async def cleanup(self):
         """Cleanup all resources."""
         print("🧹 Cleaning up orchestrator...")
+        log_shutdown()  # 📡 Remote console log
         
         # Cleanup barge-in detector if active
         if self._barge_in_detector:

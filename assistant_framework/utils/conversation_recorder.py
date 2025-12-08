@@ -13,6 +13,23 @@ from typing import Optional, List, Dict, Any, TYPE_CHECKING
 if TYPE_CHECKING:
     from supabase import Client
 
+# Token counting
+try:
+    import tiktoken
+    _ENCODER = tiktoken.encoding_for_model("gpt-4o")
+except ImportError:
+    _ENCODER = None
+
+def count_tokens(text: str) -> int:
+    """Count tokens in text using tiktoken."""
+    if not _ENCODER or not text:
+        return 0
+    try:
+        return len(_ENCODER.encode(text))
+    except Exception:
+        # Fallback: rough estimate of 4 chars per token
+        return len(text) // 4
+
 
 class ConversationRecorder:
     """
@@ -48,6 +65,8 @@ class ConversationRecorder:
         self._current_session_id: Optional[str] = None
         self._last_message_id: Optional[int] = None
         self._session_message_count: int = 0  # Track messages per session
+        self._session_input_tokens: int = 0   # Track input tokens (user messages)
+        self._session_output_tokens: int = 0  # Track output tokens (assistant messages)
         self._is_initialized = False
     
     @property
@@ -64,6 +83,16 @@ class ConversationRecorder:
     def current_session_id(self) -> Optional[str]:
         """Get the current active session ID."""
         return self._current_session_id
+    
+    @property
+    def session_token_stats(self) -> Dict[str, int]:
+        """Get current session token statistics."""
+        return {
+            "input_tokens": self._session_input_tokens,
+            "output_tokens": self._session_output_tokens,
+            "total_tokens": self._session_input_tokens + self._session_output_tokens,
+            "message_count": self._session_message_count
+        }
     
     async def initialize(self) -> bool:
         """
@@ -134,7 +163,9 @@ class ConversationRecorder:
             
             self._current_session_id = result.data[0]["id"]
             self._last_message_id = None
-            self._session_message_count = 0  # Reset message counter
+            self._session_message_count = 0   # Reset message counter
+            self._session_input_tokens = 0    # Reset input token counter
+            self._session_output_tokens = 0   # Reset output token counter
             
             print(f"📝 Started conversation session: {self._current_session_id[:8]}...")
             return self._current_session_id
@@ -148,6 +179,7 @@ class ConversationRecorder:
         End the current conversation session.
         
         If no messages were recorded, the session is deleted instead of saved.
+        Stores token counts and estimated cost.
         
         Args:
             metadata: Additional metadata to store with the session
@@ -165,13 +197,16 @@ class ConversationRecorder:
                     "id", self._current_session_id
                 ).execute()
                 print(f"🗑️  Deleted empty session: {self._current_session_id[:8]}... (no messages)")
-                self._current_session_id = None
-                self._last_message_id = None
-                self._session_message_count = 0
+                self._reset_session_state()
                 return True
             
-            # Session has messages - update with ended_at timestamp
-            update_data = {"ended_at": datetime.utcnow().isoformat()}
+            # Session has messages - update with ended_at timestamp and token stats
+            update_data = {
+                "ended_at": datetime.utcnow().isoformat(),
+                "total_input_tokens": self._session_input_tokens,
+                "total_output_tokens": self._session_output_tokens
+            }
+            
             if metadata:
                 # Merge with existing metadata
                 existing = self._client.table("conversation_sessions").select("metadata").eq(
@@ -186,15 +221,25 @@ class ConversationRecorder:
                 "id", self._current_session_id
             ).execute()
             
-            print(f"✅ Ended session: {self._current_session_id[:8]}... ({self._session_message_count} messages)")
-            self._current_session_id = None
-            self._last_message_id = None
-            self._session_message_count = 0
+            # Print summary with token stats
+            total_tokens = self._session_input_tokens + self._session_output_tokens
+            print(f"✅ Ended session: {self._current_session_id[:8]}...")
+            print(f"   📊 {self._session_message_count} messages | {total_tokens:,} tokens (in: {self._session_input_tokens:,}, out: {self._session_output_tokens:,})")
+            
+            self._reset_session_state()
             return True
             
         except Exception as e:
             print(f"⚠️  Failed to end session: {e}")
             return False
+    
+    def _reset_session_state(self) -> None:
+        """Reset all session tracking state."""
+        self._current_session_id = None
+        self._last_message_id = None
+        self._session_message_count = 0
+        self._session_input_tokens = 0
+        self._session_output_tokens = 0
     
     # ─────────────────────────────────────────────────────────────────────────
     # Message Recording
@@ -209,7 +254,7 @@ class ConversationRecorder:
         metadata: Dict[str, Any] = None
     ) -> Optional[int]:
         """
-        Record a message in the current session.
+        Record a message in the current session with token counting.
         
         Args:
             role: Message role - 'user', 'assistant', or 'system'
@@ -228,12 +273,22 @@ class ConversationRecorder:
             return None
         
         try:
+            # Count tokens for this message
+            token_count = count_tokens(content)
+            
+            # Track input vs output tokens
+            if role == "user":
+                self._session_input_tokens += token_count
+            elif role == "assistant":
+                self._session_output_tokens += token_count
+            
             data = {
                 "session_id": self._current_session_id,
                 "role": role,
                 "content": content,
                 "is_final": is_final,
                 "confidence": confidence,
+                "token_count": token_count,
                 "metadata": metadata or {}
             }
             
@@ -476,6 +531,14 @@ class ConversationRecorder:
             # Sort tools by usage
             sorted_tools = dict(sorted(tool_counts.items(), key=lambda x: x[1], reverse=True))
             
+            # Get token statistics
+            token_data = self._client.table("conversation_sessions").select(
+                "total_input_tokens, total_output_tokens"
+            ).gte("started_at", from_date).execute()
+            
+            total_input_tokens = sum(s.get("total_input_tokens", 0) or 0 for s in token_data.data)
+            total_output_tokens = sum(s.get("total_output_tokens", 0) or 0 for s in token_data.data)
+            
             return {
                 "period_days": days,
                 "total_sessions": sessions.count or 0,
@@ -484,7 +547,16 @@ class ConversationRecorder:
                 "tool_usage": sorted_tools,
                 "avg_messages_per_session": (
                     len(messages.data) / sessions.count if sessions.count else 0
-                )
+                ),
+                "token_usage": {
+                    "total_input_tokens": total_input_tokens,
+                    "total_output_tokens": total_output_tokens,
+                    "total_tokens": total_input_tokens + total_output_tokens,
+                    "avg_tokens_per_session": (
+                        (total_input_tokens + total_output_tokens) / sessions.count 
+                        if sessions.count else 0
+                    )
+                }
             }
             
         except Exception as e:
