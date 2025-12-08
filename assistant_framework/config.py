@@ -172,7 +172,28 @@ UNIFIED_CONTEXT_CONFIG = {
     "model": "gpt-4",
     "max_messages": 21,
     "enable_debug": False,
-    "response_recent_messages": 8  # Messages to send to responder
+    "response_recent_messages": 8,  # Messages to send to responder
+    # Conversation summarization settings
+    "summarization": {
+        "enabled": True,
+        "first_summary_at": 8,       # Trigger first summary at this many messages
+        "summarize_every": 4,          # After first, re-summarize every N messages
+        "output_file": "state_management/conversation_summary.json",
+        "gemini_model": "gemini-2.0-flash",  # Fast & cheap
+        "prompt": """Summarize this conversation between a user and an AI assistant.
+Focus on:
+1. Key topics discussed
+2. Important information shared (names, dates, preferences, requests)
+3. Any actions taken or tools used
+4. Ongoing context that would be useful for future interactions
+
+Be concise but capture the essential details.
+
+CONVERSATION:
+{conversation}
+
+SUMMARY:"""
+    }
 }
 
 

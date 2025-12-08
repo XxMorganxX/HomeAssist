@@ -10,6 +10,7 @@ try:
     # Try relative imports first (when used as package)
     from ...interfaces.context import ContextInterface
     from ...models.data_models import ConversationMessage, MessageRole
+    from ...utils.conversation_summarizer import ConversationSummarizer
 except ImportError:
     # Fall back to absolute imports (when run as module)
     import sys
@@ -17,6 +18,7 @@ except ImportError:
     sys.path.append(str(Path(__file__).parent.parent.parent))
     from interfaces.context import ContextInterface
     from models.data_models import ConversationMessage, MessageRole
+    from utils.conversation_summarizer import ConversationSummarizer
 
 
 class UnifiedContextProvider(ContextInterface):
@@ -42,6 +44,10 @@ class UnifiedContextProvider(ContextInterface):
         
         # Initialize tokenizer
         self._initialize_tokenizer()
+        
+        # Initialize summarizer
+        summarization_config = config.get('summarization', {})
+        self._summarizer = ConversationSummarizer(summarization_config) if summarization_config.get('enabled', False) else None
         
         # Conversation history
         self.conversation_history: List[ConversationMessage] = []
@@ -72,6 +78,10 @@ class UnifiedContextProvider(ContextInterface):
         # Clear existing history
         self.conversation_history = []
         
+        # Reset summarizer state for new session
+        if self._summarizer:
+            self._summarizer.reset()
+        
         # Add system prompt if provided
         if self.system_prompt:
             self.add_message(
@@ -101,6 +111,9 @@ class UnifiedContextProvider(ContextInterface):
         
         if self.enable_debug:
             print(f"[DEBUG] Added {role} message: {content[:100]}{'...' if len(content) > 100 else ''}")
+        
+        # Check if summarization should trigger
+        self._check_summarization()
     
     def add_messages(self, messages: List[Dict[str, Any]]) -> None:
         """Add multiple messages to the conversation history."""
@@ -110,6 +123,26 @@ class UnifiedContextProvider(ContextInterface):
             metadata = msg.get('metadata', {})
             
             self.add_message(role, content, metadata)
+    
+    def _check_summarization(self) -> None:
+        """Check if conversation should be summarized and trigger if needed."""
+        if not self._summarizer:
+            return
+        
+        # Count non-system messages
+        message_count = sum(
+            1 for msg in self.conversation_history 
+            if msg.role != MessageRole.SYSTEM
+        )
+        
+        if self._summarizer.should_summarize(message_count):
+            # Get messages for summarization (exclude system prompt)
+            messages_to_summarize = [
+                {"role": msg.role.value, "content": msg.content}
+                for msg in self.conversation_history
+                if msg.role != MessageRole.SYSTEM
+            ]
+            self._summarizer.summarize_async(messages_to_summarize, message_count)
     
     def get_history(self) -> List[Dict[str, Any]]:
         """Get the full conversation history."""
