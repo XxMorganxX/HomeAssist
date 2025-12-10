@@ -11,6 +11,7 @@ try:
     from ...interfaces.context import ContextInterface
     from ...models.data_models import ConversationMessage, MessageRole
     from ...utils.conversation_summarizer import ConversationSummarizer
+    from ...utils.persistent_memory import PersistentMemoryManager
 except ImportError:
     # Fall back to absolute imports (when run as module)
     import sys
@@ -19,6 +20,7 @@ except ImportError:
     from interfaces.context import ContextInterface
     from models.data_models import ConversationMessage, MessageRole
     from utils.conversation_summarizer import ConversationSummarizer
+    from utils.persistent_memory import PersistentMemoryManager
 
 
 class UnifiedContextProvider(ContextInterface):
@@ -48,6 +50,10 @@ class UnifiedContextProvider(ContextInterface):
         # Initialize summarizer
         summarization_config = config.get('summarization', {})
         self._summarizer = ConversationSummarizer(summarization_config) if summarization_config.get('enabled', False) else None
+        
+        # Initialize persistent memory manager
+        persistent_memory_config = config.get('persistent_memory', {})
+        self._persistent_memory = PersistentMemoryManager(persistent_memory_config) if persistent_memory_config.get('enabled', False) else None
         
         # Conversation history
         self.conversation_history: List[ConversationMessage] = []
@@ -330,3 +336,35 @@ class UnifiedContextProvider(ContextInterface):
             'role_validation': True,
             'features': ['tiktoken_counting', 'message_trimming', 'role_distribution']
         }
+    
+    def on_conversation_end(self) -> None:
+        """
+        Called when a conversation session ends.
+        Triggers persistent memory update with the current conversation summary.
+        """
+        if not self._persistent_memory:
+            return
+        
+        # Get the current conversation summary
+        conversation_summary = None
+        if self._summarizer and self._summarizer.current_summary:
+            conversation_summary = self._summarizer.current_summary
+        else:
+            # Fallback: create a quick summary from recent messages
+            recent_messages = [
+                msg for msg in self.conversation_history 
+                if msg.role != MessageRole.SYSTEM
+            ][-10:]  # Last 10 messages
+            if recent_messages:
+                conversation_summary = "\n".join([
+                    f"{msg.role.value}: {msg.content[:200]}" 
+                    for msg in recent_messages
+                ])
+        
+        if conversation_summary:
+            self._persistent_memory.update_after_conversation(conversation_summary)
+    
+    @property
+    def persistent_memory(self) -> Optional[PersistentMemoryManager]:
+        """Get the persistent memory manager."""
+        return self._persistent_memory

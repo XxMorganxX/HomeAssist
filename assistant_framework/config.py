@@ -167,6 +167,50 @@ WAKEWORD_CONFIG = {
 # SECTION 7: CONTEXT / CONVERSATION MEMORY CONFIGURATION
 # =============================================================================
 
+# Persistent memory config (defined first since UNIFIED_CONTEXT_CONFIG references it)
+PERSISTENT_MEMORY_CONFIG = {
+    "enabled": True,
+    "output_file": "state_management/persistent_memory.json",
+    "gemini_model": "gemini-2.0-flash",
+    "prompt": """You are updating a persistent memory store for a personal AI assistant.
+
+{existing_memory_section}
+
+Based on the conversation summary below, extract any NEW lasting information that should be remembered across ALL future conversations.
+
+IMPORTANT: Be EXTREMELY concise. Use the absolute minimum words necessary. 
+- Facts should be 3-8 words each
+- Preferences as single key-value pairs
+- No explanations, no elaboration, no redundancy
+
+Extract ONLY:
+1. User preferences (as terse key-value pairs)
+2. Personal info (name, location - single words/phrases)
+3. Important lasting facts (3-8 words max each)
+4. Corrections to existing memory
+
+DO NOT include:
+- Temporary information (weather, current events)
+- One-time requests
+- Anything already in existing memory (unless correcting it)
+- Verbose descriptions or explanations
+
+CONVERSATION SUMMARY:
+{conversation_summary}
+
+Respond with MINIMAL JSON:
+{{
+    "user_profile": {{"name": "str|null", "location": "str|null", "preferences": {{}}}},
+    "known_facts": ["terse fact 1", "terse fact 2"],
+    "corrections": [],
+    "new_patterns": []
+}}
+
+Omit empty fields. Be terse.
+JSON:"""
+}
+
+# Unified context configuration
 UNIFIED_CONTEXT_CONFIG = {
     "system_prompt": SYSTEM_PROMPT,
     "model": "gpt-4",
@@ -180,20 +224,26 @@ UNIFIED_CONTEXT_CONFIG = {
         "summarize_every": 4,          # After first, re-summarize every N messages
         "output_file": "state_management/conversation_summary.json",
         "gemini_model": "gemini-2.0-flash",  # Fast & cheap
-        "prompt": """Summarize this conversation between a user and an AI assistant.
+        "prompt": """Summarize or update the summary of this conversation between a user and an AI assistant.
+
+{previous_summary_section}
+
 Focus on:
 1. Key topics discussed
 2. Important information shared (names, dates, preferences, requests)
 3. Any actions taken or tools used
 4. Ongoing context that would be useful for future interactions
 
-Be concise but capture the essential details.
+If a previous summary exists, integrate new information into it rather than starting fresh.
+Keep the summary length proportional to the conversation - longer conversations warrant more detail.
 
 CONVERSATION:
 {conversation}
 
 SUMMARY:"""
-    }
+    },
+    # Persistent memory settings (long-term memory across all conversations)
+    "persistent_memory": PERSISTENT_MEMORY_CONFIG
 }
 
 

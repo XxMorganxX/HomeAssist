@@ -705,6 +705,10 @@ class RefactoredOrchestrator:
             if self._recorder and self._recorder.current_session_id:
                 await self._recorder.end_session()
             
+            # Update persistent memory with conversation learnings
+            if self._context and hasattr(self._context, 'on_conversation_end'):
+                self._context.on_conversation_end()
+            
             if speech_completed:
                 print("\n✅ Conversation complete\n")
             else:
@@ -811,6 +815,10 @@ class RefactoredOrchestrator:
                 # End recording session
                 if self._recorder and self._recorder.current_session_id:
                     await self._recorder.end_session()
+                
+                # Update persistent memory with conversation learnings
+                if self._context and hasattr(self._context, 'on_conversation_end'):
+                    self._context.on_conversation_end()
                 
                 # Conversation ended - ensure we're in IDLE before restarting wake word
                 print("✅ Conversation session ended\n")

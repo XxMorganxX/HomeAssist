@@ -63,22 +63,45 @@ class ConversationSummarizer:
         # Ensure output directory exists
         output_path = Path(self.output_file)
         output_path.parent.mkdir(parents=True, exist_ok=True)
+        
+        # Load previous summary if exists (for continuity across restarts)
+        self._current_summary = self.load_previous_summary()
     
     def _default_prompt(self) -> str:
         """Default summarization prompt template."""
-        return """Summarize this conversation between a user and an AI assistant.
+        return """Summarize or update the summary of this conversation between a user and an AI assistant.
+
+{previous_summary_section}
+
 Focus on:
 1. Key topics discussed
 2. Important information shared (names, dates, preferences, requests)
 3. Any actions taken or tools used
 4. Ongoing context that would be useful for future interactions
 
-Be concise but capture the essential details.
+If a previous summary exists, integrate new information into it rather than starting fresh.
+Keep the summary length proportional to the conversation - longer conversations warrant more detail.
 
 CONVERSATION:
 {conversation}
 
 SUMMARY:"""
+    
+    def _calculate_max_tokens(self, conversation_text: str) -> int:
+        """
+        Calculate proportional max_tokens based on conversation length.
+        
+        Roughly targets 10-15% of input length, with bounds.
+        """
+        input_chars = len(conversation_text)
+        # Estimate ~4 chars per token, target ~12% of input tokens
+        estimated_input_tokens = input_chars / 4
+        target_output = int(estimated_input_tokens * 0.12)
+        
+        # Clamp between reasonable bounds
+        min_tokens = 150
+        max_tokens = 1500
+        return max(min_tokens, min(target_output, max_tokens))
     
     def should_summarize(self, message_count: int) -> bool:
         """
@@ -136,17 +159,30 @@ SUMMARY:"""
             # Build conversation text
             conversation_text = self._format_messages(messages)
             
+            # Calculate proportional max_tokens
+            max_tokens = self._calculate_max_tokens(conversation_text)
+            
+            # Build previous summary section for context
+            previous_summary = self._current_summary or self.load_previous_summary()
+            if previous_summary:
+                previous_summary_section = f"PREVIOUS SUMMARY (update this with new information):\n{previous_summary}"
+            else:
+                previous_summary_section = "No previous summary exists - create a new one."
+            
             # Generate summary
             model = genai.GenerativeModel(
                 self.gemini_model,
                 generation_config={
                     "temperature": 0.3,
-                    "max_output_tokens": 800,
+                    "max_output_tokens": max_tokens,
                 }
             )
             
-            # Use configurable prompt template
-            prompt = self.prompt_template.format(conversation=conversation_text)
+            # Use configurable prompt template with previous summary context
+            prompt = self.prompt_template.format(
+                conversation=conversation_text,
+                previous_summary_section=previous_summary_section
+            )
             
             response = model.generate_content(prompt)
             summary = response.text.strip()
@@ -156,7 +192,7 @@ SUMMARY:"""
             
             self._current_summary = summary
             self._last_summary_at = message_count
-            print(f"📝 Conversation summarized ({message_count} messages)")
+            print(f"📝 Conversation summarized ({message_count} messages, {max_tokens} max tokens)")
             
         except Exception as e:
             print(f"⚠️  Summarization failed: {e}")

@@ -336,16 +336,17 @@ class OpenAIWebSocketResponseProvider(ResponseInterface):
                                 
                                 # Handle function calls if any
                                 if function_calls:
-                                    tool_calls = []
-                                    for fc in function_calls:
+                                    # Execute all tool calls in parallel for better performance
+                                    async def execute_one(fc):
                                         try:
                                             args = json.loads(fc["arguments"])
                                         except Exception:
                                             args = {}
                                         tool_call = ToolCall(name=fc["name"], arguments=args)
-                                        result = await self.execute_tool(fc["name"], args)
-                                        tool_call.result = result
-                                        tool_calls.append(tool_call)
+                                        tool_call.result = await self.execute_tool(fc["name"], args)
+                                        return tool_call
+                                    
+                                    tool_calls = await asyncio.gather(*[execute_one(fc) for fc in function_calls])
 
                                     # Compose final user-facing answer that integrates tool results
                                     final_text = await self._compose_final_answer(
