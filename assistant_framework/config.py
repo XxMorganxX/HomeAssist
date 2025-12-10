@@ -346,6 +346,19 @@ BARGE_IN_CONFIG = {
 
 
 # =============================================================================
+# SECTION 11B: LATENCY / TURNAROUND CONFIGURATION
+# =============================================================================
+# Controls delays between audio component switches.
+# Lower values = faster response, but may cause audio device conflicts on some systems.
+
+TURNAROUND_CONFIG = {
+    "state_transition_delay": 0.05,     # Delay when switching between components (default was 0.5)
+    "barge_in_resume_delay": 0.05,       # Delay after barge-in before transcription (default was 0.2)
+    "transcription_stop_delay": 0.15,   # Delay after stopping transcription (default was 0.3)
+}
+
+
+# =============================================================================
 # SECTION 12: FRAMEWORK ASSEMBLY
 # =============================================================================
 
@@ -385,6 +398,7 @@ def get_framework_config() -> Dict[str, Any]:
             "config": wakeword_config
         },
         "barge_in": BARGE_IN_CONFIG,
+        "turnaround": TURNAROUND_CONFIG,
         "recording": {
             "enabled": ENABLE_CONVERSATION_RECORDING,
             "supabase_url": SUPABASE_CONFIG["url"],

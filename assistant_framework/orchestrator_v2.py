@@ -70,12 +70,18 @@ class RefactoredOrchestrator:
     def __init__(self, config: Dict[str, Any]):
         self.config = config
         
+        # Turnaround/latency configuration (loaded early for state machine)
+        turnaround = config.get('turnaround', {})
+        self._barge_in_resume_delay = turnaround.get('barge_in_resume_delay', 0.1)
+        self._transcription_stop_delay = turnaround.get('transcription_stop_delay', 0.15)
+        self._state_transition_delay = turnaround.get('state_transition_delay', 0.25)
+        
         # Core infrastructure (respect current preset: dev/prod/test)
         try:
             preset = get_active_preset()
         except Exception:
             preset = "prod"
-        self.state_machine = AudioStateMachine(mode=preset)
+        self.state_machine = AudioStateMachine(mode=preset, transition_delay=self._state_transition_delay)
         self.error_handler = ErrorHandler()
         
         # Provider instances (will be lazily created)
@@ -472,7 +478,7 @@ class RefactoredOrchestrator:
                 print("🔄 Ensuring transcription fully stopped before response...")
                 await self._transcription.stop_streaming()
                 # Brief wait for audio device to fully release
-                await asyncio.sleep(0.3)
+                await asyncio.sleep(self._transcription_stop_delay)
             
             # Transition to response state
             # NOTE: State machine may trigger additional cleanup via registered handlers
@@ -808,7 +814,7 @@ class RefactoredOrchestrator:
                         else:
                             print("⚡ Barge-in: Going directly to transcription...")
                         # Small delay for audio device handoff
-                        await asyncio.sleep(0.2)
+                        await asyncio.sleep(self._barge_in_resume_delay)
                         print("🎤 Listening (prefill audio will be processed first)...\n")
                         # Continue the loop - next iteration will run transcription
                 

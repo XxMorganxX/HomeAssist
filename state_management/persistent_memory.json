@@ -1,0 +1,16 @@
+{
+  "user_profile": {
+    "name": "Mr. Stuart",
+    "location": null,
+    "preferences": {}
+  },
+  "known_facts": [],
+  "patterns": [],
+  "update_history": [
+    {
+      "timestamp": "2025-12-10T15:15:59.393430",
+      "source_summary_preview": "user: i'm testing bargen\nassistant: It sounds like you're testing something, Mr. Stuart. How can I assist you with that?"
+    }
+  ],
+  "last_updated": "2025-12-10T15:15:59.393430"
+}

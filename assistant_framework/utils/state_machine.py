@@ -41,15 +41,15 @@ class AudioStateMachine:
     - Component ownership tracking
     """
     
-    def __init__(self, mode: str = "prod"):
+    def __init__(self, mode: str = "prod", transition_delay: float = 0.25):
         self._state = AudioState.IDLE
         self._current_component: Optional[str] = None
         self._lock = asyncio.Lock()
         self._transition_history: List[StateTransition] = []
         self._cleanup_handlers: Dict[str, Callable] = {}
-        # Reduced delay: callback-based audio cleanup is much faster than executor-based
-        # The old 2.0s delay was needed for zombie executor threads, which we've eliminated
-        self._transition_delay = 0.5  # seconds
+        # Configurable delay for audio system settling between component switches
+        # Lower = faster turnaround, but may cause conflicts on some systems
+        self._transition_delay = transition_delay
 
         # Normalize mode and compute IDLE transitions based on environment
         env_mode = (mode or "prod").lower()
