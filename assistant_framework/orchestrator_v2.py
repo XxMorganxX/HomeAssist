@@ -608,6 +608,10 @@ class RefactoredOrchestrator:
                 
                 await self._barge_in_detector.start(on_barge_in=on_barge_in)
             
+            # Pre-connect transcription WebSocket while speaking (for faster barge-in response)
+            if self._transcription and hasattr(self._transcription, 'preconnect'):
+                asyncio.create_task(self._transcription.preconnect())
+            
             # Play audio (will be interrupted if barge-in triggers)
             print("🔊 Speaking...")
             await tts.play_audio_async(audio)

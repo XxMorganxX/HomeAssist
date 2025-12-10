@@ -72,7 +72,7 @@ class AssemblyAIAsyncProvider(StreamingProviderBase, TranscriptionInterface):
         self.audio_manager = get_audio_manager()
         self._audio_stream: Optional[sd.InputStream] = None
         self._ws = None
-        self._session = None
+        self._session: Optional[aiohttp.ClientSession] = None  # Persistent session
         self._send_task = None  # Only need send task now (no read task - using callback)
         self.session_id = None
         
@@ -83,9 +83,21 @@ class AssemblyAIAsyncProvider(StreamingProviderBase, TranscriptionInterface):
         
         # Prefill audio support (for barge-in captured audio)
         self._prefill_audio: Optional[bytes] = None
+        
+        # Pre-connection support (warm connection before needed)
+        self._preconnect_task: Optional[asyncio.Task] = None
+        self._ws_ready = asyncio.Event() if asyncio.get_event_loop().is_running() else None
+        self._preconnected = False
     
     async def initialize(self) -> bool:
-        """One-time initialization."""
+        """One-time initialization - creates persistent HTTP session."""
+        # Create persistent aiohttp session (reused across connections)
+        if not self._session or self._session.closed:
+            self._session = aiohttp.ClientSession()
+            print("✅ Persistent HTTP session created for transcription")
+        
+        # Initialize the event for pre-connection signaling
+        self._ws_ready = asyncio.Event()
         return True
     
     def set_prefill_audio(self, audio_bytes: Optional[bytes]) -> None:
@@ -102,6 +114,63 @@ class AssemblyAIAsyncProvider(StreamingProviderBase, TranscriptionInterface):
         if audio_bytes:
             duration = len(audio_bytes) / 2 / self.sample_rate  # 2 bytes per int16 sample
             print(f"📼 Prefill audio set: {duration:.2f}s")
+    
+    async def preconnect(self) -> None:
+        """
+        Pre-establish WebSocket connection before transcription is needed.
+        
+        Call this during TTS playback so the connection is ready
+        when the user starts speaking (barge-in or after TTS).
+        
+        This is non-blocking - starts connection in background.
+        """
+        # Skip if already connected or connecting
+        if self._ws and not self._ws.closed:
+            print("⚡ WebSocket already connected")
+            return
+        
+        if self._preconnect_task and not self._preconnect_task.done():
+            print("⚡ Pre-connection already in progress")
+            return
+        
+        # Start pre-connection in background
+        self._preconnect_task = asyncio.create_task(self._do_preconnect())
+    
+    async def _do_preconnect(self) -> None:
+        """Background task to establish WebSocket connection."""
+        try:
+            print("🔌 Pre-connecting to AssemblyAI...")
+            
+            # Ensure we have a session
+            if not self._session or self._session.closed:
+                self._session = aiohttp.ClientSession()
+            
+            # Close any existing dead connection
+            if self._ws and self._ws.closed:
+                self._ws = None
+            
+            # Connect WebSocket
+            if not self._ws:
+                self._ws = await self._session.ws_connect(
+                    self.api_endpoint,
+                    headers={"Authorization": self.api_key},
+                    heartbeat=30
+                )
+                self._preconnected = True
+                if self._ws_ready:
+                    self._ws_ready.set()
+                print("⚡ Pre-connected to AssemblyAI (ready for instant transcription)")
+                
+        except Exception as e:
+            print(f"⚠️  Pre-connection failed (will retry on start): {e}")
+            self._preconnected = False
+            if self._ws_ready:
+                self._ws_ready.clear()
+    
+    @property
+    def is_preconnected(self) -> bool:
+        """Check if WebSocket is pre-connected and ready."""
+        return self._preconnected and self._ws and not self._ws.closed
     
     def _audio_callback(self, indata: np.ndarray, frames: int, time_info: dict, status: sd.CallbackFlags):
         """
@@ -181,19 +250,37 @@ class AssemblyAIAsyncProvider(StreamingProviderBase, TranscriptionInterface):
         self._callback_active.set()
         print("✅ Audio stream opened (callback mode - no blocking threads)")
         
-        # Create WebSocket connection
-        print("🌐 Connecting to AssemblyAI...")
-        self._session = aiohttp.ClientSession()
-        try:
-            self._ws = await self._session.ws_connect(
-                self.api_endpoint,
-                headers={"Authorization": self.api_key},
-                heartbeat=30
-            )
-            print(f"✅ WebSocket connected")
-        except Exception as e:
-            print(f"❌ WebSocket connection failed: {e}")
-            raise
+        # Use pre-connected WebSocket if available, otherwise connect now
+        if self.is_preconnected:
+            print("⚡ Using pre-connected WebSocket (instant start!)")
+        else:
+            # Wait briefly for pre-connect task if it's in progress
+            if self._preconnect_task and not self._preconnect_task.done():
+                try:
+                    await asyncio.wait_for(self._preconnect_task, timeout=0.5)
+                except asyncio.TimeoutError:
+                    print("⏳ Pre-connect still in progress, connecting fresh...")
+            
+            # Connect if still not connected
+            if not self.is_preconnected:
+                print("🌐 Connecting to AssemblyAI...")
+                # Ensure we have a session
+                if not self._session or self._session.closed:
+                    self._session = aiohttp.ClientSession()
+                try:
+                    self._ws = await self._session.ws_connect(
+                        self.api_endpoint,
+                        headers={"Authorization": self.api_key},
+                        heartbeat=30
+                    )
+                    print(f"✅ WebSocket connected")
+                except Exception as e:
+                    print(f"❌ WebSocket connection failed: {e}")
+                    raise
+        
+        # Clear pre-connect state (connection is now in use)
+        self._preconnected = False
+        self._preconnect_task = None
         
         # Send prefill audio if available (barge-in captured audio)
         if self._prefill_audio:
@@ -234,7 +321,7 @@ class AssemblyAIAsyncProvider(StreamingProviderBase, TranscriptionInterface):
         except Exception as e:
             print(f"⚠️  Error sending prefill audio: {e}")
     
-    async def _cleanup_stream(self):
+    async def _cleanup_stream(self, full_cleanup: bool = False):
         """
         Cleanup resources - safe to call multiple times.
         
@@ -242,13 +329,17 @@ class AssemblyAIAsyncProvider(StreamingProviderBase, TranscriptionInterface):
         1. Set shutdown flag (callbacks will stop processing)
         2. Stop stream (callbacks will stop firing)
         3. Close stream (safe because no threads blocking in native code)
+        
+        Args:
+            full_cleanup: If True, also closes persistent session. If False, keeps
+                         session alive for faster reconnection.
         """
         
         # Skip if nothing to cleanup (idempotent)
         if (self._send_task is None and
             self._audio_stream is None and 
             self._ws is None and 
-            self._session is None):
+            (full_cleanup or self._session is None)):
             return
         
         print("🧹 Cleaning up transcription stream...")
@@ -256,7 +347,20 @@ class AssemblyAIAsyncProvider(StreamingProviderBase, TranscriptionInterface):
         # 1. Signal shutdown FIRST - this tells callbacks to stop processing
         self._shutdown_flag.set()
         
-        # 2. Stop audio stream - callbacks will stop firing
+        # 2. Cancel any pre-connect task
+        if self._preconnect_task and not self._preconnect_task.done():
+            self._preconnect_task.cancel()
+            try:
+                await asyncio.wait_for(
+                    asyncio.gather(self._preconnect_task, return_exceptions=True),
+                    timeout=0.5
+                )
+            except asyncio.TimeoutError:
+                pass
+        self._preconnect_task = None
+        self._preconnected = False
+        
+        # 3. Stop audio stream - callbacks will stop firing
         if self._audio_stream:
             try:
                 if hasattr(self._audio_stream, 'active') and self._audio_stream.active:
@@ -265,14 +369,14 @@ class AssemblyAIAsyncProvider(StreamingProviderBase, TranscriptionInterface):
                     
                 # Brief wait for any in-flight callbacks to complete
                 # Callbacks are fast (no blocking), so this is quick
-                await asyncio.sleep(0.1)
+                await asyncio.sleep(0.05)
                 
             except Exception as e:
                 print(f"⚠️  Audio stream stop error: {e}")
         
         self._callback_active.clear()
         
-        # 3. Cancel send task (only task now - no reader task with callbacks)
+        # 4. Cancel send task (only task now - no reader task with callbacks)
         if self._send_task and not self._send_task.done():
             self._send_task.cancel()
             try:
@@ -285,44 +389,44 @@ class AssemblyAIAsyncProvider(StreamingProviderBase, TranscriptionInterface):
         
         self._send_task = None
         
-        # 4. Close audio stream (safe - no threads blocking in native code)
+        # 5. Close audio stream (safe - no threads blocking in native code)
         if self._audio_stream:
             try:
                 self._audio_stream.close()
                 # Brief wait for audio device release
-                await asyncio.sleep(0.2)
+                await asyncio.sleep(0.1)
                 print("✅ Audio stream closed")
             except Exception as e:
                 print(f"⚠️  Audio stream close error: {e}")
             finally:
                 self._audio_stream = None
         
-        # 5. Close WebSocket gracefully
+        # 6. Close WebSocket gracefully (always close - need fresh for new session)
         if self._ws and not self._ws.closed:
             try:
                 await self._ws.send_json({"type": "Terminate"})
-                await asyncio.sleep(0.1)
+                await asyncio.sleep(0.05)
                 await self._ws.close()
                 print("✅ WebSocket closed")
             except Exception as e:
                 print(f"⚠️  WebSocket close error: {e}")
             self._ws = None
         
-        # 6. Close aiohttp session
-        if self._session and not self._session.closed:
+        # 7. Close aiohttp session only on full cleanup (keep for fast reconnect)
+        if full_cleanup and self._session and not self._session.closed:
             try:
                 await self._session.close()
-                await asyncio.sleep(0.1)
+                await asyncio.sleep(0.05)
                 print("✅ HTTP session closed")
             except Exception as e:
                 print(f"⚠️  Session close error: {e}")
             self._session = None
         
-        # 7. Clear queue and event loop reference
+        # 8. Clear queue and event loop reference
         self._audio_queue = None
         self._event_loop = None
         
-        # 8. Release audio manager
+        # 9. Release audio manager
         self.audio_manager.release_audio("transcription", force_cleanup=False)
         
         self.session_id = None
@@ -427,12 +531,12 @@ class AssemblyAIAsyncProvider(StreamingProviderBase, TranscriptionInterface):
                 print(f"⚠️  Error during final cleanup: {cleanup_error}")
     
     async def stop_streaming(self) -> None:
-        """Stop streaming."""
+        """Stop streaming (keeps persistent session for fast reconnect)."""
         await self.stop_safe()
     
     async def cleanup(self) -> None:
-        """One-time cleanup."""
-        await self.stop_safe()
+        """Full cleanup including persistent session."""
+        await self._cleanup_stream(full_cleanup=True)
     
     @property
     def capabilities(self) -> dict:
