@@ -111,7 +111,7 @@ Tool response should be concise and only include the information that is relevan
 # OpenAI Realtime API configuration
 OPENAI_WS_CONFIG = {
     "api_key": os.getenv("OPENAI_API_KEY"),
-    "model": "gpt-4o-realtime-preview-2024-12-17",
+    "model": "gpt-realtime",
     "max_tokens": 2000,
     "temperature": 0.6,
     "recency_bias_prompt": (
@@ -306,7 +306,11 @@ TERMINATION_CHECK_MODE = "final"  # "final" or "partial"
 TERMINATION_TIMEOUT = 120  # seconds before auto-terminating
 
 # Phrases that trigger sending the buffer to the LLM
-SEND_PHRASES = ["send message", "process this", "respond to this", "send this", "send it", "sir", "shorty"]
+SEND_PHRASES = ["send message", "process this", "respond to this", "send this", "send it", "sir", "shorty", "ma'am"]
+
+# Auto-send after silence (seconds of no new transcription)
+# Set to 0 to disable auto-send (require explicit send phrase)
+AUTO_SEND_SILENCE_TIMEOUT = 6.0
 
 # Phrases that clear preceding text from the buffer
 PREFIX_TRIM_PHRASES = ["scratch that"]
@@ -337,7 +341,8 @@ SUPABASE_CONFIG = {
 BARGE_IN_CONFIG = {
     "sample_rate": 16000,
     "chunk_size": 1024,
-    "energy_threshold": 0.025,          # Voice energy threshold for detection
+    "energy_threshold": 0.018,          # Voice energy threshold for detection (lower = more sensitive)
+    "early_barge_in_threshold": 3.0,    # Seconds - if barge-in within this time, append to previous message
     "min_speech_duration": 0.2,         # Seconds of speech before triggering
     "cooldown_after_tts_start": 0.8,    # Ignore speech for this long after TTS starts
     "pre_barge_in_buffer_duration": 1.2,  # Seconds of audio to buffer before barge-in
@@ -355,6 +360,7 @@ TURNAROUND_CONFIG = {
     "state_transition_delay": 0.05,     # Delay when switching between components (default was 0.5)
     "barge_in_resume_delay": 0.05,       # Delay after barge-in before transcription (default was 0.2)
     "transcription_stop_delay": 0.15,   # Delay after stopping transcription (default was 0.3)
+    "streaming_tts_enabled": True,      # EXPERIMENTAL: Start speaking before response is complete
 }
 
 

@@ -1,16 +1,31 @@
 {
   "user_profile": {
     "name": "Mr. Stuart",
-    "location": null,
+    "location": "Ithaca",
     "preferences": {}
   },
-  "known_facts": [],
+  "known_facts": [
+    "Assistant helped set up lighting scene",
+    "Assistant provided weather forecast"
+  ],
   "patterns": [],
   "update_history": [
     {
       "timestamp": "2025-12-10T15:15:59.393430",
       "source_summary_preview": "user: i'm testing bargen\nassistant: It sounds like you're testing something, Mr. Stuart. How can I assist you with that?"
+    },
+    {
+      "timestamp": "2025-12-13T15:58:34.118322",
+      "source_summary_preview": "user: What's your favorite conversation we've ever had?\nassistant: Mr. Stuart, I\u2019ve really enjoyed all of our conversations, but one that stands out is when we set up your perfect evening lighting sce..."
+    },
+    {
+      "timestamp": "2025-12-13T16:13:14.041196",
+      "source_summary_preview": "user: what's a weather like today\nuser: In ithaca.\nassistant: Today in Ithaca, expect temperatures to range from about 19 to 29 degrees Fahrenheit. There\u2019s no significant chance of precipitation, and ..."
+    },
+    {
+      "timestamp": "2025-12-13T16:16:12.916278",
+      "source_summary_preview": "user: what's the weather like in ithaca"
     }
   ],
-  "last_updated": "2025-12-10T15:15:59.393430"
+  "last_updated": "2025-12-13T16:16:12.916278"
 }

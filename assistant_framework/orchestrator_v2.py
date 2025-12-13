@@ -75,6 +75,7 @@ class RefactoredOrchestrator:
         self._barge_in_resume_delay = turnaround.get('barge_in_resume_delay', 0.1)
         self._transcription_stop_delay = turnaround.get('transcription_stop_delay', 0.15)
         self._state_transition_delay = turnaround.get('state_transition_delay', 0.25)
+        self._streaming_tts_enabled = turnaround.get('streaming_tts_enabled', False)
         
         # Core infrastructure (respect current preset: dev/prod/test)
         try:
@@ -95,6 +96,13 @@ class RefactoredOrchestrator:
         self._barge_in_detector: Optional[BargeInDetector] = None
         self._barge_in_triggered = False  # Flag to signal TTS interruption
         self._barge_in_audio: Optional[bytes] = None  # Captured audio from barge-in
+        
+        # Early barge-in tracking (append to previous message if interrupted early)
+        barge_in_config = config.get('barge_in', {})
+        self._early_barge_in_threshold = barge_in_config.get('early_barge_in_threshold', 3.0)
+        self._early_barge_in = False  # Flag: next message should append to previous
+        self._previous_user_message = ""  # Store last user message for appending
+        self._playback_start_time: Optional[float] = None  # Track when TTS playback started
         
         # Conversation recording (Supabase)
         recording_config = config.get('recording', {})
@@ -378,73 +386,113 @@ class RefactoredOrchestrator:
                 self._barge_in_audio = None  # Clear after use
             
             # Get send phrases from config
-            from .config import SEND_PHRASES, TERMINATION_PHRASES
+            from .config import SEND_PHRASES, TERMINATION_PHRASES, AUTO_SEND_SILENCE_TIMEOUT
             
             # Start streaming
             print("🎙️  Transcribing...")
             print(f"💡 Say one of these to send: {', '.join(SEND_PHRASES)}")
+            if AUTO_SEND_SILENCE_TIMEOUT > 0:
+                print(f"⏱️  Auto-send after {AUTO_SEND_SILENCE_TIMEOUT:.0f}s of silence")
             beep_listening_start()  # 🔔 Listening start sound
             
             accumulated_text = ""
+            last_activity_time = asyncio.get_event_loop().time()
             
-            async for result in transcription.start_streaming():
-                if result.is_final:
-                    # Accumulate final transcriptions
-                    if accumulated_text:
-                        accumulated_text += " " + result.text
+            # Create an async iterator we can poll with timeout
+            stream_iter = transcription.start_streaming().__aiter__()
+            
+            while True:
+                try:
+                    # Calculate remaining time until auto-send
+                    if AUTO_SEND_SILENCE_TIMEOUT > 0 and accumulated_text:
+                        elapsed = asyncio.get_event_loop().time() - last_activity_time
+                        remaining = AUTO_SEND_SILENCE_TIMEOUT - elapsed
+                        if remaining <= 0:
+                            # Auto-send timeout reached
+                            print(f"⏱️  Auto-sending after {AUTO_SEND_SILENCE_TIMEOUT:.0f}s of silence...")
+                            beep_send_detected()  # 🔔 Send phrase sound
+                            return accumulated_text
+                        timeout = remaining
                     else:
-                        accumulated_text = result.text
+                        # No auto-send or no text yet - wait indefinitely (long timeout)
+                        timeout = 60.0
                     
-                    print(f"📝 Final: {result.text}")
+                    # Wait for next transcription result with timeout
+                    result = await asyncio.wait_for(stream_iter.__anext__(), timeout=timeout)
                     
-                    # Check for send phrases (case-insensitive)
-                    accumulated_lower = accumulated_text.lower()
-                    for send_phrase in SEND_PHRASES:
-                        if send_phrase.lower() in accumulated_lower:
-                            print(f"✅ Send phrase detected in final: '{send_phrase}'")
-                            beep_send_detected()  # 🔔 Send phrase sound
-                            # Remove the send phrase from the accumulated text (case-insensitive)
-                            import re
-                            pattern = re.compile(re.escape(send_phrase), re.IGNORECASE)
-                            cleaned_text = pattern.sub("", accumulated_text).strip()
-                            # Clean up extra spaces
-                            cleaned_text = " ".join(cleaned_text.split())
-                            return cleaned_text if cleaned_text else None
+                    # Reset activity timer on any transcription activity
+                    last_activity_time = asyncio.get_event_loop().time()
                     
-                    # Check for termination phrases
-                    for term_phrase in TERMINATION_PHRASES:
-                        if term_phrase.lower() in accumulated_lower:
-                            print(f"🛑 Termination phrase detected: '{term_phrase}'")
-                            beep_shutdown()  # 🔔 Shutdown/goodbye sound
-                            log_conversation_end()  # 📡 Remote console log - graceful end
-                            return None
-                else:
-                    # Check partials too for faster response
-                    print(f"📝 Partial: {result.text}")
+                    if result.is_final:
+                        # Accumulate final transcriptions
+                        if accumulated_text:
+                            accumulated_text += " " + result.text
+                        else:
+                            accumulated_text = result.text
+                        
+                        print(f"📝 Final: {result.text}")
+                        
+                        # Check for send phrases (case-insensitive)
+                        accumulated_lower = accumulated_text.lower()
+                        for send_phrase in SEND_PHRASES:
+                            if send_phrase.lower() in accumulated_lower:
+                                print(f"✅ Send phrase detected in final: '{send_phrase}'")
+                                beep_send_detected()  # 🔔 Send phrase sound
+                                # Remove the send phrase from the accumulated text (case-insensitive)
+                                import re
+                                pattern = re.compile(re.escape(send_phrase), re.IGNORECASE)
+                                cleaned_text = pattern.sub("", accumulated_text).strip()
+                                # Clean up extra spaces
+                                cleaned_text = " ".join(cleaned_text.split())
+                                return cleaned_text if cleaned_text else None
+                        
+                        # Check for termination phrases
+                        for term_phrase in TERMINATION_PHRASES:
+                            if term_phrase.lower() in accumulated_lower:
+                                print(f"🛑 Termination phrase detected: '{term_phrase}'")
+                                beep_shutdown()  # 🔔 Shutdown/goodbye sound
+                                log_conversation_end()  # 📡 Remote console log - graceful end
+                                return None
+                    else:
+                        # Check partials too for faster response
+                        print(f"📝 Partial: {result.text}")
+                        
+                        # Build full text including partial
+                        full_text = accumulated_text + " " + result.text if accumulated_text else result.text
+                        full_text_lower = full_text.lower()
+                        
+                        # Check for send phrases in partial (for instant response)
+                        for send_phrase in SEND_PHRASES:
+                            if send_phrase.lower() in full_text_lower:
+                                print(f"⚡ Send phrase detected in partial: '{send_phrase}' (instant send!)")
+                                beep_send_detected()  # 🔔 Send phrase sound
+                                # Remove the send phrase
+                                import re
+                                pattern = re.compile(re.escape(send_phrase), re.IGNORECASE)
+                                cleaned_text = pattern.sub("", full_text).strip()
+                                cleaned_text = " ".join(cleaned_text.split())
+                                return cleaned_text if cleaned_text else None
+                        
+                        # Check for termination phrases in partial
+                        for term_phrase in TERMINATION_PHRASES:
+                            if term_phrase.lower() in full_text_lower:
+                                print(f"🛑 Termination phrase detected in partial: '{term_phrase}'")
+                                beep_shutdown()  # 🔔 Shutdown/goodbye sound
+                                log_conversation_end()  # 📡 Remote console log - graceful end
+                                return None
+                
+                except asyncio.TimeoutError:
+                    # Timeout waiting for transcription - check if we should auto-send
+                    if AUTO_SEND_SILENCE_TIMEOUT > 0 and accumulated_text:
+                        print(f"⏱️  Auto-sending after {AUTO_SEND_SILENCE_TIMEOUT:.0f}s of silence...")
+                        beep_send_detected()  # 🔔 Send phrase sound
+                        return accumulated_text
+                    # Otherwise continue waiting
+                    continue
                     
-                    # Build full text including partial
-                    full_text = accumulated_text + " " + result.text if accumulated_text else result.text
-                    full_text_lower = full_text.lower()
-                    
-                    # Check for send phrases in partial (for instant response)
-                    for send_phrase in SEND_PHRASES:
-                        if send_phrase.lower() in full_text_lower:
-                            print(f"⚡ Send phrase detected in partial: '{send_phrase}' (instant send!)")
-                            beep_send_detected()  # 🔔 Send phrase sound
-                            # Remove the send phrase
-                            import re
-                            pattern = re.compile(re.escape(send_phrase), re.IGNORECASE)
-                            cleaned_text = pattern.sub("", full_text).strip()
-                            cleaned_text = " ".join(cleaned_text.split())
-                            return cleaned_text if cleaned_text else None
-                    
-                    # Check for termination phrases in partial
-                    for term_phrase in TERMINATION_PHRASES:
-                        if term_phrase.lower() in full_text_lower:
-                            print(f"🛑 Termination phrase detected in partial: '{term_phrase}'")
-                            beep_shutdown()  # 🔔 Shutdown/goodbye sound
-                            log_conversation_end()  # 📡 Remote console log - graceful end
-                            return None
+                except StopAsyncIteration:
+                    # Stream ended naturally
+                    break
             
             # If stream ends naturally without send phrase, return accumulated text
             return accumulated_text if accumulated_text else None
@@ -594,7 +642,7 @@ class RefactoredOrchestrator:
                 print("👂 Barge-in enabled - speak to interrupt")
                 self._barge_in_detector = BargeInDetector(BargeInConfig(
                     mode=BargeInMode.ENERGY,
-                    energy_threshold=0.025,  # Slightly higher to avoid TTS feedback
+                    energy_threshold=0.018,  # Lower threshold for more responsive barge-in
                     min_speech_duration=0.2,  # 200ms of speech required
                     cooldown_after_tts_start=0.8  # Wait 800ms before detecting (skip TTS start)
                 ))
@@ -603,10 +651,23 @@ class RefactoredOrchestrator:
                 def on_barge_in():
                     print("🎤 BARGE-IN: Interrupting speech!")
                     self._barge_in_triggered = True
+                    
+                    # Check if this is an early barge-in (within threshold)
+                    if self._playback_start_time:
+                        elapsed = asyncio.get_event_loop().time() - self._playback_start_time
+                        if elapsed < self._early_barge_in_threshold:
+                            self._early_barge_in = True
+                            print(f"⚡ Early barge-in ({elapsed:.1f}s < {self._early_barge_in_threshold}s) - will append next message")
+                        else:
+                            print(f"⏱️  Late barge-in ({elapsed:.1f}s >= {self._early_barge_in_threshold}s) - new message")
+                    
                     if tts and hasattr(tts, 'stop_audio'):
                         tts.stop_audio()
                 
                 await self._barge_in_detector.start(on_barge_in=on_barge_in)
+                
+                # Start the early barge-in window now (when assistant starts responding)
+                self._playback_start_time = asyncio.get_event_loop().time()
             
             # Pre-connect transcription WebSocket while speaking (for faster barge-in response)
             if self._transcription and hasattr(self._transcription, 'preconnect'):
@@ -655,6 +716,194 @@ class RefactoredOrchestrator:
                 await self.state_machine.transition_to(AudioState.IDLE)
         
         return not barge_in_occurred
+    
+    async def run_response_with_streaming_tts(self, user_message: str, enable_barge_in: bool = True) -> tuple[str, bool]:
+        """
+        EXPERIMENTAL: Generate response and stream TTS simultaneously.
+        
+        Starts speaking as soon as the first sentence is ready, while
+        continuing to generate the rest of the response.
+        
+        Args:
+            user_message: User's message to respond to
+            enable_barge_in: Allow user to interrupt speech
+            
+        Returns:
+            Tuple of (full_response_text, was_interrupted)
+        """
+        self._barge_in_triggered = False
+        self._last_tool_calls = []
+        full_response = ""
+        
+        try:
+            # Ensure transcription is stopped
+            if self._transcription and self._transcription.is_active:
+                print("🔄 Ensuring transcription fully stopped...")
+                await self._transcription.stop_streaming()
+                await asyncio.sleep(self._transcription_stop_delay)
+            
+            # Transition to response state
+            await self.state_machine.transition_to(
+                AudioState.PROCESSING_RESPONSE,
+                "response"
+            )
+            
+            # Add user message to context
+            if self._context:
+                self._context.add_message("user", user_message)
+                self._context.auto_trim_if_needed()
+            
+            response = self._response
+            tts = self._tts
+            
+            if not response or not tts:
+                print("❌ Response or TTS provider not available")
+                return "", False
+            
+            # Get context
+            context = self._context.get_recent_for_response() if self._context else None
+            tool_context = self._context.get_tool_context() if self._context else None
+            
+            # Setup barge-in detection
+            if enable_barge_in and self._barge_in_enabled:
+                print("👂 Barge-in enabled for streaming TTS")
+                self._barge_in_detector = BargeInDetector(BargeInConfig(
+                    mode=BargeInMode.ENERGY,
+                    energy_threshold=0.018,  # Lower threshold for more responsive barge-in
+                    min_speech_duration=0.15,  # Shorter for faster detection
+                    cooldown_after_tts_start=0.3  # Shorter for streaming
+                ))
+                
+                def on_barge_in():
+                    print("🎤 BARGE-IN: Interrupting streaming speech!")
+                    self._barge_in_triggered = True
+                    
+                    # Check if this is an early barge-in (within threshold)
+                    if self._playback_start_time:
+                        elapsed = asyncio.get_event_loop().time() - self._playback_start_time
+                        if elapsed < self._early_barge_in_threshold:
+                            self._early_barge_in = True
+                            print(f"⚡ Early barge-in ({elapsed:.1f}s < {self._early_barge_in_threshold}s) - will append next message")
+                        else:
+                            print(f"⏱️  Late barge-in ({elapsed:.1f}s >= {self._early_barge_in_threshold}s) - new message")
+                    
+                    if tts and hasattr(tts, 'stop_audio'):
+                        tts.stop_audio()
+                
+                await self._barge_in_detector.start(on_barge_in=on_barge_in)
+                
+                # Start the early barge-in window now (when assistant starts responding)
+                self._playback_start_time = asyncio.get_event_loop().time()
+                print(f"⏱️  Early barge-in window opened ({self._early_barge_in_threshold}s from now)")
+            
+            # Pre-connect transcription WebSocket
+            if self._transcription and hasattr(self._transcription, 'preconnect'):
+                asyncio.create_task(self._transcription.preconnect())
+            
+            # Create async generator that yields response chunks
+            streamed_any = False
+            
+            async def response_text_generator():
+                nonlocal full_response, streamed_any
+                print("💭 Generating response (streaming to TTS)...")
+                log_user_message(user_message)
+                
+                chunk_count = 0
+                async for chunk in response.stream_response(user_message, context=context, tool_context=tool_context):
+                    chunk_count += 1
+                    print(f"[DEBUG] Chunk {chunk_count}: is_complete={chunk.is_complete}, content_len={len(chunk.content) if chunk.content else 0}, has_tools={bool(chunk.tool_calls)}")
+                    
+                    if self._barge_in_triggered:
+                        break
+                    
+                    if chunk.content:
+                        if chunk.is_complete:
+                            # Final chunk - may have tool calls
+                            full_response = chunk.content
+                            if chunk.tool_calls:
+                                self._last_tool_calls = chunk.tool_calls
+                                for tc in chunk.tool_calls:
+                                    tool_name = getattr(tc, 'name', None) or 'unknown'
+                                    log_tool_call(tool_name)
+                            
+                            # If we haven't streamed any deltas yet, yield the complete response
+                            # This handles providers that return everything in one chunk
+                            if not streamed_any:
+                                print(f"📝 Complete response received ({len(chunk.content)} chars), streaming to TTS...")
+                                yield chunk.content
+                                streamed_any = True
+                        else:
+                            # Streaming delta
+                            full_response += chunk.content
+                            print(chunk.content, end="", flush=True)
+                            yield chunk.content
+                            streamed_any = True
+                    else:
+                        print(f"[DEBUG] Chunk {chunk_count} has no content!")
+                
+                print(f"\n[DEBUG] Generator complete. Total chunks: {chunk_count}, streamed_any: {streamed_any}")
+            
+            # Transition to TTS state
+            await self.state_machine.transition_to(
+                AudioState.SYNTHESIZING,
+                "tts"
+            )
+            
+            # Stream TTS with sentence buffering
+            print("🔊 Starting streaming TTS...")
+            
+            def on_sentence_start(num, text):
+                print(f"🎤 Sentence {num}: {text[:30]}...")
+            
+            def on_complete(interrupted):
+                if interrupted:
+                    print("⚡ Streaming TTS interrupted")
+                else:
+                    print("✅ Streaming TTS complete")
+            
+            # Use streaming TTS if available
+            if hasattr(tts, 'speak_streaming'):
+                speech_completed = await tts.speak_streaming(
+                    response_text_generator(),
+                    on_sentence_start=on_sentence_start,
+                    on_complete=on_complete
+                )
+            else:
+                # Fallback: collect all text then speak normally
+                print("⚠️  TTS doesn't support streaming, falling back to batch mode")
+                async for _ in response_text_generator():
+                    pass
+                if full_response:
+                    audio = await tts.synthesize(full_response)
+                    await tts.play_audio_async(audio)
+                speech_completed = not self._barge_in_triggered
+            
+            # Add response to context
+            if self._context and full_response:
+                self._context.add_message("assistant", full_response)
+            
+            if full_response:
+                log_assistant_response(full_response)
+            
+            return full_response, not speech_completed
+            
+        except Exception as e:
+            print(f"❌ Streaming response error: {e}")
+            import traceback
+            traceback.print_exc()
+            return full_response, False
+            
+        finally:
+            # Cleanup barge-in
+            if self._barge_in_detector:
+                if self._barge_in_triggered:
+                    self._barge_in_audio = self._barge_in_detector.get_captured_audio_bytes()
+                    if self._barge_in_audio:
+                        duration = len(self._barge_in_audio) / 2 / 16000
+                        print(f"📼 Captured {duration:.2f}s of barge-in audio")
+                
+                await self._barge_in_detector.stop()
+                self._barge_in_detector = None
     
     async def run_full_conversation(self):
         """Run complete conversation pipeline with barge-in support."""
@@ -778,31 +1027,63 @@ class RefactoredOrchestrator:
                         conversation_active = False
                         break
                     
+                    # Handle early barge-in: append to previous message
+                    if self._early_barge_in and self._previous_user_message:
+                        combined_text = f"{self._previous_user_message} {user_text}"
+                        print("🔗 Early barge-in: appending to previous message")
+                        print(f"   Previous: \"{self._previous_user_message}\"")
+                        print(f"   Added: \"{user_text}\"")
+                        user_text = combined_text
+                        self._early_barge_in = False
+                    
+                    # Store current message for potential early barge-in append
+                    self._previous_user_message = user_text
+                    
                     print(f"\n👤 User: {user_text}\n")
                     
                     # Record user message
                     if self._recorder and self._recorder.current_session_id:
                         await self._recorder.record_message("user", user_text)
                     
-                    # Generate response
-                    assistant_text = await self.run_response(user_text)
-                    if not assistant_text:
-                        print("⚠️  No response generated")
-                        continue  # Try next question
-                    
-                    print(f"\n🤖 Assistant: {assistant_text}\n")
-                    
-                    # Record assistant message
-                    if self._recorder and self._recorder.current_session_id:
-                        await self._recorder.record_message("assistant", assistant_text)
-                    
-                    # Speak response with barge-in enabled
-                    # If user interrupts, we'll immediately start transcribing
-                    speech_completed = await self.run_tts(
-                        assistant_text, 
-                        transition_to_idle=False,  # Don't auto-transition, we handle it
-                        enable_barge_in=True
-                    )
+                    # Generate response and speak it
+                    if self._streaming_tts_enabled:
+                        # EXPERIMENTAL: Stream TTS - start speaking before response is complete
+                        print("⚡ Using streaming TTS mode")
+                        assistant_text, barge_in_occurred = await self.run_response_with_streaming_tts(
+                            user_text,
+                            enable_barge_in=True
+                        )
+                        speech_completed = not barge_in_occurred
+                        
+                        if not assistant_text:
+                            print("⚠️  No response generated")
+                            continue
+                        
+                        print(f"\n🤖 Assistant: {assistant_text}\n")
+                        
+                        # Record assistant message
+                        if self._recorder and self._recorder.current_session_id:
+                            await self._recorder.record_message("assistant", assistant_text)
+                    else:
+                        # Traditional mode: generate full response, then speak
+                        assistant_text = await self.run_response(user_text)
+                        if not assistant_text:
+                            print("⚠️  No response generated")
+                            continue  # Try next question
+                        
+                        print(f"\n🤖 Assistant: {assistant_text}\n")
+                        
+                        # Record assistant message
+                        if self._recorder and self._recorder.current_session_id:
+                            await self._recorder.record_message("assistant", assistant_text)
+                        
+                        # Speak response with barge-in enabled
+                        # If user interrupts, we'll immediately start transcribing
+                        speech_completed = await self.run_tts(
+                            assistant_text, 
+                            transition_to_idle=False,  # Don't auto-transition, we handle it
+                            enable_barge_in=True
+                        )
                     
                     if speech_completed:
                         # Normal completion - transition to IDLE then back to transcription

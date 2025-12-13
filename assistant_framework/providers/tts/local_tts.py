@@ -482,6 +482,194 @@ class LocalTTSProvider(TextToSpeechInterface):
                 pass
             self._pyaudio = None
     
+    async def speak_streaming(self, text_generator, on_sentence_start=None, on_complete=None) -> bool:
+        """
+        EXPERIMENTAL: Stream TTS - start speaking as text arrives.
+        
+        Buffers text until sentence boundaries, then speaks each sentence
+        while the next one is being generated.
+        
+        Args:
+            text_generator: Async generator yielding text chunks
+            on_sentence_start: Optional callback when a sentence starts speaking
+            on_complete: Optional callback when all speech finishes
+            
+        Returns:
+            True if completed normally, False if interrupted
+        """
+        import re
+        import asyncio
+        
+        self._is_playing = True
+        self._stop_playback.clear()
+        
+        buffer = ""
+        sentence_queue = asyncio.Queue()
+        sentences_complete = asyncio.Event()
+        was_interrupted = False
+        
+        # Sentence boundary pattern
+        sentence_end = re.compile(r'[.!?]+\s*')
+        
+        async def sentence_producer():
+            """Collect text and extract sentences."""
+            nonlocal buffer
+            chunk_count = 0
+            try:
+                print("[TTS DEBUG] sentence_producer starting...")
+                async for chunk in text_generator:
+                    chunk_count += 1
+                    print(f"[TTS DEBUG] Received chunk {chunk_count}: {len(chunk)} chars")
+                    
+                    if self._stop_playback.is_set():
+                        print("[TTS DEBUG] Stop playback set, breaking")
+                        break
+                    
+                    buffer += chunk
+                    print(f"[TTS DEBUG] Buffer now: {len(buffer)} chars")
+                    
+                    # Extract complete sentences
+                    while True:
+                        match = sentence_end.search(buffer)
+                        if not match:
+                            break
+                        
+                        # Extract sentence up to and including punctuation
+                        end_pos = match.end()
+                        sentence = buffer[:end_pos].strip()
+                        buffer = buffer[end_pos:]
+                        
+                        if sentence:
+                            print(f"[TTS DEBUG] Extracted sentence: {sentence[:50]}...")
+                            await sentence_queue.put(sentence)
+                
+                # Handle remaining buffer (incomplete sentence)
+                if buffer.strip() and not self._stop_playback.is_set():
+                    print(f"[TTS DEBUG] Final buffer: {buffer[:50]}...")
+                    await sentence_queue.put(buffer.strip())
+                
+                print(f"[TTS DEBUG] sentence_producer done. Received {chunk_count} chunks")
+                    
+            finally:
+                # Signal no more sentences
+                await sentence_queue.put(None)
+        
+        async def sentence_speaker():
+            """Speak sentences as they arrive."""
+            nonlocal was_interrupted
+            sentence_count = 0
+            timeout_count = 0
+            
+            print("[TTS DEBUG] sentence_speaker starting...")
+            
+            while True:
+                if self._stop_playback.is_set():
+                    was_interrupted = True
+                    print("[TTS DEBUG] Stop playback set in speaker")
+                    break
+                
+                try:
+                    # Wait for next sentence with timeout
+                    sentence = await asyncio.wait_for(
+                        sentence_queue.get(), 
+                        timeout=0.1
+                    )
+                    timeout_count = 0  # Reset on successful get
+                except asyncio.TimeoutError:
+                    timeout_count += 1
+                    if timeout_count % 50 == 0:  # Log every 5 seconds
+                        print(f"[TTS DEBUG] Still waiting for sentences... ({timeout_count} timeouts)")
+                    continue
+                
+                if sentence is None:
+                    # No more sentences
+                    print(f"[TTS DEBUG] Received None, ending speaker. Spoke {sentence_count} sentences")
+                    break
+                
+                sentence_count += 1
+                print(f"[TTS DEBUG] Speaking sentence {sentence_count}: {sentence[:40]}...")
+                if on_sentence_start:
+                    on_sentence_start(sentence_count, sentence)
+                
+                # Speak this sentence (blocking call in executor)
+                if self._stop_playback.is_set():
+                    was_interrupted = True
+                    break
+                
+                print(f"🔊 [{sentence_count}] Speaking: {sentence[:40]}...")
+                
+                # Use macOS say command (non-blocking via subprocess)
+                if self.use_macos_say:
+                    proc = await asyncio.create_subprocess_exec(
+                        'say', '-r', str(self.rate), sentence,
+                        stdout=asyncio.subprocess.DEVNULL,
+                        stderr=asyncio.subprocess.DEVNULL
+                    )
+                    
+                    # Wait for speech to complete, checking for interruption every 25ms
+                    while proc.returncode is None:
+                        # Check for stop FIRST before any waiting
+                        if self._stop_playback.is_set():
+                            print(f"[TTS DEBUG] Stop detected mid-sentence {sentence_count}, killing process...")
+                            try:
+                                proc.kill()
+                                await proc.wait()  # Ensure process terminates
+                            except Exception as e:
+                                print(f"[TTS DEBUG] Kill error: {e}")
+                            was_interrupted = True
+                            print(f"[TTS DEBUG] Process killed, breaking out of sentence loop")
+                            break
+                        
+                        # Short poll interval for responsive interruption
+                        try:
+                            await asyncio.wait_for(proc.wait(), timeout=0.025)
+                            # Process finished naturally
+                            break
+                        except asyncio.TimeoutError:
+                            # Still running, loop again to check stop flag
+                            pass
+                    
+                    # Break out of outer sentence loop if interrupted
+                    if was_interrupted:
+                        print(f"[TTS DEBUG] Breaking out of sentence loop after interruption")
+                        break
+                else:
+                    # Fallback: use synchronous playback in executor
+                    loop = asyncio.get_event_loop()
+                    await loop.run_in_executor(
+                        None, 
+                        self._play_direct, 
+                        sentence, 
+                        self.rate
+                    )
+                    
+                    # Also check for interruption after fallback playback
+                    if self._stop_playback.is_set():
+                        was_interrupted = True
+                        break
+            
+            sentences_complete.set()
+            if on_complete:
+                on_complete(was_interrupted)
+        
+        try:
+            # Run producer and speaker concurrently
+            producer_task = asyncio.create_task(sentence_producer())
+            speaker_task = asyncio.create_task(sentence_speaker())
+            
+            await asyncio.gather(producer_task, speaker_task)
+            
+            return not was_interrupted
+            
+        except Exception as e:
+            print(f"❌ Streaming TTS error: {e}")
+            import traceback
+            traceback.print_exc()
+            return False
+            
+        finally:
+            self._is_playing = False
+    
     @property
     def capabilities(self) -> dict:
         """Get provider capabilities."""
@@ -497,14 +685,14 @@ class LocalTTSProvider(TextToSpeechInterface):
                     pass
         
         return {
-            'streaming': False,
+            'streaming': True,  # Now supports streaming!
             'batch': True,
             'voices': voices,
             'languages': ['en-US'],  # Depends on system voices
             'audio_formats': ['wav'],
             'speed_range': (0.5, 2.0),
             'pitch_range': (0, 0),  # No pitch control with pyttsx3
-            'features': ['offline', 'fast', 'interruptible'],
+            'features': ['offline', 'fast', 'interruptible', 'streaming'],
             'latency': 'low',
             'requires_api': False
         }
