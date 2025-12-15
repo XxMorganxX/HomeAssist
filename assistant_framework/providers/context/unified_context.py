@@ -284,8 +284,24 @@ class UnifiedContextProvider(ContextInterface):
         }
     
     def reset(self) -> None:
-        """Reset the conversation history to initial state."""
-        self.initialize(self.system_prompt)
+        """Reset the conversation history to initial state, including persistent memory."""
+        # Build enhanced system prompt with persistent memory
+        enhanced_prompt = self.system_prompt
+        
+        if self._persistent_memory:
+            # Reload memory from file to ensure it's fresh
+            self._persistent_memory._current_memory = self._persistent_memory.load_memory()
+            memory_summary = self._persistent_memory.get_memory_summary()
+            if memory_summary:
+                enhanced_prompt = f"{self.system_prompt}\n\nPERSISTENT MEMORY (what you know about this user):\n{memory_summary}"
+                print(f"🧠 Loaded persistent memory into system prompt")
+                print(f"📝 Memory contents:\n{memory_summary}")
+            else:
+                print("⚠️  No persistent memory to load (summary empty)")
+        else:
+            print("⚠️  Persistent memory manager not initialized")
+        
+        self.initialize(enhanced_prompt)
         
         if self.enable_debug:
             print("[DEBUG] Context reset to initial state")

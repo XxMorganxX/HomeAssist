@@ -53,7 +53,11 @@ class PersistentMemoryManager:
         """
         self.enabled = config.get("enabled", True)
         self.output_file = config.get("output_file", "state_management/persistent_memory.json")
+        # Backend selection for memory extraction
+        # - provider: "openai" | "gemini"
+        self.provider = (config.get("provider") or "gemini").lower()
         self.gemini_model = config.get("gemini_model", "gemini-2.0-flash")
+        self.openai_model = config.get("openai_model", "gpt-4o-mini")
         self.prompt_template = config.get("prompt", self._default_prompt())
         
         # State tracking
@@ -137,32 +141,69 @@ JSON:"""
         Synchronous memory update (runs in background thread).
         """
         try:
-            genai = _get_gemini_client()
-            if not genai:
-                print("⚠️  Gemini not configured - skipping persistent memory update")
-                return
-            
             # Build existing memory section
             if self._current_memory:
                 existing_memory_section = f"EXISTING MEMORY:\n{json.dumps(self._current_memory, indent=2)}"
             else:
                 existing_memory_section = "EXISTING MEMORY: None (this is the first conversation)"
-            
-            # Generate memory extraction
-            model = genai.GenerativeModel(
-                self.gemini_model,
-                generation_config={
-                    "temperature": 0.2,  # Low temperature for consistency
-                }
-            )
-            
+
             prompt = self.prompt_template.format(
                 existing_memory_section=existing_memory_section,
                 conversation_summary=conversation_summary
             )
-            
-            response = model.generate_content(prompt)
-            response_text = response.text.strip()
+
+            response_text = ""
+            if self.provider == "openai":
+                from openai import OpenAI
+                api_key = os.getenv("OPENAI_API_KEY")
+                if not api_key:
+                    print("⚠️  OPENAI_API_KEY not set - skipping persistent memory update")
+                    return
+
+                client = OpenAI(api_key=api_key)
+                # Force strict JSON for robust parsing.
+                #
+                # Note: Some models (e.g. gpt-5-mini) do not support non-default temperature values.
+                # We avoid passing temperature by default, and if the SDK/model rejects a parameter,
+                # we retry once with a minimal payload.
+                request_kwargs = {
+                    "model": self.openai_model,
+                    "messages": [
+                        {"role": "system", "content": "Return ONLY valid JSON. No markdown. No extra text."},
+                        {"role": "user", "content": prompt},
+                    ],
+                    "response_format": {"type": "json_object"},
+                }
+                try:
+                    result = client.chat.completions.create(**request_kwargs)
+                except Exception as e:
+                    # Retry without response_format/extra params if needed (best-effort robustness).
+                    msg = str(e)
+                    if "temperature" in msg or "unsupported" in msg or "invalid_request_error" in msg:
+                        request_kwargs.pop("temperature", None)
+                        try:
+                            result = client.chat.completions.create(**request_kwargs)
+                        except Exception:
+                            # Final fallback: no response_format, rely on prompt + parser
+                            request_kwargs.pop("response_format", None)
+                            result = client.chat.completions.create(**request_kwargs)
+                    else:
+                        raise
+                response_text = (result.choices[0].message.content or "").strip() if result and result.choices else ""
+            else:
+                genai = _get_gemini_client()
+                if not genai:
+                    print("⚠️  Gemini not configured - skipping persistent memory update")
+                    return
+
+                model = genai.GenerativeModel(
+                    self.gemini_model,
+                    generation_config={
+                        "temperature": 0.2,  # Low temperature for consistency
+                    }
+                )
+                response = model.generate_content(prompt)
+                response_text = response.text.strip()
             
             # Parse JSON response
             new_memory = self._parse_memory_response(response_text)
@@ -211,7 +252,11 @@ JSON:"""
                 parsed.get("user_profile", {}).get("preferences") or
                 parsed.get("known_facts") or
                 parsed.get("corrections") or
-                parsed.get("new_patterns")
+                parsed.get("new_patterns") or
+                parsed.get("update_patterns") or
+                parsed.get("remove_known_facts") or
+                parsed.get("remove_patterns") or
+                parsed.get("remove_preferences")
             )
             
             return parsed if has_new_info else None
@@ -232,6 +277,55 @@ JSON:"""
         
         merged = existing.copy()
         
+        def _should_add_known_fact(fact: str) -> bool:
+            """
+            Guardrail: avoid storing "negated" retractions as new facts.
+            We want removals, not facts like "User is no longer planning...".
+            """
+            f = (fact or "").strip().lower()
+            if not f:
+                return False
+            # Common retraction phrasing we don't want persisted as a "fact"
+            if "no longer" in f:
+                return False
+            if f.startswith("user is not ") and ("planning" in f or "going" in f or "trip" in f):
+                return False
+            if "not planning" in f and "trip" in f:
+                return False
+            return True
+
+        # Apply removals first (so corrections/additions can re-add cleanly if needed)
+        remove_facts = new.get("remove_known_facts") or new.get("remove_facts") or []
+        if remove_facts:
+            current_facts = merged.get("known_facts", []) or []
+            remove_set = {str(x).strip().lower() for x in remove_facts if str(x).strip()}
+            if remove_set:
+                merged["known_facts"] = [f for f in current_facts if str(f).strip().lower() not in remove_set]
+                merged.setdefault("removals_log", []).extend([
+                    {"removed_fact": rf, "timestamp": datetime.utcnow().isoformat()}
+                    for rf in remove_facts if str(rf).strip()
+                ])
+                merged["removals_log"] = merged["removals_log"][-50:]
+
+        remove_patterns = new.get("remove_patterns") or []
+        if remove_patterns:
+            current_patterns = merged.get("patterns", []) or []
+            remove_set = {str(x).strip().lower() for x in remove_patterns if str(x).strip()}
+            if remove_set:
+                # Handle both dict and legacy string patterns
+                def pattern_text(p):
+                    if isinstance(p, dict):
+                        return p.get("pattern", "").strip().lower()
+                    return str(p).strip().lower()
+                merged["patterns"] = [p for p in current_patterns if pattern_text(p) not in remove_set]
+
+        remove_preferences = new.get("remove_preferences") or []
+        if remove_preferences:
+            prefs = merged.get("user_profile", {}).get("preferences", {}) or {}
+            for k in remove_preferences:
+                if k in prefs:
+                    prefs.pop(k, None)
+
         # Update user profile
         new_profile = new.get("user_profile", {})
         if new_profile:
@@ -246,15 +340,54 @@ JSON:"""
         new_facts = new.get("known_facts", [])
         existing_facts = set(merged.get("known_facts", []))
         for fact in new_facts:
-            if fact and fact not in existing_facts:
+            if fact and fact not in existing_facts and _should_add_known_fact(str(fact)):
                 merged.setdefault("known_facts", []).append(fact)
         
-        # Add new patterns
+        # Add new patterns (now with strength levels)
         new_patterns = new.get("new_patterns", [])
-        existing_patterns = set(merged.get("patterns", []))
-        for pattern in new_patterns:
-            if pattern and pattern not in existing_patterns:
-                merged.setdefault("patterns", []).append(pattern)
+        existing_patterns = merged.get("patterns", []) or []
+        
+        # Build lookup of existing patterns by their text
+        existing_pattern_texts = {}
+        for i, p in enumerate(existing_patterns):
+            if isinstance(p, dict):
+                existing_pattern_texts[p.get("pattern", "").lower().strip()] = i
+            else:
+                # Legacy string format - convert to dict
+                existing_patterns[i] = {"pattern": str(p), "strength": "moderate"}
+                existing_pattern_texts[str(p).lower().strip()] = i
+        merged["patterns"] = existing_patterns
+        
+        for pattern_entry in new_patterns:
+            if not pattern_entry:
+                continue
+            # Handle both dict format and legacy string format
+            if isinstance(pattern_entry, dict):
+                pattern_text = pattern_entry.get("pattern", "").strip()
+                strength = pattern_entry.get("strength", "moderate")
+            else:
+                pattern_text = str(pattern_entry).strip()
+                strength = "moderate"
+            
+            if not pattern_text:
+                continue
+            
+            # Check if pattern already exists
+            if pattern_text.lower() not in existing_pattern_texts:
+                merged["patterns"].append({"pattern": pattern_text, "strength": strength})
+                existing_pattern_texts[pattern_text.lower()] = len(merged["patterns"]) - 1
+        
+        # Handle pattern strength updates
+        update_patterns = new.get("update_patterns", [])
+        strength_order = ["weak", "moderate", "strong", "confirmed"]
+        for update in update_patterns:
+            if not isinstance(update, dict):
+                continue
+            pattern_text = update.get("pattern", "").lower().strip()
+            new_strength = update.get("new_strength", "").lower().strip()
+            if pattern_text in existing_pattern_texts and new_strength in strength_order:
+                idx = existing_pattern_texts[pattern_text]
+                merged["patterns"][idx]["strength"] = new_strength
         
         # Handle corrections (log them but don't auto-apply - just note them)
         corrections = new.get("corrections", [])

@@ -1,7 +1,7 @@
 {
-  "current_summary": "**Key Topics:** User's favorite color (orange), elephant diet, user's desire to visit Iceland, user's upcoming trip to Spain, and current weather in Ithaca, NY.\n\n**Important Information:**\n*   **Name:** Mr. Stuart (user's name).\n*   **Preference:** Favorite color is orange.\n*   **Travel Plans:** Trip to Spain planned.\n*   **Wish:** To visit Iceland.\n*   **Location:** Interested in the weather in Ithaca, NY.\n*   **Ithaca Weather:** Today's weather in Ithaca is mild, reaching up to 33 degrees with mostly clear skies and a small chance of light rain later.\n\n**Actions/Tools",
-  "last_updated": "2025-12-13T16:30:37.669723",
-  "total_messages": 8,
+  "current_summary": "**Key Topics:** User's favorite color (orange), elephant diet, user's desire to visit Iceland, user's upcoming trip to Spain, current weather in Ithaca, NY, AI's capabilities and limitations, capital of France, user's mention of an \"abuse simulator,\" user's frustration with a friend's behavior (being a \"bitch\" and \"corny\"), and strategies for communicating those feelings directly and bluntly. The conversation continues to focus on strategies for the user to communicate their feelings directly and bluntly, with the AI providing increasingly direct and sometimes outlandish suggestions. The user expresses reservations about using the AI's suggestions verbatim. The conversation also shifts slightly towards a more supportive and empathetic tone from the AI. The",
+  "last_updated": "2025-12-15T02:48:48.311332",
+  "total_messages": 12,
   "history": [
     {
       "timestamp": "2025-12-08T06:33:19.693311",
@@ -25,6 +25,54 @@
         "weather"
       ],
       "messages_summarized": 8
+    },
+    {
+      "timestamp": "2025-12-15T02:03:00.304802",
+      "message_count": 8,
+      "summary": "**Key Topics:** User's favorite color (orange), elephant diet, user's desire to visit Iceland, user's upcoming trip to Spain, current weather in Ithaca, NY, AI's capabilities and limitations, capital of France, and user's mention of an \"abuse simulator.\"\n\n**Important Information:**\n*   **Name:** Mr. Stuart (user's name).\n*   **Preference:** Favorite color is orange.\n*   **Travel Plans:** Trip to Spain planned.\n*   **Wish:** To visit Iceland.\n*   **Location:** Interested in the weather in Ithaca, NY.\n*   **Ithaca Weather:** Today's weather in Ithaca is mild, reaching up to",
+      "topics": [
+        "weather"
+      ],
+      "messages_summarized": 8
+    },
+    {
+      "timestamp": "2025-12-15T02:26:48.601735",
+      "message_count": 8,
+      "summary": "**Key Topics:** User's favorite color (orange), elephant diet, user's desire to visit Iceland, user's upcoming trip to Spain, current weather in Ithaca, NY, AI's capabilities and limitations, capital of France, user's mention of an \"abuse simulator,\" and **user's frustration with a friend's behavior (being a \"bitch\" and \"corny\").** The conversation focused on strategies for the user to communicate their feelings directly and bluntly.\n\n**Important Information:**\n*   **Name:** Mr. Stuart (user's name), **Morgan (user's name).**\n*   **Preference:** Favorite color is orange.\n*   **Travel Plans:** Trip to Spain",
+      "topics": [
+        "weather"
+      ],
+      "messages_summarized": 8
+    },
+    {
+      "timestamp": "2025-12-15T02:27:17.380178",
+      "message_count": 12,
+      "summary": "**Key Topics:** User's favorite color (orange), elephant diet, user's desire to visit Iceland, user's upcoming trip to Spain, current weather in Ithaca, NY, AI's capabilities and limitations, capital of France, user's mention of an \"abuse simulator,\" **user's frustration with a friend's behavior (being a \"bitch\" and \"corny\"), and strategies for communicating those feelings directly and bluntly.** The conversation continues to focus on strategies for the user to communicate their feelings directly and bluntly, with the AI providing increasingly direct and sometimes outlandish suggestions. The user expresses reservations about using the AI's suggestions verbatim. The conversation also shifts slightly towards a more supportive and empathetic tone from the AI.",
+      "topics": [
+        "weather",
+        "time"
+      ],
+      "messages_summarized": 12
+    },
+    {
+      "timestamp": "2025-12-15T02:47:51.843903",
+      "message_count": 8,
+      "summary": "**Key Topics:** User's favorite color (orange), elephant diet, user's desire to visit Iceland, user's upcoming trip to Spain, current weather in Ithaca, NY, AI's capabilities and limitations, capital of France, user's mention of an \"abuse simulator,\" user's frustration with a friend's behavior (being a \"bitch\" and \"corny\"), and strategies for communicating those feelings directly and bluntly. The conversation continues to focus on strategies for the user to communicate their feelings directly and bluntly, with the AI providing increasingly direct and sometimes outlandish suggestions. The user expresses reservations about using the AI's suggestions verbatim. The conversation also shifts slightly towards a more supportive and empathetic tone from the AI. **",
+      "topics": [
+        "weather",
+        "time"
+      ],
+      "messages_summarized": 8
+    },
+    {
+      "timestamp": "2025-12-15T02:48:48.311332",
+      "message_count": 12,
+      "summary": "**Key Topics:** User's favorite color (orange), elephant diet, user's desire to visit Iceland, user's upcoming trip to Spain, current weather in Ithaca, NY, AI's capabilities and limitations, capital of France, user's mention of an \"abuse simulator,\" user's frustration with a friend's behavior (being a \"bitch\" and \"corny\"), and strategies for communicating those feelings directly and bluntly. The conversation continues to focus on strategies for the user to communicate their feelings directly and bluntly, with the AI providing increasingly direct and sometimes outlandish suggestions. The user expresses reservations about using the AI's suggestions verbatim. The conversation also shifts slightly towards a more supportive and empathetic tone from the AI. The",
+      "topics": [
+        "weather",
+        "time"
+      ],
+      "messages_summarized": 12
     }
   ]
 }

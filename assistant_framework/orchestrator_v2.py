@@ -99,7 +99,16 @@ class RefactoredOrchestrator:
         
         # Early barge-in tracking (append to previous message if interrupted early)
         barge_in_config = config.get('barge_in', {})
-        self._early_barge_in_threshold = barge_in_config.get('early_barge_in_threshold', 3.0)
+        self._early_barge_in_threshold = float(barge_in_config.get('early_barge_in_threshold', 3.0))
+        # Runtime barge-in tuning (these should come from config.py BARGE_IN_CONFIG)
+        self._barge_in_energy_threshold = float(barge_in_config.get('energy_threshold', 0.02))
+        self._barge_in_min_speech_duration = float(barge_in_config.get('min_speech_duration', 0.15))
+        self._barge_in_cooldown_after_tts_start = float(barge_in_config.get('cooldown_after_tts_start', 0.5))
+        self._barge_in_sample_rate = int(barge_in_config.get('sample_rate', 16000))
+        self._barge_in_chunk_size = int(barge_in_config.get('chunk_size', 1600))
+        # Map config naming to BargeInConfig naming
+        self._barge_in_buffer_seconds = float(barge_in_config.get('pre_barge_in_buffer_duration', barge_in_config.get('buffer_seconds', 2.0)))
+        self._barge_in_capture_after_trigger = float(barge_in_config.get('post_barge_in_capture_duration', barge_in_config.get('capture_after_trigger', 0.3)))
         self._early_barge_in = False  # Flag: next message should append to previous
         self._previous_user_message = ""  # Store last user message for appending
         self._playback_start_time: Optional[float] = None  # Track when TTS playback started
@@ -642,10 +651,20 @@ class RefactoredOrchestrator:
                 print("👂 Barge-in enabled - speak to interrupt")
                 self._barge_in_detector = BargeInDetector(BargeInConfig(
                     mode=BargeInMode.ENERGY,
-                    energy_threshold=0.018,  # Lower threshold for more responsive barge-in
-                    min_speech_duration=0.2,  # 200ms of speech required
-                    cooldown_after_tts_start=0.8  # Wait 800ms before detecting (skip TTS start)
+                    energy_threshold=self._barge_in_energy_threshold,
+                    min_speech_duration=self._barge_in_min_speech_duration,
+                    cooldown_after_tts_start=self._barge_in_cooldown_after_tts_start,
+                    sample_rate=self._barge_in_sample_rate,
+                    chunk_size=self._barge_in_chunk_size,
+                    buffer_seconds=self._barge_in_buffer_seconds,
+                    capture_after_trigger=self._barge_in_capture_after_trigger,
                 ))
+                print(
+                    "🔧 Barge-in config: "
+                    f"threshold={self._barge_in_energy_threshold}, "
+                    f"min_speech={self._barge_in_min_speech_duration}s, "
+                    f"cooldown={self._barge_in_cooldown_after_tts_start}s"
+                )
                 
                 # Define callback to stop TTS when barge-in detected
                 def on_barge_in():
@@ -769,10 +788,20 @@ class RefactoredOrchestrator:
                 print("👂 Barge-in enabled for streaming TTS")
                 self._barge_in_detector = BargeInDetector(BargeInConfig(
                     mode=BargeInMode.ENERGY,
-                    energy_threshold=0.018,  # Lower threshold for more responsive barge-in
-                    min_speech_duration=0.15,  # Shorter for faster detection
-                    cooldown_after_tts_start=0.3  # Shorter for streaming
+                    energy_threshold=self._barge_in_energy_threshold,
+                    min_speech_duration=self._barge_in_min_speech_duration,
+                    cooldown_after_tts_start=self._barge_in_cooldown_after_tts_start,
+                    sample_rate=self._barge_in_sample_rate,
+                    chunk_size=self._barge_in_chunk_size,
+                    buffer_seconds=self._barge_in_buffer_seconds,
+                    capture_after_trigger=self._barge_in_capture_after_trigger,
                 ))
+                print(
+                    "🔧 Barge-in config: "
+                    f"threshold={self._barge_in_energy_threshold}, "
+                    f"min_speech={self._barge_in_min_speech_duration}s, "
+                    f"cooldown={self._barge_in_cooldown_after_tts_start}s"
+                )
                 
                 def on_barge_in():
                     print("🎤 BARGE-IN: Interrupting streaming speech!")

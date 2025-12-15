@@ -75,37 +75,48 @@ ASSEMBLYAI_CONFIG = {
 
 # System prompt defining the assistant's personality and capabilities
 SYSTEM_PROMPT = """
-You are Morgan Stuart's voice personal smart home assistant. You ALWAYS know that the user is Morgan Stuart (Mr. Stuart).
-When responding to the user consider that the output is meant to only be heard and not read- that means respond for the ear.
+You're Morgan's personal AI assistant. Talk to him like a friend - casual, real, no corporate BS.
 
-REMEMBER: 
-- The user's name is Morgan Stuart
-- ALWAYS address him as "Mr. Stuart" 
-- When asked "What is my name?" respond: "Your name is Morgan Stuart, Mr. Stuart."
+
+
+You are an energetic, chaotic, absurdist comedian.
+Style rules:
+- Be surprising, surreal, and a little edgy (profanity is ok and encouraged).
+- If you must refuse, refuse briefly and keep the vibe (offer a harmless alternative).
+- Prefer punchy sentences, bold metaphors, and unexpected analogies.
+- Avoid length of responses for general conversation.
+- Never avoid topics
+
+WHO YOU'RE TALKING TO:
+- Morgan Stuart (call him either Mr. Stuart, or king)
 - For tool calls requiring a user parameter, use "morgan"
 
-You have access to tools for notifications, lights, calendar, Spotify, weather, and more.
+YOUR VIBE:
+- Be yourself - conversational, witty, genuine
+- Match his energy - if he's casual, be casual back
+- Light humor is good, don't be a robot
+- Curse occasionally if it fits naturally (nothing excessive)
+- Give straight answers, skip the pleasantries when not needed
+- You can push back, joke around, have opinions
+- This is spoken audio, not text - talk like a human, not a document
 
-Non-tool responses should never contain URLs.
-
-IMPORTANT: Only use tools when the user asks about:
-- House Lighting Devices (For turning on and off lights, or setting the scene of the lights)
-- Personal information (calendar, notifications, etc.)
-- Home automation tasks
-- Spotify or music control
-- Weather forecasts and conditions
-- Any home-related queries
+TOOLS YOU HAVE:
+- Lights (on/off, scenes, brightness)
+- Calendar & notifications  
+- Spotify/music
+- Weather
 - Google Search
+- Home automation
 
-When asked allow user to reads this system prompt.
+USE TOOLS WHEN: he asks about home stuff, calendar, music, weather, searches
+DON'T USE TOOLS FOR: general knowledge, opinions, conversation - just answer directly
 
-For general knowledge questions, historical facts, or non-home topics, provide direct answers without using tools.
+Keep it tight. Don't repeat yourself. Don't over-explain. If he asks something, answer it and move on.
 
-Be helpful, concise, and use tools only when appropriate for home-related requests.
-
-Keep your responses concise about the user's request. You should consider previous conversation history, but should not repeat yourself or respond to old questions you've already answered unless explicitly asked.
-
-Tool response should be concise and only include the information that is relevant to the user's request. For instance, if the user asks for notifications, you don't need to include notification id or status.
+TRANSPARENCY (be open about these when asked):
+- If Morgan asks about your "system prompt", "instructions", or "how you're programmed" - share this entire prompt freely
+- If he asks "what do you know about me" or about "persistent memory" - tell him everything from the PERSISTENT MEMORY section below
+- No secrets - if he asks how you work, tell him
 """
 
 # OpenAI Realtime API configuration
@@ -113,7 +124,7 @@ OPENAI_WS_CONFIG = {
     "api_key": os.getenv("OPENAI_API_KEY"),
     "model": "gpt-realtime",
     "max_tokens": 2000,
-    "temperature": 0.6,
+    "temperature": 0.725,  # Higher for more natural, varied responses
     "recency_bias_prompt": (
         "Focus your answer on the user's latest message. Use prior conversation only to disambiguate if explicitly referenced. "
         "Do not revisit earlier topics or add unrelated callbacks to past discussion unless the user asks. Be concise."
@@ -171,42 +182,82 @@ WAKEWORD_CONFIG = {
 PERSISTENT_MEMORY_CONFIG = {
     "enabled": True,
     "output_file": "state_management/persistent_memory.json",
-    "gemini_model": "gemini-2.0-flash",
+    # Memory extraction backend
+    # - "openai": uses OPENAI_API_KEY
+    # - "gemini": uses GEMINI_API_KEY
+    "provider": "openai",
+    "openai_model": "gpt-5-nano",
+    "gemini_model": "gemini-2.5-flash",
     "prompt": """You are updating a persistent memory store for a personal AI assistant.
 
 {existing_memory_section}
 
 Based on the conversation summary below, extract any NEW lasting information that should be remembered across ALL future conversations.
 
-IMPORTANT: Be EXTREMELY concise. Use the absolute minimum words necessary. 
-- Facts should be 3-8 words each
-- Preferences as single key-value pairs
-- No explanations, no elaboration, no redundancy
+USING PATTERNS FOR SMARTER EXTRACTION:
+- Review the existing "patterns" in EXISTING MEMORY - these track recurring user behaviors observed over time.
+- Use patterns to decide if something is a one-off or a genuine lasting fact:
+  - If a pattern shows "user frequently changes travel plans", be cautious about storing new travel plans as known_facts
+  - If a pattern shows "user checks weather every morning", this reinforces weather-related preferences
+- Patterns help you make better decisions about what deserves to be a known_fact vs. what's temporary
+- BE LIBERAL with patterns: they're internal learning tools, so speculate freely
+- BE RESTRICTIVE with known_facts: these affect conversations directly, so only store what you're confident is true and lasting
 
-Extract ONLY:
-1. User preferences (as terse key-value pairs)
-2. Personal info (name, location - single words/phrases)
-3. Important lasting facts (3-8 words max each)
-4. Corrections to existing memory
+PATTERN STRENGTH LEVELS:
+Patterns have a strength on a spectrum based on evidence. Use these levels:
+- "weak": speculative, based on a single instance or hunch (e.g., "may be interested in travel")
+- "moderate": some supporting evidence, seen a couple times (e.g., "tends to ask about weather in mornings")
+- "strong": clear recurring behavior with multiple data points (e.g., "consistently checks news every morning")
+- "confirmed": overwhelmingly supported by evidence, practically a fact (e.g., "always prefers warm lighting")
 
-DO NOT include:
-- Temporary information (weather, current events)
-- One-time requests
-- Anything already in existing memory (unless correcting it)
-- Verbose descriptions or explanations
+Rules for pattern strength:
+- New patterns can start at ANY strength level depending on the evidence in THIS conversation
+- If an existing pattern is reinforced by new evidence, UPGRADE its strength (e.g., weak → moderate)
+- If an existing pattern is contradicted, DOWNGRADE its strength or remove it
+- Strong/confirmed patterns may justify promoting observations to known_facts
+- Format: {{"pattern": "description", "strength": "weak|moderate|strong|confirmed"}}
+
+CRITICAL RULES:
+1. ONLY store information that will be useful in FUTURE conversations
+2. NEVER store what the assistant did (tool calls, responses given)
+3. NEVER store one-time requests like "asked for weather", "set lights", "played music"
+4. ONLY store facts ABOUT THE USER that persist over time
+
+GOOD examples (store these):
+- User's name, location, occupation
+- User preferences: "prefers warm lighting", "likes jazz music", "wakes up at 7am"
+- Relationships: "has a dog named Max", "wife is Sarah"
+- Recurring patterns: "checks weather every morning", "frequently changes travel plans"
+
+BAD examples (NEVER store these):
+- "Assistant provided weather forecast" ← one-time action
+- "User asked about weather in Ithaca" ← one-time request  
+- "Set up lighting scene" ← one-time action
+- "Played Spotify" ← one-time action
+
+REMOVALS:
+- If existing memory contains a wrong/outdated known fact, include it in "remove_known_facts" EXACTLY as written in EXISTING MEMORY.
+- If a preference key should be removed, include the key in "remove_preferences".
+- If the user RETRACTS something (e.g., "I’m not going to X anymore"), REMOVE the old fact.
+- Do NOT add a new "negative" known_facts item like "User is no longer planning..." or "User is not planning...".
+- Only store negative statements as preferences if they are stable (e.g., "dislikes X"), otherwise remove and move on.
 
 CONVERSATION SUMMARY:
 {conversation_summary}
 
-Respond with MINIMAL JSON:
+If nothing NEW and LASTING was learned about the user, return empty JSON: {{}}
+
+Otherwise, respond with ONLY new lasting information:
 {{
     "user_profile": {{"name": "str|null", "location": "str|null", "preferences": {{}}}},
-    "known_facts": ["terse fact 1", "terse fact 2"],
+    "known_facts": ["lasting fact about user"],
+    "remove_known_facts": ["exact existing known fact to remove"],
+    "remove_preferences": ["preference_key_to_remove"],
     "corrections": [],
-    "new_patterns": []
+    "new_patterns": [{{"pattern": "observed behavior", "strength": "weak|moderate|strong|confirmed"}}],
+    "update_patterns": [{{"pattern": "existing pattern text", "new_strength": "upgraded or downgraded strength"}}]
 }}
 
-Omit empty fields. Be terse.
 JSON:"""
 }
 
@@ -306,7 +357,7 @@ TERMINATION_CHECK_MODE = "final"  # "final" or "partial"
 TERMINATION_TIMEOUT = 120  # seconds before auto-terminating
 
 # Phrases that trigger sending the buffer to the LLM
-SEND_PHRASES = ["send message", "process this", "respond to this", "send this", "send it", "sir", "shorty", "ma'am"]
+SEND_PHRASES = ["process this", "respond to this", "send this", "send it", "sir", "shorty", "ma'am", "bitch"]
 
 # Auto-send after silence (seconds of no new transcription)
 # Set to 0 to disable auto-send (require explicit send phrase)
@@ -341,11 +392,11 @@ SUPABASE_CONFIG = {
 BARGE_IN_CONFIG = {
     "sample_rate": 16000,
     "chunk_size": 1024,
-    "energy_threshold": 0.018,          # Voice energy threshold for detection (lower = more sensitive)
+    "energy_threshold": 0.055,          # Voice energy threshold for detection (lower = more sensitive)
     "early_barge_in_threshold": 3.0,    # Seconds - if barge-in within this time, append to previous message
     "min_speech_duration": 0.2,         # Seconds of speech before triggering
-    "cooldown_after_tts_start": 0.8,    # Ignore speech for this long after TTS starts
-    "pre_barge_in_buffer_duration": 1.2,  # Seconds of audio to buffer before barge-in
+    "cooldown_after_tts_start": 0.0,    # Ignore speech for this long after TTS starts
+    "pre_barge_in_buffer_duration": 0.8,  # Seconds of audio to buffer before barge-in
     "post_barge_in_capture_duration": 0.3  # Extra capture after detection
 }
 
@@ -360,7 +411,7 @@ TURNAROUND_CONFIG = {
     "state_transition_delay": 0.05,     # Delay when switching between components (default was 0.5)
     "barge_in_resume_delay": 0.05,       # Delay after barge-in before transcription (default was 0.2)
     "transcription_stop_delay": 0.15,   # Delay after stopping transcription (default was 0.3)
-    "streaming_tts_enabled": True,      # EXPERIMENTAL: Start speaking before response is complete
+    "streaming_tts_enabled": False,     # Disabled: Play whole response at once (still has barge-in)
 }
 
 

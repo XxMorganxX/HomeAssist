@@ -200,11 +200,26 @@ class OpenAIWebSocketResponseProvider(ResponseInterface):
         if self.recency_bias_prompt:
             messages.insert(0, {"role": "system", "content": self.recency_bias_prompt})
 
+        # Build the Realtime "instructions" from ALL system messages.
+        # Realtime sessions take instructions via session.update; system-role conversation items are ignored below.
+        system_parts: List[str] = []
+        for m in messages:
+            if m.get("role") == "system":
+                content = m.get("content", "")
+                if content:
+                    system_parts.append(content)
+
+        # Fallback to provider-configured system prompt if no system messages were provided in context
+        if not system_parts and self.system_prompt:
+            system_parts.append(self.system_prompt)
+
+        effective_instructions = "\n\n".join(system_parts).strip()
+
         # Check if home-related for tool inclusion
         tools = self._should_include_tools(message) if self.openai_functions else None
         
         # Perform WebSocket roundtrip
-        async for chunk in self._ws_stream_roundtrip(messages, tools):
+        async for chunk in self._ws_stream_roundtrip(messages, tools, instructions=effective_instructions):
             yield chunk
     
     def _should_include_tools(self, message: str) -> Optional[List[Dict[str, Any]]]:
@@ -215,7 +230,8 @@ class OpenAIWebSocketResponseProvider(ResponseInterface):
     
     async def _ws_stream_roundtrip(self,
                                   messages: List[Dict[str, Any]],
-                                  tools: Optional[List[Dict[str, Any]]] = None) -> AsyncIterator[ResponseChunk]:
+                                  tools: Optional[List[Dict[str, Any]]] = None,
+                                  instructions: str = "") -> AsyncIterator[ResponseChunk]:
         """Perform WebSocket roundtrip with streaming response."""
         url = f"wss://api.openai.com/v1/realtime?model={self.model}"
         headers = {
@@ -248,7 +264,10 @@ class OpenAIWebSocketResponseProvider(ResponseInterface):
                     "type": "session.update",
                     "session": {
                         "modalities": ["text"],
-                        "instructions": (self.system_prompt or ""),
+                        # IMPORTANT: Realtime models use session instructions; we must pass the
+                        # context's system prompt here (including persistent memory), not just the
+                        # provider's static config.
+                        "instructions": (instructions or self.system_prompt or ""),
                         "voice": "alloy",
                         "temperature": self.temperature,
                     }
@@ -353,7 +372,8 @@ class OpenAIWebSocketResponseProvider(ResponseInterface):
                                         user_message=next((m.get("content", "") for m in messages if m.get("role") == "user"), ""),
                                         context=[m for m in messages if m.get("role") in ("user", "assistant")],
                                         tool_calls=tool_calls,
-                                        pre_text=""  # ignore pre-text to avoid duplication
+                                        pre_text="",  # ignore pre-text to avoid duplication
+                                        instructions=instructions,
                                     )
 
                                     yield ResponseChunk(
@@ -380,7 +400,8 @@ class OpenAIWebSocketResponseProvider(ResponseInterface):
                                                 user_message=messages[-1].get("content", ""),
                                                 context=[m for m in messages if m.get("role") in ("user", "assistant")],
                                                 tool_calls=fallback_tool_calls,
-                                                pre_text=""
+                                                pre_text="",
+                                                instructions=instructions,
                                             )
                                     except Exception:
                                         pass
@@ -458,7 +479,8 @@ class OpenAIWebSocketResponseProvider(ResponseInterface):
                                     user_message: str,
                                     context: List[Dict[str, Any]],
                                     tool_calls: List[ToolCall],
-                                    pre_text: str) -> str:
+                                    pre_text: str,
+                                    instructions: str = "") -> str:
         """Integrate tool results into a single assistant reply using OpenAI Chat Completions."""
         try:
             # Use the reusable client initialized during setup
@@ -470,8 +492,9 @@ class OpenAIWebSocketResponseProvider(ResponseInterface):
 
             # Build messages
             messages: List[Dict[str, str]] = []
-            if self.system_prompt:
-                messages.append({"role": "system", "content": self.system_prompt})
+            effective_system = instructions or self.system_prompt
+            if effective_system:
+                messages.append({"role": "system", "content": effective_system})
             # Include recent context (truncate to avoid very long prompts)
             for msg in context[-10:]:
                 role = msg.get("role", "user")
@@ -488,7 +511,7 @@ class OpenAIWebSocketResponseProvider(ResponseInterface):
                     tool_summaries.append(f"{tc.name} result:\n{tc.result}")
             tools_block = "\n\n".join(tool_summaries) if tool_summaries else ""
             
-            print(f"🔍 Composing final answer with tool results:")
+            print("🔍 Composing final answer with tool results:")
             print(f"   Tool calls: {len(tool_calls)}")
             print(f"   Tools block: {tools_block[:500]}")
 

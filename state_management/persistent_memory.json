@@ -1,31 +1,70 @@
 {
   "user_profile": {
-    "name": "Mr. Stuart",
+    "name": "Morgan Stuart",
     "location": "Ithaca",
-    "preferences": {}
+    "preferences": {
+      "favorite_color": "orange"
+    }
   },
   "known_facts": [
-    "Assistant helped set up lighting scene",
-    "Assistant provided weather forecast"
+    "User will be in Costa Rica from the 20th to the 26th"
   ],
-  "patterns": [],
+  "patterns": [
+    "User revises travel plans and retracts Iceland and Spain destinations; demonstrates frequent travel plan changes"
+  ],
   "update_history": [
     {
-      "timestamp": "2025-12-10T15:15:59.393430",
-      "source_summary_preview": "user: i'm testing bargen\nassistant: It sounds like you're testing something, Mr. Stuart. How can I assist you with that?"
+      "timestamp": "2025-12-15T01:57:36.161498",
+      "source_summary_preview": "user: My favorite color is orange.\nassistant: Got it, Mr. Stuart. Orange is a bold and vibrant choice\u2014I'll keep that in mind for future preferences or lighting scenes if you'd like."
     },
     {
-      "timestamp": "2025-12-13T15:58:34.118322",
-      "source_summary_preview": "user: What's your favorite conversation we've ever had?\nassistant: Mr. Stuart, I\u2019ve really enjoyed all of our conversations, but one that stands out is when we set up your perfect evening lighting sce..."
+      "timestamp": "2025-12-15T01:59:07.143397",
+      "source_summary_preview": "user: I'm going to be in Costa rica from the 20th to the 26th. keep a note of that please\nassistant: I wasn't able to save your trip to Costa Rica. Would you like me to try again with the specific dat..."
     },
     {
-      "timestamp": "2025-12-13T16:13:14.041196",
-      "source_summary_preview": "user: what's a weather like today\nuser: In ithaca.\nassistant: Today in Ithaca, expect temperatures to range from about 19 to 29 degrees Fahrenheit. There\u2019s no significant chance of precipitation, and ..."
+      "timestamp": "2025-12-15T02:29:10.981404",
+      "source_summary_preview": "**Key Topics:** User's favorite color (orange), elephant diet, user's desire to visit Iceland, user's upcoming trip to Spain, current weather in Ithaca, NY, AI's capabilities and limitations, capital ..."
     },
     {
-      "timestamp": "2025-12-13T16:16:12.916278",
-      "source_summary_preview": "user: what's the weather like in ithaca"
+      "timestamp": "2025-12-15T02:40:50.674833",
+      "source_summary_preview": "user: what's your transparency policy\nassistant: Morgan, my transparency policy is crystal clear: no secrets, no sugarcoating, no corporate buzzword salad. You ask, I spill. \n\nWant the full behind-the..."
+    },
+    {
+      "timestamp": "2025-12-15T04:00:59.114742",
+      "source_summary_preview": "user: what facts did you know about me\nassistant: Alright, king, here's the juicy stash of facts I\u2019ve got on you:\n\n1. Your name\u2019s Morgan Stuart. Boom, nailed it.\n2. You\u2019re chilling in Ithaca. Finger L..."
+    },
+    {
+      "timestamp": "2025-12-15T04:17:31.016035",
+      "source_summary_preview": "user: there's something in our i don't want to go to iceland and i don't have a trip for spain\nassistant: Oh damn, that\u2019s a plot twist! Alright, king\u2014scrapping Iceland dreams and Spain schemes. We\u2019re ..."
+    },
+    {
+      "timestamp": "2025-12-15T04:32:55.713151",
+      "source_summary_preview": "user: i'm not playing good at iceland or spain\nassistant: Wait, hold up, Mr. Stuart, what? Iceland and Spain? You\u2019re not playing good at them? Like, are we talking soccer, guitar solos, or interpretiv..."
     }
   ],
-  "last_updated": "2025-12-13T16:16:12.916278"
+  "last_updated": "2025-12-15T04:32:55.713151",
+  "corrections_log": [
+    {
+      "correction": "User has an upcoming trip to Spain",
+      "timestamp": "2025-12-15T04:00:59.114718"
+    }
+  ],
+  "removals_log": [
+    {
+      "removed_fact": "User desires to visit Iceland",
+      "timestamp": "2025-12-15T04:17:31.015988"
+    },
+    {
+      "removed_fact": "User has an upcoming trip to Spain",
+      "timestamp": "2025-12-15T04:17:31.016007"
+    },
+    {
+      "removed_fact": "User is planning a trip to Iceland",
+      "timestamp": "2025-12-15T04:32:55.713091"
+    },
+    {
+      "removed_fact": "User is planning a trip to Spain",
+      "timestamp": "2025-12-15T04:32:55.713118"
+    }
+  ]
 }
