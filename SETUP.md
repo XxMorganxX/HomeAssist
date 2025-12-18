@@ -1,142 +1,182 @@
 # HomeAssist Setup Guide
 
-A modular voice assistant framework with wake word detection, real-time transcription, LLM-powered responses, and smart home integration.
+A modular voice assistant framework featuring wake word detection, real-time transcription, LLM-powered responses, persistent memory, and smart home integration.
 
 ---
 
-## Environment Variables
+## 📋 Overview
 
-Create a `.env` file in the project root with the following variables:
+HomeAssist is a privacy-focused voice assistant that runs locally on your machine. It connects to cloud APIs for transcription and AI responses while keeping your conversation data under your control.
 
-### Required
+### ✨ Key Features
+
+- 🎤 **Wake Word Detection** — Hands-free activation with customizable trigger phrases
+- 🗣️ **Real-time Transcription** — Low-latency speech-to-text via AssemblyAI
+- 🤖 **LLM Responses** — Natural conversation powered by OpenAI's Realtime API
+- 🧠 **Persistent Memory** — Remembers user preferences and facts across sessions
+- 🏠 **Smart Home Control** — Lights, music, calendar, and more via MCP tools
+- ⚡ **Barge-In Support** — Interrupt the assistant mid-speech naturally
+
+---
+
+## 🚀 Installation
+
+### Prerequisites
+
+- Python 3.10+
+- macOS (for local TTS) or Linux with audio support
+- Microphone and speakers
+
+### Step 1: Clone and Setup
+
+```bash
+git clone https://github.com/YOUR_USERNAME/HomeAssistV2.git
+cd HomeAssistV2
+```
+
+### Step 2: Create Virtual Environment
+
+```bash
+python -m venv venv
+source venv/bin/activate
+```
+
+### Step 3: Install Dependencies
+
+```bash
+pip install -r requirements.txt
+```
+
+### Step 4: Configure Environment
+
+```bash
+cp .env.example .env
+```
+
+Edit `.env` with your API keys (see Configuration section below).
+
+### Step 5: Run the Assistant
+
+```bash
+# Continuous conversation mode (recommended)
+python -m assistant_framework.main_v2 continuous
+
+# Single interaction mode
+python -m assistant_framework.main_v2 single
+```
+
+> 💡 **Tip:** On first run, a configuration summary will print showing which components are active and any missing credentials.
+
+---
+
+## ⚙️ Configuration
+
+### Environment Variables
+
+Create a `.env` file in the project root with your API keys.
+
+#### Required Variables
 
 | Variable | Description |
 |----------|-------------|
-| `OPENAI_API_KEY` | OpenAI API key for GPT responses and realtime voice processing |
-| `ASSEMBLYAI_API_KEY` | AssemblyAI API key for real-time speech transcription |
+| `OPENAI_API_KEY` | OpenAI API key for GPT responses |
+| `ASSEMBLYAI_API_KEY` | AssemblyAI key for transcription |
 
-### Optional - AI Services
+#### Optional — AI Services
 
 | Variable | Description |
 |----------|-------------|
-| `GEMINI_API_KEY` | Google Gemini API key (used for conversation summarization and memory extraction if provider is set to gemini) |
-| `GOOGLE_APPLICATION_CREDENTIALS` | Path to Google Cloud service account JSON (for Google TTS). Auto-detected if placed in `assistant_framework/google_creds/` |
+| `GEMINI_API_KEY` | Google Gemini (for summarization) |
+| `GOOGLE_APPLICATION_CREDENTIALS` | Path to Google Cloud JSON |
 
-### Optional - Smart Home & Integrations
+#### Optional — Integrations
 
 | Variable | Description |
 |----------|-------------|
 | `SPOTIFY_CLIENT_ID` | Spotify OAuth client ID |
 | `SPOTIFY_CLIENT_SECRET` | Spotify OAuth client secret |
-
-### Optional - Data Persistence
-
-| Variable | Description |
-|----------|-------------|
-| `SUPABASE_URL` | Supabase project URL (for conversation recording & dashboard sync) |
+| `SUPABASE_URL` | Supabase project URL |
 | `SUPABASE_KEY` | Supabase service role key |
-| `CONSOLE_TOKEN` | Unique identifier for dashboard log isolation (see Dashboard section) |
+| `CONSOLE_TOKEN` | Dashboard log isolation token |
 
-### Optional - Email Summarizer (Scheduled Scripts)
-
-| Variable | Description |
-|----------|-------------|
-| `GMAIL_CLIENT_ID` / `GOOGLE_CLIENT_ID` | Google OAuth client ID for Gmail access |
-| `GMAIL_CLIENT_SECRET` / `GOOGLE_CLIENT_SECRET` | Google OAuth client secret |
-| `GMAIL_REFRESH_TOKEN` / `GOOGLE_REFRESH_TOKEN` | OAuth refresh token for unattended access |
-| `EMAIL_NOTIFICATION_RECIPIENT` | Name for email notifications (default: "Morgan") |
-| `EMAIL_SUMMARIZER_HEADLESS` | Set to `1` for headless OAuth flow |
-
-### Optional - Runtime
-
-| Variable | Description |
-|----------|-------------|
-| `WAKEWORD_MODEL_DIR` | Custom path to wake word models (default: `./audio_data/wake_word_models`) |
-| `DEFAULT_TIME_ZONE` | IANA timezone for calendar operations (default: `America/New_York`) |
-| `LOG_LEVEL` | Logging verbosity: `DEBUG`, `INFO`, `WARNING`, `ERROR` |
-| `QUIET_IMPORT` | Set to suppress config summary on import |
+> ⚠️ **Important:** Never commit your `.env` file to version control!
 
 ---
 
-## Configuration Overview
+### Config File Reference
 
-All runtime configuration lives in `assistant_framework/config.py`, organized into sections:
+All runtime settings live in `assistant_framework/config.py`, organized by feature:
 
-### Provider Selection (Section 2)
+#### Provider Selection
+
+Choose which implementation to use for each component:
 
 ```python
 TRANSCRIPTION_PROVIDER = "assemblyai"      # Speech-to-text
 RESPONSE_PROVIDER = "openai_websocket"     # LLM backend
 TTS_PROVIDER = "local_tts"                 # "google_tts" or "local_tts"
-CONTEXT_PROVIDER = "unified"               # Conversation context management
-WAKEWORD_PROVIDER = "openwakeword"         # Wake word detection
+WAKEWORD_PROVIDER = "openwakeword"         # Wake word engine
 ```
 
-### System Prompt (Section 4)
-
-`SYSTEM_PROMPT` defines the assistant's personality, capabilities, and behavioral guidelines. Edit this to customize how your assistant responds.
-
-### Wake Word (Section 6)
+#### Wake Word Settings
 
 ```python
 WAKEWORD_CONFIG = {
-    "model_name": "hey_honey",    # Available: alexa_v0.1, hey_jarvis_v0.1, hey_honey
-    "threshold": 0.2,             # Detection sensitivity (lower = more sensitive)
-    "cooldown_seconds": 2.0,      # Minimum time between activations
+    "model_name": "hey_honey",    # Trigger phrase model
+    "threshold": 0.2,             # Sensitivity (lower = more sensitive)
+    "cooldown_seconds": 2.0,      # Min time between activations
 }
 ```
 
-Custom wake word models (`.onnx` format) can be added to `audio_data/wake_word_models/`.
+> 💡 **Tip:** Custom wake word models (`.onnx`) go in `audio_data/wake_word_models/`
 
-### Conversation Memory (Section 7)
-
-**Summarization**: Automatically summarizes long conversations to maintain context without exceeding token limits.
-
-**Persistent Memory**: Extracts and stores lasting facts about the user across sessions (name, preferences, patterns). Configurable backend:
+#### Conversation Flow
 
 ```python
-PERSISTENT_MEMORY_CONFIG = {
-    "provider": "openai",           # "openai" or "gemini"
-    "openai_model": "gpt-5-nano",   # Model for memory extraction
-}
+TERMINATION_PHRASES = ["over out", "stop listening"]
+SEND_PHRASES = ["send it", "sir"]
+AUTO_SEND_SILENCE_TIMEOUT = 6.0  # Auto-send after 6s of silence
 ```
 
-### Conversation Flow (Section 9)
+#### Barge-In Detection
 
-```python
-TERMINATION_PHRASES = ["over out", "stop listening"]  # End session
-SEND_PHRASES = ["send it", "sir"]                     # Send message to LLM
-AUTO_SEND_SILENCE_TIMEOUT = 6.0                       # Auto-send after N seconds silence
-```
-
-### Barge-In Detection (Section 11)
-
-Allows interrupting the assistant mid-speech:
+Allows interrupting the assistant while it's speaking:
 
 ```python
 BARGE_IN_CONFIG = {
     "energy_threshold": 0.055,        # Voice detection sensitivity
-    "early_barge_in_threshold": 3.0,  # Seconds - early interruptions append to previous message
-    "min_speech_duration": 0.2,       # Required speech duration to trigger
+    "early_barge_in_threshold": 3.0,  # Early interrupts append to previous message
+    "min_speech_duration": 0.2,       # Required speech to trigger
 }
 ```
 
-### Latency Tuning (Section 11B)
+#### Persistent Memory
+
+The assistant remembers facts about you across sessions:
 
 ```python
-TURNAROUND_CONFIG = {
-    "state_transition_delay": 0.05,   # Component switch delay
-    "barge_in_resume_delay": 0.05,    # Resume delay after interruption
+PERSISTENT_MEMORY_CONFIG = {
+    "enabled": True,
+    "provider": "openai",           # "openai" or "gemini"
+    "openai_model": "gpt-5-nano",   # Extraction model
 }
 ```
+
+Memory is stored in `state_management/persistent_memory.json` and includes:
+
+- ✅ User profile (name, location)
+- ✅ Known facts ("prefers warm lighting")
+- ✅ Behavioral patterns with strength levels
 
 ---
 
-## MCP Server (Tool Integration)
+## 🏠 Smart Home Setup
 
-The MCP (Model Context Protocol) server provides tool capabilities to the assistant. Configuration lives in `mcp_server/config.py`:
+### MCP Server
 
-### Smart Lighting (Kasa)
+The MCP (Model Context Protocol) server provides tool capabilities. Configuration is in `mcp_server/config.py`.
+
+#### Kasa Smart Lights
 
 ```python
 LIGHT_IPS = {
@@ -145,53 +185,49 @@ LIGHT_IPS = {
 }
 ```
 
-### Spotify Users
+#### Google Calendar
+
+Place credentials in `mcp_server/google_creds/`:
+
+- `google_creds_<user>.json` — OAuth client secrets
+- `token_<user>.json` — Access tokens (auto-generated on first auth)
+
+#### Spotify
+
+Set environment variables and configure users:
 
 ```python
 SPOTIFY_USERS = {
-    "Morgan": {"username": "..."},
+    "Morgan": {"username": "your_spotify_username"},
 }
 ```
 
-### Google Calendar
-
-Calendar credentials are stored in `mcp_server/google_creds/`:
-- `google_creds_<user>.json` - OAuth client secrets
-- `token_<user>.json` - Access tokens (generated on first auth)
-
 ---
 
-## Dashboard Communication
+## 📊 Dashboard Integration
 
-HomeAssist integrates with a remote dashboard for real-time monitoring via REST API endpoints:
+HomeAssist syncs with a remote dashboard for real-time monitoring.
 
 ### API Endpoints
 
-| Endpoint | Method | Description |
-|----------|--------|-------------|
-| `/api/console/log` | POST | Add a console log entry |
-| `/api/console/log` | GET | Retrieve logs (query: `token`, `since`) |
-| `/api/console/log` | DELETE | Clear logs for a token |
-| `/api/sessions` | POST | Create conversation session |
-| `/api/sessions` | GET | List recent sessions (limit 100) |
-| `/api/sessions/[id]/end` | POST | End a session |
-| `/api/messages` | POST | Add message to session |
-| `/api/tool-calls` | POST | Record tool execution |
-| `/api/webhook` | POST/GET | Generic webhook handler |
+| Endpoint | Method | Purpose |
+|----------|--------|---------|
+| `/api/console/log` | POST/GET | Console logging |
+| `/api/sessions` | POST/GET | Manage sessions |
+| `/api/messages` | POST | Record messages |
+| `/api/tool-calls` | POST | Log tool usage |
 
 ### Console Token
 
-The `CONSOLE_TOKEN` environment variable isolates data per user/instance:
+The `CONSOLE_TOKEN` isolates data per user/device:
 
-- **Console Logs**: Namespaces logs so multiple users don't see each other's data
-- **Database Records**: Stored in session/message metadata for realtime filtering
-- **Dashboard Filtering**: Enables the dashboard to show only relevant sessions
-
-This allows multiple devices or users to share the same dashboard infrastructure without collision.
+- 🔹 Namespaces console logs
+- 🔹 Filters database records
+- 🔹 Enables multi-user dashboards
 
 ### Data Flow
 
-```
+```text
 ┌─────────────────┐     WebSocket      ┌─────────────────┐
 │  HomeAssist     │◄──────────────────►│  AssemblyAI     │
 │  (Voice Loop)   │                    │  (Transcription)│
@@ -201,69 +237,168 @@ This allows multiple devices or users to share the same dashboard infrastructure
          ▼
 ┌─────────────────┐     Realtime       ┌─────────────────┐
 │  Supabase       │◄──────────────────►│  Dashboard      │
-│  (PostgreSQL)   │                    │  (Next.js)      │
+│  (PostgreSQL)   │                    │  (Web UI)       │
 └─────────────────┘                    └─────────────────┘
 ```
 
 ---
 
-## Quick Start
+## 🔧 Troubleshooting
 
-1. **Install dependencies**
-   ```bash
-   python -m venv venv
-   source venv/bin/activate
-   pip install -r requirements.txt
-   ```
+### ❌ Wake Word Not Detecting
 
-2. **Configure environment**
-   ```bash
-   cp .env.example .env
-   # Edit .env with your API keys
-   ```
+**Symptoms:** Saying the wake phrase doesn't activate the assistant.
 
-3. **Run the assistant**
-   ```bash
-   # Continuous conversation mode (wake word → transcribe → respond → repeat)
-   python -m assistant_framework.main_v2 continuous
-   
-   # Single interaction mode
-   python -m assistant_framework.main_v2 single
-   ```
+**Solutions:**
 
-4. **Validate configuration**
-   ```python
-   from assistant_framework.config import validate_environment, print_config_summary
-   print_config_summary()
-   ```
+1. Lower the threshold (more sensitive):
+
+```python
+WAKEWORD_CONFIG = {
+    "threshold": 0.15,  # Default is 0.2
+}
+```
+
+2. Check your microphone is not muted
+
+3. Specify the correct input device:
+
+```python
+WAKEWORD_CONFIG = {
+    "input_device_index": 2,  # Find with: python -m sounddevice
+}
+```
 
 ---
 
-## State Files
+### ❌ Barge-In Too Sensitive / Not Working
+
+**Symptoms:** Assistant interrupts on background noise, or won't interrupt at all.
+
+**Solutions:**
+
+Adjust the energy threshold:
+
+```python
+BARGE_IN_CONFIG = {
+    "energy_threshold": 0.08,   # Higher = less sensitive
+    # "energy_threshold": 0.03, # Lower = more sensitive
+}
+```
+
+---
+
+### ❌ Audio Device Conflicts
+
+**Symptoms:** Errors about device busy, or audio cutting out.
+
+**Solutions:**
+
+Increase handoff delay between components:
+
+```python
+TURNAROUND_CONFIG = {
+    "state_transition_delay": 0.2,  # Default is 0.05
+}
+```
+
+---
+
+### ❌ Memory Not Persisting
+
+**Symptoms:** Assistant forgets information between sessions.
+
+**Solutions:**
+
+1. Verify the file is writable:
+
+```bash
+ls -la state_management/persistent_memory.json
+```
+
+2. Check API key for memory provider:
+
+```bash
+# If using OpenAI for memory extraction
+echo $OPENAI_API_KEY
+
+# If using Gemini
+echo $GEMINI_API_KEY
+```
+
+3. View memory extraction logs — look for `🧠 Persistent memory updated` in console
+
+---
+
+### ❌ Configuration Validation
+
+Run the built-in validator:
+
+```python
+from assistant_framework.config import validate_environment, print_config_summary
+
+# Print full config status
+print_config_summary()
+
+# Get validation results
+results = validate_environment()
+print(results)
+```
+
+---
+
+## 🎯 Advanced Features
+
+### Custom System Prompt
+
+Edit `SYSTEM_PROMPT` in `config.py` to change the assistant's personality:
+
+```python
+SYSTEM_PROMPT = """
+You're a helpful assistant named Jarvis.
+Be formal and precise in your responses.
+"""
+```
+
+### Pattern-Based Memory
+
+The persistent memory system tracks behavioral patterns with strength levels:
+
+| Strength | Meaning |
+|----------|---------|
+| `weak` | Speculative, single instance |
+| `moderate` | Some supporting evidence |
+| `strong` | Clear recurring behavior |
+| `confirmed` | Practically a fact |
+
+Patterns upgrade/downgrade based on evidence and inform what gets stored as known facts.
+
+### Latency Tuning
+
+For faster response times, adjust turnaround delays:
+
+```python
+TURNAROUND_CONFIG = {
+    "state_transition_delay": 0.02,   # Component switches
+    "barge_in_resume_delay": 0.02,    # After interruption
+    "transcription_stop_delay": 0.1,  # After transcription ends
+}
+```
+
+> ⚠️ **Warning:** Very low values may cause audio device conflicts on some systems.
+
+---
+
+## 📁 State Files
 
 | File | Purpose |
 |------|---------|
-| `state_management/app_state.json` | Runtime application state |
+| `state_management/app_state.json` | Runtime state |
 | `state_management/conversation_summary.json` | Current session summary |
 | `state_management/persistent_memory.json` | Long-term user memory |
-| `state_management/session_summary.json` | Session metadata |
 
 ---
 
-## Troubleshooting
+## 📝 License
 
-### Audio Device Issues
-- Set `input_device_index` in `WAKEWORD_CONFIG` to specify a microphone
-- Increase `AUDIO_HANDOFF_DELAY` if experiencing device conflicts
-
-### Wake Word Not Detecting
-- Lower `threshold` in `WAKEWORD_CONFIG` (more sensitive)
-- Ensure microphone is not muted and correct device is selected
-
-### Barge-In Too Sensitive / Not Sensitive Enough
-- Adjust `energy_threshold` in `BARGE_IN_CONFIG`
-- Higher values = less sensitive, lower values = more sensitive
-
-### Memory Not Persisting
-- Check `persistent_memory.json` is writable
-- Verify API key for chosen provider (OpenAI or Gemini)
+MIT License — See LICENSE file for details.
