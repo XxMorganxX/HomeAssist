@@ -432,63 +432,63 @@ class RefactoredOrchestrator:
                     # Reset activity timer on any transcription activity
                     last_activity_time = asyncio.get_event_loop().time()
                     
-                    if result.is_final:
-                        # Accumulate final transcriptions
-                        if accumulated_text:
-                            accumulated_text += " " + result.text
-                        else:
-                            accumulated_text = result.text
-                        
-                        print(f"📝 Final: {result.text}")
-                        
-                        # Check for send phrases (case-insensitive)
-                        accumulated_lower = accumulated_text.lower()
-                        for send_phrase in SEND_PHRASES:
-                            if send_phrase.lower() in accumulated_lower:
-                                print(f"✅ Send phrase detected in final: '{send_phrase}'")
-                                beep_send_detected()  # 🔔 Send phrase sound
-                                # Remove the send phrase from the accumulated text (case-insensitive)
-                                import re
-                                pattern = re.compile(re.escape(send_phrase), re.IGNORECASE)
-                                cleaned_text = pattern.sub("", accumulated_text).strip()
-                                # Clean up extra spaces
-                                cleaned_text = " ".join(cleaned_text.split())
-                                return cleaned_text if cleaned_text else None
-                        
-                        # Check for termination phrases
-                        for term_phrase in TERMINATION_PHRASES:
-                            if term_phrase.lower() in accumulated_lower:
-                                print(f"🛑 Termination phrase detected: '{term_phrase}'")
-                                beep_shutdown()  # 🔔 Shutdown/goodbye sound
-                                log_conversation_end()  # 📡 Remote console log - graceful end
-                                return None
+                if result.is_final:
+                    # Accumulate final transcriptions
+                    if accumulated_text:
+                        accumulated_text += " " + result.text
                     else:
-                        # Check partials too for faster response
-                        print(f"📝 Partial: {result.text}")
-                        
-                        # Build full text including partial
-                        full_text = accumulated_text + " " + result.text if accumulated_text else result.text
-                        full_text_lower = full_text.lower()
-                        
-                        # Check for send phrases in partial (for instant response)
-                        for send_phrase in SEND_PHRASES:
-                            if send_phrase.lower() in full_text_lower:
-                                print(f"⚡ Send phrase detected in partial: '{send_phrase}' (instant send!)")
-                                beep_send_detected()  # 🔔 Send phrase sound
-                                # Remove the send phrase
-                                import re
-                                pattern = re.compile(re.escape(send_phrase), re.IGNORECASE)
-                                cleaned_text = pattern.sub("", full_text).strip()
-                                cleaned_text = " ".join(cleaned_text.split())
-                                return cleaned_text if cleaned_text else None
-                        
-                        # Check for termination phrases in partial
-                        for term_phrase in TERMINATION_PHRASES:
-                            if term_phrase.lower() in full_text_lower:
-                                print(f"🛑 Termination phrase detected in partial: '{term_phrase}'")
-                                beep_shutdown()  # 🔔 Shutdown/goodbye sound
-                                log_conversation_end()  # 📡 Remote console log - graceful end
-                                return None
+                        accumulated_text = result.text
+                    
+                    print(f"📝 Final: {result.text}")
+                    
+                    # Check for send phrases (case-insensitive)
+                    accumulated_lower = accumulated_text.lower()
+                    for send_phrase in SEND_PHRASES:
+                        if send_phrase.lower() in accumulated_lower:
+                            print(f"✅ Send phrase detected in final: '{send_phrase}'")
+                            beep_send_detected()  # 🔔 Send phrase sound
+                            # Remove the send phrase from the accumulated text (case-insensitive)
+                            import re
+                            pattern = re.compile(re.escape(send_phrase), re.IGNORECASE)
+                            cleaned_text = pattern.sub("", accumulated_text).strip()
+                            # Clean up extra spaces
+                            cleaned_text = " ".join(cleaned_text.split())
+                            return cleaned_text if cleaned_text else None
+                    
+                    # Check for termination phrases
+                    for term_phrase in TERMINATION_PHRASES:
+                        if term_phrase.lower() in accumulated_lower:
+                            print(f"🛑 Termination phrase detected: '{term_phrase}'")
+                            beep_shutdown()  # 🔔 Shutdown/goodbye sound
+                            log_conversation_end()  # 📡 Remote console log - graceful end
+                            return None
+                else:
+                    # Check partials too for faster response
+                    print(f"📝 Partial: {result.text}")
+                    
+                    # Build full text including partial
+                    full_text = accumulated_text + " " + result.text if accumulated_text else result.text
+                    full_text_lower = full_text.lower()
+                    
+                    # Check for send phrases in partial (for instant response)
+                    for send_phrase in SEND_PHRASES:
+                        if send_phrase.lower() in full_text_lower:
+                            print(f"⚡ Send phrase detected in partial: '{send_phrase}' (instant send!)")
+                            beep_send_detected()  # 🔔 Send phrase sound
+                            # Remove the send phrase
+                            import re
+                            pattern = re.compile(re.escape(send_phrase), re.IGNORECASE)
+                            cleaned_text = pattern.sub("", full_text).strip()
+                            cleaned_text = " ".join(cleaned_text.split())
+                            return cleaned_text if cleaned_text else None
+                    
+                    # Check for termination phrases in partial
+                    for term_phrase in TERMINATION_PHRASES:
+                        if term_phrase.lower() in full_text_lower:
+                            print(f"🛑 Termination phrase detected in partial: '{term_phrase}'")
+                            beep_shutdown()  # 🔔 Shutdown/goodbye sound
+                            log_conversation_end()  # 📡 Remote console log - graceful end
+                            return None
                 
                 except asyncio.TimeoutError:
                     # Timeout waiting for transcription - check if we should auto-send
@@ -1095,24 +1095,24 @@ class RefactoredOrchestrator:
                             await self._recorder.record_message("assistant", assistant_text)
                     else:
                         # Traditional mode: generate full response, then speak
-                        assistant_text = await self.run_response(user_text)
-                        if not assistant_text:
-                            print("⚠️  No response generated")
-                            continue  # Try next question
-                        
-                        print(f"\n🤖 Assistant: {assistant_text}\n")
-                        
-                        # Record assistant message
-                        if self._recorder and self._recorder.current_session_id:
-                            await self._recorder.record_message("assistant", assistant_text)
-                        
-                        # Speak response with barge-in enabled
-                        # If user interrupts, we'll immediately start transcribing
-                        speech_completed = await self.run_tts(
-                            assistant_text, 
-                            transition_to_idle=False,  # Don't auto-transition, we handle it
-                            enable_barge_in=True
-                        )
+                    assistant_text = await self.run_response(user_text)
+                    if not assistant_text:
+                        print("⚠️  No response generated")
+                        continue  # Try next question
+                    
+                    print(f"\n🤖 Assistant: {assistant_text}\n")
+                    
+                    # Record assistant message
+                    if self._recorder and self._recorder.current_session_id:
+                        await self._recorder.record_message("assistant", assistant_text)
+                    
+                    # Speak response with barge-in enabled
+                    # If user interrupts, we'll immediately start transcribing
+                    speech_completed = await self.run_tts(
+                        assistant_text, 
+                        transition_to_idle=False,  # Don't auto-transition, we handle it
+                        enable_barge_in=True
+                    )
                     
                     if speech_completed:
                         # Normal completion - transition to IDLE then back to transcription

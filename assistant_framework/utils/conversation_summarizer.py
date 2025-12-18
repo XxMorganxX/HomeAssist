@@ -63,7 +63,7 @@ class ConversationSummarizer:
         # Ensure output directory exists
         output_path = Path(self.output_file)
         output_path.parent.mkdir(parents=True, exist_ok=True)
-        
+    
         # Load previous summary if exists (for continuity across restarts)
         self._current_summary = self.load_previous_summary()
     
