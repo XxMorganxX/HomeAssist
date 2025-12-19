@@ -77,27 +77,21 @@ Create a `.env` file in the project root with your API keys.
 
 #### Required Variables
 
-| Variable | Description |
-|----------|-------------|
-| `OPENAI_API_KEY` | OpenAI API key for GPT responses |
-| `ASSEMBLYAI_API_KEY` | AssemblyAI key for transcription |
+- `OPENAI_API_KEY` — OpenAI API key for GPT responses
+- `ASSEMBLYAI_API_KEY` — AssemblyAI key for transcription
 
 #### Optional — AI Services
 
-| Variable | Description |
-|----------|-------------|
-| `GEMINI_API_KEY` | Google Gemini (for summarization) |
-| `GOOGLE_APPLICATION_CREDENTIALS` | Path to Google Cloud JSON |
+- `GEMINI_API_KEY` — Google Gemini (for summarization)
+- `GOOGLE_APPLICATION_CREDENTIALS` — Path to Google Cloud JSON
 
 #### Optional — Integrations
 
-| Variable | Description |
-|----------|-------------|
-| `SPOTIFY_CLIENT_ID` | Spotify OAuth client ID |
-| `SPOTIFY_CLIENT_SECRET` | Spotify OAuth client secret |
-| `SUPABASE_URL` | Supabase project URL |
-| `SUPABASE_KEY` | Supabase service role key |
-| `CONSOLE_TOKEN` | Dashboard log isolation token |
+- `SPOTIFY_CLIENT_ID` — Spotify OAuth client ID
+- `SPOTIFY_CLIENT_SECRET` — Spotify OAuth client secret
+- `SUPABASE_URL` — Supabase project URL
+- `SUPABASE_KEY` — Supabase service role key
+- `CONSOLE_TOKEN` — Dashboard log isolation token
 
 > ⚠️ **Important:** Never commit your `.env` file to version control!
 
@@ -210,12 +204,10 @@ HomeAssist syncs with a remote dashboard for real-time monitoring.
 
 ### API Endpoints
 
-| Endpoint | Method | Purpose |
-|----------|--------|---------|
-| `/api/console/log` | POST/GET | Console logging |
-| `/api/sessions` | POST/GET | Manage sessions |
-| `/api/messages` | POST | Record messages |
-| `/api/tool-calls` | POST | Log tool usage |
+- `/api/console/log` (POST/GET) — Console logging
+- `/api/sessions` (POST/GET) — Manage sessions
+- `/api/messages` (POST) — Record messages
+- `/api/tool-calls` (POST) — Log tool usage
 
 ### Console Token
 
@@ -364,12 +356,10 @@ Be formal and precise in your responses.
 
 The persistent memory system tracks behavioral patterns with strength levels:
 
-| Strength | Meaning |
-|----------|---------|
-| `weak` | Speculative, single instance |
-| `moderate` | Some supporting evidence |
-| `strong` | Clear recurring behavior |
-| `confirmed` | Practically a fact |
+- **weak** — Speculative, single instance
+- **moderate** — Some supporting evidence
+- **strong** — Clear recurring behavior
+- **confirmed** — Practically a fact
 
 Patterns upgrade/downgrade based on evidence and inform what gets stored as known facts.
 
@@ -391,11 +381,9 @@ TURNAROUND_CONFIG = {
 
 ## 📁 State Files
 
-| File | Purpose |
-|------|---------|
-| `state_management/app_state.json` | Runtime state |
-| `state_management/conversation_summary.json` | Current session summary |
-| `state_management/persistent_memory.json` | Long-term user memory |
+- `state_management/app_state.json` — Runtime state
+- `state_management/conversation_summary.json` — Current session summary
+- `state_management/persistent_memory.json` — Long-term user memory
 
 ---
 
