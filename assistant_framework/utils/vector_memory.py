@@ -95,7 +95,7 @@ class VectorMemoryManager:
             "url": config.get("supabase_url"),
             "key": config.get("supabase_key"),
             "table_name": config.get("table_name", "conversation_memories"),
-            "embedding_dimensions": 1536,  # text-embedding-3-small
+            "embedding_dimensions": config.get("embedding_dimensions", 3072),
         }
         
         # Create providers

@@ -140,7 +140,7 @@ TRANSPARENCY (be open about these when asked):
 # OpenAI Realtime API configuration
 OPENAI_WS_CONFIG = {
     "api_key": os.getenv("OPENAI_API_KEY"),
-    "model": "gpt-realtime",
+    "model": "gpt-realtime-mini-2025-12-15",
     "max_tokens": 2000,
     "temperature": 0.725,  # Higher for more natural, varied responses
     "recency_bias_prompt": (
@@ -287,7 +287,7 @@ VECTOR_MEMORY_CONFIG = {
     
     # Embedding provider settings
     "embedding_provider": "openai",
-    "embedding_model": "text-embedding-3-small",  # 1536 dims, cheapest
+    "embedding_model": "text-embedding-3-large",  # 3072 dims, higher quality
     "openai_api_key": os.getenv("OPENAI_API_KEY"),
     
     # Vector store settings (uses existing Supabase)
@@ -295,6 +295,7 @@ VECTOR_MEMORY_CONFIG = {
     "supabase_url": os.getenv("SUPABASE_URL"),
     "supabase_key": os.getenv("SUPABASE_KEY"),
     "table_name": "conversation_memories",
+    "embedding_dimensions": 3072,  # Must match embedding model (3072 for text-embedding-3-large)
     
     # Retrieval settings
     "retrieve_top_k": 3,              # Max past conversations to retrieve
