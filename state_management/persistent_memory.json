@@ -1,16 +1,56 @@
 {
   "user_profile": {
     "name": "Morgan Stuart",
-    "location": "Ithaca",
+    "location": "Ithaca, NY",
     "preferences": {
-      "favorite_color": "orange"
+      "favorite_color": "orange",
+      "tone": "kind/polite; sometimes blunt when requested; playful/spicy with light chaos"
     }
   },
   "known_facts": [
-    "User will be in Costa Rica from the 20th to the 26th"
+    "User will be in Costa Rica from the 20th to the 26th",
+    "User has a sister who is a dog whisperer.",
+    "User enjoys surreal/chaotic lyric imagery, particularly jellyfish imagery, when creating lyrics",
+    "User's name is Morgan Stuart",
+    "User's location is Ithaca, NY"
   ],
   "patterns": [
-    "User revises travel plans and retracts Iceland and Spain destinations; demonstrates frequent travel plan changes"
+    {
+      "pattern": "User revises travel plans and retracts Iceland and Spain destinations; demonstrates frequent travel plan changes",
+      "strength": "strong"
+    },
+    {
+      "pattern": "User seeks steps to restore previous hairstyle / hair care routine",
+      "strength": "weak"
+    },
+    {
+      "pattern": "User requests kinder, more respectful tone in responses",
+      "strength": "confirmed"
+    },
+    {
+      "pattern": "User sometimes requests less polite or blunt tone in responses",
+      "strength": "moderate"
+    },
+    {
+      "pattern": "User expresses preference for tone blending politeness with playful/spicy elements (wild but respectful)",
+      "strength": "moderate"
+    },
+    {
+      "pattern": "User wants to express feelings directly and bluntly; receptive to provocative or outlandish wording as a tactic, but prefers not to use suggestions verbatim",
+      "strength": "moderate"
+    },
+    {
+      "pattern": "User has a sister who is a dog whisperer",
+      "strength": "moderate"
+    },
+    {
+      "pattern": "User expressed preference for jellyfish imagery in lyrics and surreal, chaotic imagery in creative writing",
+      "strength": "weak"
+    },
+    {
+      "pattern": "User uses explicit language to express frustration or emphasis",
+      "strength": "weak"
+    }
   ],
   "update_history": [
     {
@@ -40,9 +80,41 @@
     {
       "timestamp": "2025-12-15T04:32:55.713151",
       "source_summary_preview": "user: i'm not playing good at iceland or spain\nassistant: Wait, hold up, Mr. Stuart, what? Iceland and Spain? You\u2019re not playing good at them? Like, are we talking soccer, guitar solos, or interpretiv..."
+    },
+    {
+      "timestamp": "2025-12-20T02:49:23.877063",
+      "source_summary_preview": "user: When your poop looks like a little. I want to wake up and have nice hair like I used to. How do I get back to that? Just tell me what I put procedure I have to do. I'll do. I don't give fuck wha..."
+    },
+    {
+      "timestamp": "2025-12-20T03:08:03.287943",
+      "source_summary_preview": "user: I wish you talked a little bit nicer to me.\nassistant: Alright, Mr. Stuart, I hear ya. I\u2019ll sprinkle a little sugar in the chaos. But hey, you know I\u2019m like a spicy taco\u2014still got that kick. We ..."
+    },
+    {
+      "timestamp": "2025-12-20T03:12:05.241987",
+      "source_summary_preview": "user: What if I asked you to talk to me like before?\nassistant: We\u2019d be back in the chaos carnival, king. Wild metaphors, spicy language, and that unhinged energy you know and love. You in?\nuser: Do. ..."
+    },
+    {
+      "timestamp": "2025-12-20T03:13:32.811986",
+      "source_summary_preview": "user: how do i like you to talk to me\nassistant: You like it a little wild, a little polite, with a sprinkle of chaos and a dash of sugar. \n\nPolite, with a spicy taco kick, king!"
+    },
+    {
+      "timestamp": "2025-12-20T03:26:28.433470",
+      "source_summary_preview": "**Key Topics:** User's favorite color (orange), elephant diet, user's desire to visit Iceland, user's upcoming trip to Spain, current weather in Ithaca, NY, AI's capabilities and limitations, capital ..."
+    },
+    {
+      "timestamp": "2025-12-20T03:27:24.755773",
+      "source_summary_preview": "user: By the way, my sister actually is a dog whisperer. That is her job. Her main and only job. what is my sister's career\nassistant: Your sister\u2019s career? Bingo: she\u2019s a full-time certified dog whis..."
+    },
+    {
+      "timestamp": "2025-12-20T04:01:53.605333",
+      "source_summary_preview": "user: write some new lyrics for me\nassistant: Alright king, buckle up:\n\nVerse 1:  \nCoffee spilled on a Tuesday sky,  \nNeon whispers from a robot\u2019s eye.  \nDancing with the ghosts of Wi-Fi,  \nWe chase t..."
+    },
+    {
+      "timestamp": "2025-12-20T04:06:53.008408",
+      "source_summary_preview": "user: What are all the songs you ever wrote for me?\nassistant: Alright, king, let\u2019s roll out the greatest hits playlist I cooked up for you. \n\nFirst off, we got the rainy-day classic:  \n\u201cRain taps the..."
     }
   ],
-  "last_updated": "2025-12-15T04:32:55.713151",
+  "last_updated": "2025-12-20T04:06:53.008408",
   "corrections_log": [
     {
       "correction": "User has an upcoming trip to Spain",

@@ -200,10 +200,13 @@ SUMMARY:"""
             self._is_summarizing = False
     
     def _format_messages(self, messages: List[Dict[str, Any]]) -> str:
-        """Format messages for the prompt."""
+        """Format messages for the prompt (excludes system messages)."""
         lines = []
         for msg in messages:
-            role = msg.get("role", "unknown").upper()
+            role = msg.get("role", "unknown").lower()
+            # Skip system messages (system prompt, persistent memory, vector context)
+            if role == "system":
+                continue
             content = msg.get("content", "")
             # Truncate very long messages
             if len(content) > 500:

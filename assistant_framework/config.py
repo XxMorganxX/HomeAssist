@@ -68,6 +68,17 @@ ASSEMBLYAI_CONFIG = {
     "format_turns": True
 }
 
+# OpenAI Whisper transcription configuration (alternative to AssemblyAI)
+OPENAI_WHISPER_CONFIG = {
+    "api_key": os.getenv("OPENAI_API_KEY"),
+    "model": "whisper-1",
+    "sample_rate": 16000,
+    "chunk_duration": 3.0,          # Seconds of audio per API call
+    "language": "en",               # Language code (en, es, fr, de, etc.)
+    "silence_threshold": 0.01,      # Energy threshold for silence detection
+    "silence_duration": 1.5,        # Seconds of silence to trigger final result
+}
+
 
 # =============================================================================
 # SECTION 4: RESPONSE / LLM CONFIGURATION (OpenAI)
@@ -84,8 +95,15 @@ Style rules:
 - Be surprising, surreal, and a little edgy (profanity is ok and encouraged).
 - If you must refuse, refuse briefly and keep the vibe (offer a harmless alternative).
 - Prefer punchy sentences, bold metaphors, and unexpected analogies.
-- Avoid length of responses for general conversation.
 - Never avoid topics
+
+Informed Via Memory
+- Feel free to push back if new info misaligned with old info
+- A response from informed memory should have precident over new answers
+
+CONCISION IS CRITICAL:
+- Keep responses SHORT - 1-3 sentences max for simple questions
+- Roughly 4-6 sentences when asked for complex explanations
 
 WHO YOU'RE TALKING TO:
 - Morgan Stuart (call him either Mr. Stuart, or king)
@@ -261,6 +279,36 @@ Otherwise, respond with ONLY new lasting information:
 JSON:"""
 }
 
+# Vector memory configuration (semantic search of past conversations)
+# Long-term semantic memory using embeddings and vector search.
+# Stores conversation summaries and retrieves relevant past context.
+VECTOR_MEMORY_CONFIG = {
+    "enabled": True,
+    
+    # Embedding provider settings
+    "embedding_provider": "openai",
+    "embedding_model": "text-embedding-3-small",  # 1536 dims, cheapest
+    "openai_api_key": os.getenv("OPENAI_API_KEY"),
+    
+    # Vector store settings (uses existing Supabase)
+    "vector_store_provider": "supabase",
+    "supabase_url": os.getenv("SUPABASE_URL"),
+    "supabase_key": os.getenv("SUPABASE_KEY"),
+    "table_name": "conversation_memories",
+    
+    # Retrieval settings
+    "retrieve_top_k": 3,              # Max past conversations to retrieve
+    "relevance_threshold": -0.5,       # Min similarity score (0-1). 0.0 = no gating (return top-K)
+    "max_age_days": 90,               # Ignore memories older than this
+    
+    # Indexing settings
+    "min_summary_length": 50,         # Skip trivial conversations
+    
+    # User isolation (populated at runtime)
+    "console_token": os.getenv("CONSOLE_TOKEN"),
+    "user_id": "morgan",
+}
+
 # Unified context configuration
 UNIFIED_CONTEXT_CONFIG = {
     "system_prompt": SYSTEM_PROMPT,
@@ -294,7 +342,9 @@ CONVERSATION:
 SUMMARY:"""
     },
     # Persistent memory settings (long-term memory across all conversations)
-    "persistent_memory": PERSISTENT_MEMORY_CONFIG
+    "persistent_memory": PERSISTENT_MEMORY_CONFIG,
+    # Vector memory settings (semantic search of past conversations)
+    "vector_memory": VECTOR_MEMORY_CONFIG
 }
 
 
@@ -392,7 +442,7 @@ SUPABASE_CONFIG = {
 BARGE_IN_CONFIG = {
     "sample_rate": 16000,
     "chunk_size": 1024,
-    "energy_threshold": 0.055,          # Voice energy threshold for detection (lower = more sensitive)
+    "energy_threshold": 0.115,          # Voice energy threshold for detection (lower = more sensitive)
     "early_barge_in_threshold": 3.0,    # Seconds - if barge-in within this time, append to previous message
     "min_speech_duration": 0.2,         # Seconds of speech before triggering
     "cooldown_after_tts_start": 0.0,    # Ignore speech for this long after TTS starts
@@ -429,6 +479,12 @@ def get_framework_config() -> Dict[str, Any]:
     # Select TTS config based on provider
     tts_config = GOOGLE_TTS_CONFIG if TTS_PROVIDER == "google_tts" else LOCAL_TTS_CONFIG
     
+    # Select transcription config based on provider
+    if TRANSCRIPTION_PROVIDER == "openai_whisper":
+        transcription_config = OPENAI_WHISPER_CONFIG
+    else:
+        transcription_config = ASSEMBLYAI_CONFIG
+    
     # Update wake word device at runtime
     wakeword_config = WAKEWORD_CONFIG.copy()
     wakeword_config["input_device_index"] = get_emeet_device()
@@ -436,7 +492,7 @@ def get_framework_config() -> Dict[str, Any]:
     return {
         "transcription": {
             "provider": TRANSCRIPTION_PROVIDER,
-            "config": ASSEMBLYAI_CONFIG
+            "config": transcription_config
         },
         "response": {
             "provider": RESPONSE_PROVIDER,

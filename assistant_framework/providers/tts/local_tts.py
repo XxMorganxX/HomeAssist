@@ -299,7 +299,10 @@ class LocalTTSProvider(TextToSpeechInterface):
         This runs in a separate thread and blocks until complete.
         The _speech_finished event is set when audio actually finishes.
         """
-        print(f"🔊 [_play_direct] Starting playback of: '{text[:50]}...'")
+        word_count = len(text.split())
+        estimated_time = (word_count / 175.0) * 60.0  # ~175 WPM
+        print(f"🔊 [_play_direct] Starting playback: {word_count} words (~{estimated_time:.1f}s)")
+        print(f"   Text: '{text[:60]}...'")
         
         # Use macOS say command if pyttsx3 not available
         if self.use_macos_say:

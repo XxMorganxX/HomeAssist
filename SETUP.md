@@ -106,11 +106,38 @@ All runtime settings live in `assistant_framework/config.py`, organized by featu
 Choose which implementation to use for each component:
 
 ```python
-TRANSCRIPTION_PROVIDER = "assemblyai"      # Speech-to-text
+TRANSCRIPTION_PROVIDER = "assemblyai"      # "assemblyai" or "openai_whisper"
 RESPONSE_PROVIDER = "openai_websocket"     # LLM backend
 TTS_PROVIDER = "local_tts"                 # "google_tts" or "local_tts"
 WAKEWORD_PROVIDER = "openwakeword"         # Wake word engine
 ```
+
+#### Transcription Providers
+
+**AssemblyAI** (default) — Real-time streaming via WebSocket:
+
+```python
+ASSEMBLYAI_CONFIG = {
+    "api_key": os.getenv("ASSEMBLYAI_API_KEY"),
+    "sample_rate": 16000,
+    "format_turns": True,
+}
+```
+
+**OpenAI Whisper** — Chunked transcription via Whisper API:
+
+```python
+OPENAI_WHISPER_CONFIG = {
+    "api_key": os.getenv("OPENAI_API_KEY"),
+    "model": "whisper-1",
+    "chunk_duration": 3.0,        # Seconds per API call
+    "language": "en",             # Supports many languages
+    "silence_threshold": 0.01,    # Silence detection sensitivity
+    "silence_duration": 1.5,      # Silence to trigger final result
+}
+```
+
+> 💡 **Tip:** AssemblyAI has lower latency (true streaming). Whisper is useful if you already have OpenAI credentials and don't want another API key.
 
 #### Wake Word Settings
 
@@ -161,6 +188,28 @@ Memory is stored in `state_management/persistent_memory.json` and includes:
 - ✅ User profile (name, location)
 - ✅ Known facts ("prefers warm lighting")
 - ✅ Behavioral patterns with strength levels
+
+#### Vector Memory (Semantic Search)
+
+Long-term semantic memory that stores conversation summaries as embeddings:
+
+```python
+VECTOR_MEMORY_CONFIG = {
+    "enabled": True,
+    "embedding_model": "text-embedding-3-small",
+    "retrieve_top_k": 3,           # Max past conversations to retrieve
+    "relevance_threshold": 0.7,    # Min similarity score
+    "max_age_days": 90,            # Ignore old memories
+}
+```
+
+This enables:
+
+- 🔍 Semantic search of past conversations ("remember when we talked about...")
+- 📚 Context enrichment from relevant past discussions
+- 🧠 Long-term memory beyond extracted facts
+
+> ⚠️ **Supabase Setup Required:** Run the SQL from `vector_memory.get_setup_sql()` in Supabase SQL editor to create the pgvector table.
 
 ---
 
@@ -319,6 +368,46 @@ echo $GEMINI_API_KEY
 ```
 
 3. View memory extraction logs — look for `🧠 Persistent memory updated` in console
+
+---
+
+### ❌ Vector Memory Not Working
+
+**Symptoms:** Past conversations not being retrieved, or "Failed to store in vector memory" errors.
+
+**Solutions:**
+
+1. Ensure Supabase has pgvector enabled. Run in Supabase SQL editor:
+
+```sql
+CREATE EXTENSION IF NOT EXISTS vector;
+```
+
+2. Create the memories table. Get the SQL with:
+
+```python
+from assistant_framework.utils.vector_memory import VectorMemoryManager
+from assistant_framework.config import VECTOR_MEMORY_CONFIG
+
+vm = VectorMemoryManager(VECTOR_MEMORY_CONFIG)
+print(vm.get_setup_sql())
+```
+
+3. Check Supabase credentials:
+
+```bash
+echo $SUPABASE_URL
+echo $SUPABASE_KEY
+```
+
+4. Verify vector memory is enabled in config:
+
+```python
+VECTOR_MEMORY_CONFIG = {
+    "enabled": True,  # Must be True
+    ...
+}
+```
 
 ---
 

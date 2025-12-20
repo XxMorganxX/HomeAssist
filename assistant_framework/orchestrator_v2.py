@@ -14,7 +14,6 @@ try:
         WakeWordInterface,
         ContextInterface
     )
-    from .models.data_models import TranscriptionResult, ResponseChunk, WakeWordEvent
     from .utils.state_machine import AudioStateMachine, AudioState
     from .utils.error_handling import ErrorHandler, ComponentError, ErrorSeverity
     from .utils.barge_in import BargeInDetector, BargeInConfig, BargeInMode
@@ -25,7 +24,7 @@ try:
     )
     from .utils.console_logger import (
         log_boot, log_shutdown, log_conversation_end, log_wake_word,
-        log_user_message, log_assistant_response, log_tool_call, log_error
+        log_user_message, log_assistant_response, log_tool_call
     )
     from .providers.wakeword_v2 import IsolatedOpenWakeWordProvider
     from .providers.transcription_v2 import AssemblyAIAsyncProvider
@@ -39,7 +38,6 @@ except ImportError:
         WakeWordInterface,
         ContextInterface
     )
-    from assistant_framework.models.data_models import TranscriptionResult, ResponseChunk, WakeWordEvent
     from assistant_framework.utils.state_machine import AudioStateMachine, AudioState
     from assistant_framework.utils.error_handling import ErrorHandler, ComponentError, ErrorSeverity
     from assistant_framework.utils.barge_in import BargeInDetector, BargeInConfig, BargeInMode
@@ -50,7 +48,7 @@ except ImportError:
     )
     from assistant_framework.utils.console_logger import (
         log_boot, log_shutdown, log_conversation_end, log_wake_word,
-        log_user_message, log_assistant_response, log_tool_call, log_error
+        log_user_message, log_assistant_response, log_tool_call
     )
     from assistant_framework.providers.wakeword_v2 import IsolatedOpenWakeWordProvider
     from assistant_framework.providers.transcription_v2 import AssemblyAIAsyncProvider
@@ -111,6 +109,7 @@ class RefactoredOrchestrator:
         self._barge_in_capture_after_trigger = float(barge_in_config.get('post_barge_in_capture_duration', barge_in_config.get('capture_after_trigger', 0.3)))
         self._early_barge_in = False  # Flag: next message should append to previous
         self._previous_user_message = ""  # Store last user message for appending
+        self._vector_query_override = None  # Override for vector query (raw single message)
         self._playback_start_time: Optional[float] = None  # Track when TTS playback started
         
         # Conversation recording (Supabase)
@@ -171,6 +170,15 @@ class RefactoredOrchestrator:
                     supabase_key=self._supabase_key
                 )
                 await self._recorder.initialize()
+            
+            # Initialize vector memory (semantic search of past conversations)
+            if self._context and hasattr(self._context, 'initialize_vector_memory'):
+                print("🔧 Initializing vector memory...")
+                vector_init_success = await self._context.initialize_vector_memory()
+                if vector_init_success:
+                    print("✅ Vector memory initialized")
+                else:
+                    print("⚠️  Vector memory initialization failed (continuing without)")
             
             # Register cleanup handlers with state machine (CRITICAL for preventing segfaults)
             self._register_cleanup_handlers()
@@ -432,77 +440,74 @@ class RefactoredOrchestrator:
                     # Reset activity timer on any transcription activity
                     last_activity_time = asyncio.get_event_loop().time()
                     
-                if result.is_final:
-                    # Accumulate final transcriptions
-                    if accumulated_text:
-                        accumulated_text += " " + result.text
+                    if result.is_final:
+                        # Accumulate final transcriptions
+                        if accumulated_text:
+                            accumulated_text += " " + result.text
+                        else:
+                            accumulated_text = result.text
+                        
+                        print(f"📝 Final: {result.text}")
+                        
+                        # Check for send phrases (case-insensitive)
+                        accumulated_lower = accumulated_text.lower()
+                        for send_phrase in SEND_PHRASES:
+                            if send_phrase.lower() in accumulated_lower:
+                                print(f"✅ Send phrase detected in final: '{send_phrase}'")
+                                beep_send_detected()  # 🔔 Send phrase sound
+                                # Remove the send phrase from the accumulated text (case-insensitive)
+                                import re
+                                pattern = re.compile(re.escape(send_phrase), re.IGNORECASE)
+                                cleaned_text = pattern.sub("", accumulated_text).strip()
+                                # Clean up extra spaces
+                                cleaned_text = " ".join(cleaned_text.split())
+                                return cleaned_text if cleaned_text else None
+                        
+                        # Check for termination phrases
+                        for term_phrase in TERMINATION_PHRASES:
+                            if term_phrase.lower() in accumulated_lower:
+                                print(f"🛑 Termination phrase detected: '{term_phrase}'")
+                                beep_shutdown()  # 🔔 Shutdown/goodbye sound
+                                log_conversation_end()  # 📡 Remote console log - graceful end
+                                return None
                     else:
-                        accumulated_text = result.text
-                    
-                    print(f"📝 Final: {result.text}")
-                    
-                    # Check for send phrases (case-insensitive)
-                    accumulated_lower = accumulated_text.lower()
-                    for send_phrase in SEND_PHRASES:
-                        if send_phrase.lower() in accumulated_lower:
-                            print(f"✅ Send phrase detected in final: '{send_phrase}'")
-                            beep_send_detected()  # 🔔 Send phrase sound
-                            # Remove the send phrase from the accumulated text (case-insensitive)
-                            import re
-                            pattern = re.compile(re.escape(send_phrase), re.IGNORECASE)
-                            cleaned_text = pattern.sub("", accumulated_text).strip()
-                            # Clean up extra spaces
-                            cleaned_text = " ".join(cleaned_text.split())
-                            return cleaned_text if cleaned_text else None
-                    
-                    # Check for termination phrases
-                    for term_phrase in TERMINATION_PHRASES:
-                        if term_phrase.lower() in accumulated_lower:
-                            print(f"🛑 Termination phrase detected: '{term_phrase}'")
-                            beep_shutdown()  # 🔔 Shutdown/goodbye sound
-                            log_conversation_end()  # 📡 Remote console log - graceful end
-                            return None
-                else:
-                    # Check partials too for faster response
-                    print(f"📝 Partial: {result.text}")
-                    
-                    # Build full text including partial
-                    full_text = accumulated_text + " " + result.text if accumulated_text else result.text
-                    full_text_lower = full_text.lower()
-                    
-                    # Check for send phrases in partial (for instant response)
-                    for send_phrase in SEND_PHRASES:
-                        if send_phrase.lower() in full_text_lower:
-                            print(f"⚡ Send phrase detected in partial: '{send_phrase}' (instant send!)")
-                            beep_send_detected()  # 🔔 Send phrase sound
-                            # Remove the send phrase
-                            import re
-                            pattern = re.compile(re.escape(send_phrase), re.IGNORECASE)
-                            cleaned_text = pattern.sub("", full_text).strip()
-                            cleaned_text = " ".join(cleaned_text.split())
-                            return cleaned_text if cleaned_text else None
-                    
-                    # Check for termination phrases in partial
-                    for term_phrase in TERMINATION_PHRASES:
-                        if term_phrase.lower() in full_text_lower:
-                            print(f"🛑 Termination phrase detected in partial: '{term_phrase}'")
-                            beep_shutdown()  # 🔔 Shutdown/goodbye sound
-                            log_conversation_end()  # 📡 Remote console log - graceful end
-                            return None
-                
+                        # Check partials too for faster response
+                        print(f"📝 Partial: {result.text}")
+                        
+                        # Build full text including partial
+                        full_text = accumulated_text + " " + result.text if accumulated_text else result.text
+                        full_text_lower = full_text.lower()
+                        
+                        # Check for send phrases in partial (for instant response)
+                        for send_phrase in SEND_PHRASES:
+                            if send_phrase.lower() in full_text_lower:
+                                print(f"⚡ Send phrase detected in partial: '{send_phrase}' (instant send!)")
+                                beep_send_detected()  # 🔔 Send phrase sound
+                                # Remove the send phrase
+                                import re
+                                pattern = re.compile(re.escape(send_phrase), re.IGNORECASE)
+                                cleaned_text = pattern.sub("", full_text).strip()
+                                cleaned_text = " ".join(cleaned_text.split())
+                                return cleaned_text if cleaned_text else None
+                        
+                        # Check for termination phrases in partial
+                        for term_phrase in TERMINATION_PHRASES:
+                            if term_phrase.lower() in full_text_lower:
+                                print(f"🛑 Termination phrase detected in partial: '{term_phrase}'")
+                                beep_shutdown()  # 🔔 Shutdown/goodbye sound
+                                log_conversation_end()  # 📡 Remote console log - graceful end
+                                return None
                 except asyncio.TimeoutError:
-                    # Timeout waiting for transcription - check if we should auto-send
                     if AUTO_SEND_SILENCE_TIMEOUT > 0 and accumulated_text:
                         print(f"⏱️  Auto-sending after {AUTO_SEND_SILENCE_TIMEOUT:.0f}s of silence...")
                         beep_send_detected()  # 🔔 Send phrase sound
                         return accumulated_text
-                    # Otherwise continue waiting
                     continue
                     
                 except StopAsyncIteration:
                     # Stream ended naturally
                     break
-            
+                    
             # If stream ends naturally without send phrase, return accumulated text
             return accumulated_text if accumulated_text else None
             
@@ -564,6 +569,15 @@ class RefactoredOrchestrator:
                 context = self._context.get_recent_for_response()
                 # Get compact context for tool decisions
                 tool_context = self._context.get_tool_context()
+                
+                # Retrieve relevant past conversations from vector memory
+                # Use vector_query_text if provided (raw single message), otherwise user_message
+                if hasattr(self._context, 'get_vector_memory_context'):
+                    query_for_vector = getattr(self, '_vector_query_override', None) or user_message
+                    vector_context = await self._context.get_vector_memory_context(query_for_vector)
+                    if vector_context:
+                        # Inject vector memory as a system message in context
+                        context.insert(1, {"role": "system", "content": vector_context})
             
             # Stream response with context
             print("💭 Generating response...")
@@ -782,6 +796,15 @@ class RefactoredOrchestrator:
             # Get context
             context = self._context.get_recent_for_response() if self._context else None
             tool_context = self._context.get_tool_context() if self._context else None
+            
+            # Retrieve relevant past conversations from vector memory
+            # Use vector_query_override if set (raw single message), otherwise user_message
+            if self._context and hasattr(self._context, 'get_vector_memory_context'):
+                query_for_vector = getattr(self, '_vector_query_override', None) or user_message
+                vector_context = await self._context.get_vector_memory_context(query_for_vector)
+                if vector_context and context:
+                    # Inject vector memory as a system message in context
+                    context.insert(1, {"role": "system", "content": vector_context})
             
             # Setup barge-in detection
             if enable_barge_in and self._barge_in_enabled:
@@ -1057,16 +1080,26 @@ class RefactoredOrchestrator:
                         break
                     
                     # Handle early barge-in: append to previous message
+                    # Store the raw new message BEFORE combining (for next potential append)
+                    raw_new_message = user_text
+                    
                     if self._early_barge_in and self._previous_user_message:
                         combined_text = f"{self._previous_user_message} {user_text}"
                         print("🔗 Early barge-in: appending to previous message")
                         print(f"   Previous: \"{self._previous_user_message}\"")
                         print(f"   Added: \"{user_text}\"")
                         user_text = combined_text
-                        self._early_barge_in = False
                     
-                    # Store current message for potential early barge-in append
-                    self._previous_user_message = user_text
+                    # Always reset early barge-in flag after processing
+                    self._early_barge_in = False
+                    
+                    # Store only the RAW new message (not combined) for potential early barge-in append
+                    # This prevents accumulation: A, then A+B, then A+B+C...
+                    self._previous_user_message = raw_new_message
+                    
+                    # Set vector query to use ONLY the raw new message (not combined)
+                    # This ensures vector search is always for the single most recent utterance
+                    self._vector_query_override = raw_new_message
                     
                     print(f"\n👤 User: {user_text}\n")
                     
@@ -1095,10 +1128,10 @@ class RefactoredOrchestrator:
                             await self._recorder.record_message("assistant", assistant_text)
                     else:
                         # Traditional mode: generate full response, then speak
-                    assistant_text = await self.run_response(user_text)
-                    if not assistant_text:
-                        print("⚠️  No response generated")
-                        continue  # Try next question
+                        assistant_text = await self.run_response(user_text)
+                        if not assistant_text:
+                            print("⚠️  No response generated")
+                            continue  # Try next question
                     
                     print(f"\n🤖 Assistant: {assistant_text}\n")
                     
@@ -1119,6 +1152,9 @@ class RefactoredOrchestrator:
                         await self.state_machine.transition_to(AudioState.IDLE)
                         print("🎤 Ready for next question (or say termination phrase)...\n")
                         beep_ready_to_listen()  # 🔔 Ready for next question sound
+                        # Clear previous message since response completed without barge-in
+                        self._previous_user_message = ""
+                        self._vector_query_override = None
                     else:
                         # Barge-in occurred! Skip IDLE and go directly to transcription
                         # The captured audio will be prefilled to transcription

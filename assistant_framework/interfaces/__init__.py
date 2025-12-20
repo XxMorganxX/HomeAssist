@@ -7,11 +7,17 @@ from .response import ResponseInterface
 from .text_to_speech import TextToSpeechInterface
 from .context import ContextInterface
 from .wake_word import WakeWordInterface
+from .embedding import EmbeddingInterface
+from .vector_store import VectorStoreInterface, VectorSearchResult, VectorRecord
 
 __all__ = [
     'TranscriptionInterface',
     'ResponseInterface',
     'TextToSpeechInterface',
     'ContextInterface',
-    'WakeWordInterface'
+    'WakeWordInterface',
+    'EmbeddingInterface',
+    'VectorStoreInterface',
+    'VectorSearchResult',
+    'VectorRecord',
 ]

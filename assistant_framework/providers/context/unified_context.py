@@ -12,6 +12,7 @@ try:
     from ...models.data_models import ConversationMessage, MessageRole
     from ...utils.conversation_summarizer import ConversationSummarizer
     from ...utils.persistent_memory import PersistentMemoryManager
+    from ...utils.vector_memory import VectorMemoryManager
 except ImportError:
     # Fall back to absolute imports (when run as module)
     import sys
@@ -21,6 +22,7 @@ except ImportError:
     from models.data_models import ConversationMessage, MessageRole
     from utils.conversation_summarizer import ConversationSummarizer
     from utils.persistent_memory import PersistentMemoryManager
+    from utils.vector_memory import VectorMemoryManager
 
 
 class UnifiedContextProvider(ContextInterface):
@@ -54,6 +56,11 @@ class UnifiedContextProvider(ContextInterface):
         # Initialize persistent memory manager
         persistent_memory_config = config.get('persistent_memory', {})
         self._persistent_memory = PersistentMemoryManager(persistent_memory_config) if persistent_memory_config.get('enabled', False) else None
+        
+        # Initialize vector memory manager
+        vector_memory_config = config.get('vector_memory', {})
+        self._vector_memory = VectorMemoryManager(vector_memory_config) if vector_memory_config.get('enabled', False) else None
+        self._vector_memory_initialized = False
         
         # Conversation history
         self.conversation_history: List[ConversationMessage] = []
@@ -356,11 +363,8 @@ class UnifiedContextProvider(ContextInterface):
     def on_conversation_end(self) -> None:
         """
         Called when a conversation session ends.
-        Triggers persistent memory update with the current conversation summary.
+        Triggers persistent memory update and vector memory storage.
         """
-        if not self._persistent_memory:
-            return
-        
         # Get the current conversation summary
         conversation_summary = None
         if self._summarizer and self._summarizer.current_summary:
@@ -378,9 +382,61 @@ class UnifiedContextProvider(ContextInterface):
                 ])
         
         if conversation_summary:
-            self._persistent_memory.update_after_conversation(conversation_summary)
+            # Update persistent memory (extracts facts)
+            if self._persistent_memory:
+                self._persistent_memory.update_after_conversation(conversation_summary)
+            
+            # Store in vector memory (semantic search)
+            if self._vector_memory and self._vector_memory_initialized:
+                import asyncio
+                try:
+                    # Run async storage in background
+                    loop = asyncio.get_event_loop()
+                    if loop.is_running():
+                        asyncio.create_task(self._store_in_vector_memory(conversation_summary))
+                    else:
+                        loop.run_until_complete(self._store_in_vector_memory(conversation_summary))
+                except Exception as e:
+                    print(f"⚠️  Failed to store in vector memory: {e}")
+    
+    async def _store_in_vector_memory(self, summary: str) -> None:
+        """Store conversation summary in vector memory."""
+        if self._vector_memory:
+            await self._vector_memory.store_conversation(summary)
+    
+    async def initialize_vector_memory(self) -> bool:
+        """Initialize the vector memory manager (call once at startup)."""
+        if not self._vector_memory:
+            return True
+        
+        if self._vector_memory_initialized:
+            return True
+        
+        success = await self._vector_memory.initialize()
+        self._vector_memory_initialized = success
+        return success
+    
+    async def get_vector_memory_context(self, user_message: str) -> str:
+        """
+        Retrieve relevant past conversations for context enrichment.
+        
+        Args:
+            user_message: The user's current message
+            
+        Returns:
+            Formatted context string with relevant past conversations
+        """
+        if not self._vector_memory or not self._vector_memory_initialized:
+            return ""
+        
+        return await self._vector_memory.get_context_enrichment(user_message)
     
     @property
     def persistent_memory(self) -> Optional[PersistentMemoryManager]:
         """Get the persistent memory manager."""
         return self._persistent_memory
+    
+    @property
+    def vector_memory(self) -> Optional[VectorMemoryManager]:
+        """Get the vector memory manager."""
+        return self._vector_memory

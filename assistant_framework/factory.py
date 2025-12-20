@@ -14,7 +14,7 @@ try:
         ContextInterface,
         WakeWordInterface
     )
-    from .providers.transcription_v2 import AssemblyAIAsyncProvider
+    from .providers.transcription_v2 import AssemblyAIAsyncProvider, OpenAIWhisperProvider
     from .providers.response import OpenAIWebSocketResponseProvider
     from .providers.tts import GoogleTTSProvider, LocalTTSProvider
     from .providers.context import UnifiedContextProvider
@@ -28,7 +28,7 @@ except ImportError:
         ContextInterface,
         WakeWordInterface
     )
-    from assistant_framework.providers.transcription_v2 import AssemblyAIAsyncProvider
+    from assistant_framework.providers.transcription_v2 import AssemblyAIAsyncProvider, OpenAIWhisperProvider
     from assistant_framework.providers.response import OpenAIWebSocketResponseProvider
     from assistant_framework.providers.tts import GoogleTTSProvider, LocalTTSProvider
     from assistant_framework.providers.context import UnifiedContextProvider
@@ -41,6 +41,7 @@ class ProviderFactory:
     # Provider registries (v2 providers - segfault-safe)
     TRANSCRIPTION_PROVIDERS = {
         'assemblyai': AssemblyAIAsyncProvider,
+        'openai_whisper': OpenAIWhisperProvider,
     }
     
     RESPONSE_PROVIDERS = {

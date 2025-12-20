@@ -263,20 +263,20 @@ class AssemblyAIAsyncProvider(StreamingProviderBase, TranscriptionInterface):
             
             # Connect if still not connected
             if not self.is_preconnected:
-        print("🌐 Connecting to AssemblyAI...")
+                print("🌐 Connecting to AssemblyAI...")
                 # Ensure we have a session
                 if not self._session or self._session.closed:
-        self._session = aiohttp.ClientSession()
-        try:
-            self._ws = await self._session.ws_connect(
-                self.api_endpoint,
-                headers={"Authorization": self.api_key},
-                heartbeat=30
-            )
-            print(f"✅ WebSocket connected")
-        except Exception as e:
-            print(f"❌ WebSocket connection failed: {e}")
-            raise
+                    self._session = aiohttp.ClientSession()
+                try:
+                    self._ws = await self._session.ws_connect(
+                        self.api_endpoint,
+                        headers={"Authorization": self.api_key},
+                        heartbeat=30
+                    )
+                    print(f"✅ WebSocket connected")
+                except Exception as e:
+                    print(f"❌ WebSocket connection failed: {e}")
+                    raise
         
         # Clear pre-connect state (connection is now in use)
         self._preconnected = False

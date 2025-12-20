@@ -1,0 +1,54 @@
+---
+description: Keep SETUP.md documentation in sync with code changes
+globs: ["assistant_framework/config.py", "mcp_server/config.py", ".env*", "assistant_framework/config_models.py"]
+alwaysApply: true
+---
+
+# Documentation Sync Rule
+
+When modifying configuration, environment variables, or startup settings in this project, **progressively update SETUP.md** to reflect those changes.
+
+## When to Update SETUP.md
+
+Update the documentation when changes are made to:
+
+1. **Environment Variables** — Any new `os.getenv()` or `os.environ` usage
+2. **Config Settings** — New or modified entries in `config.py` or `config_models.py`
+3. **Provider Options** — New providers or provider configuration changes
+4. **Boot/Startup Settings** — Changes to how the assistant initializes
+5. **User Preferences** — New configurable user preferences or defaults
+6. **MCP Tools** — New tools or tool configuration in `mcp_server/`
+
+## SETUP.md Structure to Maintain
+
+Keep these sections updated:
+
+- **Environment Variables** — Required and optional variables with descriptions
+- **Configuration Overview** — Config file sections and their purposes
+- **Smart Home Setup** — MCP server tools and integration settings
+- **Troubleshooting** — Common issues related to configuration
+
+## Formatting Rules
+
+When updating SETUP.md, follow these conventions:
+
+- Use bullet points for lists (not tables)
+- Format: `VARIABLE_NAME` — Description
+- Include code examples for new config options
+- Add 💡 tips for non-obvious settings
+- Add ⚠️ warnings for breaking changes
+
+## Example
+
+If adding a new environment variable:
+
+```python
+# In config.py
+NEW_FEATURE_KEY = os.getenv("NEW_FEATURE_KEY")
+```
+
+Then add to SETUP.md under the appropriate section:
+
+```markdown
+- `NEW_FEATURE_KEY` — Description of what this key enables
+```
