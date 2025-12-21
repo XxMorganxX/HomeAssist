@@ -7,6 +7,8 @@ Key improvements:
 - **Barge-in support** – Interrupt the assistant mid-response by speaking
 - **Process isolation** – Wake word detection runs in a separate process to prevent model corruption
 - **Clean state transitions** – A state machine ensures components don't conflict
+- **Persistent memory** – Remembers facts, preferences, and patterns about you across sessions
+- **Vector memory** – Semantic search of past conversations using 3072-dim embeddings
 
 ---
 
@@ -106,6 +108,8 @@ All settings live in `assistant_framework/config.py`, organized into sections:
 | Wake Word | Detection threshold, cooldown timing |
 | Barge-In | Interrupt sensitivity and buffering |
 | Conversation Flow | Trigger phrases ("send it", "scratch that") |
+| Persistent Memory | Facts, preferences, and patterns extraction |
+| Vector Memory | Semantic search of past conversations (Supabase + pgvector) |
 
 ### Changing the TTS provider
 
@@ -137,6 +141,29 @@ The assistant can control smart home devices and access services through MCP (Mo
 - **Google Search** – Search the web with AI summaries
 
 Tools can be enabled/disabled in `mcp_server/tools_config.py`.
+
+---
+
+## Memory Systems
+
+HomeAssist has two complementary memory systems:
+
+### Persistent Memory
+Extracts and stores structured information:
+- **User profile** – Name, location, preferences
+- **Known facts** – Explicit user information ("my sister is a dog whisperer")
+- **Patterns** – Behavioral observations with strength levels (weak → confirmed)
+
+Stored in `state_management/persistent_memory.json`.
+
+### Vector Memory
+Semantic search over past conversations:
+- **3072-dim embeddings** via OpenAI `text-embedding-3-large`
+- **K-fold partitioning** – Long conversations stored as overlapping windows
+- **Smart retrieval** – Returns top 1-2 results based on similarity gap
+- **Context injection** – Relevant past conversations added to each prompt
+
+Requires Supabase with pgvector extension. See SETUP.md for database setup.
 
 ---
 

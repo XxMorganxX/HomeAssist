@@ -191,25 +191,47 @@ Memory is stored in `state_management/persistent_memory.json` and includes:
 
 #### Vector Memory (Semantic Search)
 
-Long-term semantic memory that stores conversation summaries as embeddings:
+Long-term semantic memory that stores conversation summaries as high-dimensional embeddings:
 
 ```python
 VECTOR_MEMORY_CONFIG = {
     "enabled": True,
-    "embedding_model": "text-embedding-3-small",
-    "retrieve_top_k": 3,           # Max past conversations to retrieve
-    "relevance_threshold": 0.7,    # Min similarity score
+    "embedding_model": "text-embedding-3-large",  # 3072 dimensions
+    "embedding_dimensions": 3072,
+    "retrieve_top_k": 3,           # Initial retrieval count
+    "relevance_threshold": 0.0,    # No minimum (smart filtering instead)
     "max_age_days": 90,            # Ignore old memories
 }
 ```
 
-This enables:
+**Features:**
 
-- 🔍 Semantic search of past conversations ("remember when we talked about...")
-- 📚 Context enrichment from relevant past discussions
-- 🧠 Long-term memory beyond extracted facts
+- 🔍 **Semantic search** — Find past conversations by meaning, not keywords
+- 📐 **3072-dim embeddings** — Higher quality than small model (64.6% vs 62.3% MTEB)
+- 🪟 **K-fold partitioning** — Long conversations (>4 turns) stored as overlapping windows
+- 🎯 **Smart retrieval** — Returns top 2 if similar scores, otherwise just top 1 (6% gap threshold)
+- 📤 **Context injection** — Relevant memories added as system message before each response
 
-> ⚠️ **Supabase Setup Required:** Run the SQL from `vector_memory.get_setup_sql()` in Supabase SQL editor to create the pgvector table.
+**Supabase Setup:**
+
+1. Enable pgvector extension:
+```sql
+CREATE EXTENSION IF NOT EXISTS vector;
+```
+
+2. Create the memories table (3072 dimensions, no index for simplicity):
+```sql
+CREATE TABLE conversation_memories (
+    id TEXT PRIMARY KEY,
+    embedding vector(3072),
+    text TEXT NOT NULL,
+    metadata JSONB DEFAULT '{}',
+    created_at TIMESTAMPTZ DEFAULT NOW(),
+    updated_at TIMESTAMPTZ DEFAULT NOW()
+);
+```
+
+> 💡 **Note:** No index is needed for < 10k vectors. Search latency is ~50ms which is negligible for voice.
 
 ---
 
