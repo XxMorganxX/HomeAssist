@@ -51,6 +51,8 @@ def _wake_word_worker(config: Dict[str, Any], event_queue: mp.Queue, stop_event:
     model_path = config['model_path']
     input_device_index = config.get('input_device_index')
     verbose = config.get('verbose', False)
+    suppress_overflow = config.get('suppress_overflow_warnings', False)
+    latency = config.get('latency', 'high')  # 'high' for Bluetooth devices
     inference_framework = config.get('inference_framework', 'onnx')
     melspec_model = config.get('melspec_model')
     embed_model = config.get('embed_model')
@@ -69,12 +71,17 @@ def _wake_word_worker(config: Dict[str, Any], event_queue: mp.Queue, stop_event:
         print(f"✅ [Worker] Model initialized")
         
         # Open audio stream
+        # Use configurable latency - 'high' for Bluetooth devices to handle bursty audio
+        bt_mode = " [Bluetooth mode]" if suppress_overflow else ""
+        print(f"🎤 [Worker] Opening audio stream{bt_mode}")
+        print(f"   Device: {input_device_index or 'default'}, Blocksize: {chunk}, Latency: '{latency}'")
         stream = sd.InputStream(
             samplerate=sample_rate,
             channels=1,
             dtype='int16',
             blocksize=chunk,
-            device=input_device_index
+            device=input_device_index,
+            latency=latency
         )
         stream.start()
         print(f"✅ [Worker] Audio stream started")
@@ -88,7 +95,7 @@ def _wake_word_worker(config: Dict[str, Any], event_queue: mp.Queue, stop_event:
             try:
                 # Read audio
                 audio_data, overflowed = stream.read(chunk)
-                if overflowed and verbose:
+                if overflowed and verbose and not suppress_overflow:
                     print("⚠️  [Worker] Audio overflow")
                 
                 audio = audio_data.flatten().astype(np.int16)

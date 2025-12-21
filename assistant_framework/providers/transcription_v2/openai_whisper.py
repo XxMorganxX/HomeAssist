@@ -76,9 +76,12 @@ class OpenAIWhisperProvider(StreamingProviderBase, TranscriptionInterface):
         self.silence_threshold = config.get('silence_threshold', 0.01)
         self.silence_duration = config.get('silence_duration', 1.5)  # Seconds of silence for final
         
-        # Audio settings
-        self.frames_per_buffer = 3200  # 200ms at 16kHz
+        # Audio settings - can be overridden by config for device-specific values
+        self.frames_per_buffer = config.get('frames_per_buffer', 1024)  # 64ms at 16kHz
         self.channels = 1
+        self._device_index = config.get('device_index')
+        self._latency = config.get('latency', 'high')
+        self._is_bluetooth = config.get('is_bluetooth', False)
         
         # State
         self.audio_manager = get_audio_manager()
@@ -206,12 +209,16 @@ class OpenAIWhisperProvider(StreamingProviderBase, TranscriptionInterface):
         self.session_id = f"whisper_{datetime.now().strftime('%Y%m%d_%H%M%S')}"
         
         # Open audio stream
-        print("🎙️  Opening Whisper transcription audio stream...")
+        bt_mode = " [Bluetooth]" if self._is_bluetooth else ""
+        print(f"🎙️  Opening Whisper transcription audio stream{bt_mode}...")
+        print(f"   Device: {self._device_index or 'default'}, Blocksize: {self.frames_per_buffer}, Latency: '{self._latency}'")
         self._audio_stream = sd.InputStream(
+            device=self._device_index,
             samplerate=self.sample_rate,
             channels=self.channels,
             dtype='int16',
             blocksize=self.frames_per_buffer,
+            latency=self._latency,
             callback=self._audio_callback
         )
         self._audio_stream.start()

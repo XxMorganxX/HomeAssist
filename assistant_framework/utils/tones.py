@@ -66,7 +66,8 @@ def _beep_impl_end() -> None:
 def _beep_impl_ready() -> None:
     """Distinct beep indicating ready to listen again."""
     _beep_platform(
-        mac_sounds=["Tink", "Glass"],
+        # Use a very distinct sound to avoid confusion with listening_start ("Tink")
+        mac_sounds=["Frog", "Bottle"],
         linux_ids=["audio-volume-change", "bell"],
         win_tone=(1400, 100),
     )
@@ -207,6 +208,7 @@ def _beep_impl_system_ready() -> None:
 def _beep_impl_listening() -> None:
     """Short high beep for listening start."""
     _beep_platform(
+        # Keep this crisp; distinct from ready_to_listen ("Frog")
         mac_sounds=["Tink"],
         linux_ids=["audio-channel-front-center"],
         win_tone=(1500, 80),
@@ -260,14 +262,15 @@ def _beep_impl_shutdown() -> None:
 def _beep_impl_wake_model_ready() -> None:
     """Quick double-beep for wake word model ready."""
     _beep_platform(
-        mac_sounds=["Pop"],
+        # Avoid "Pop" because it's also used by other events; "Purr" is unique/distinct.
+        mac_sounds=["Purr"],
         linux_ids=["device-added", "bell"],
         win_tone=(1100, 60),
     )
     import time
     time.sleep(0.05)
     _beep_platform(
-        mac_sounds=["Pop"],
+        mac_sounds=["Purr"],
         linux_ids=["bell"],
         win_tone=(1100, 60),
     )

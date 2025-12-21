@@ -57,9 +57,16 @@ class AssemblyAIAsyncProvider(StreamingProviderBase, TranscriptionInterface):
         
         self.sample_rate = config.get('sample_rate', 16000)
         self.format_turns = config.get('format_turns', True)
-        self.frames_per_buffer = 3200  # 200ms at 16kHz (larger buffer to prevent overflow)
+        # frames_per_buffer = blocksize for sd.InputStream
+        # Default 1024 = 64ms at 16kHz (good for Bluetooth)
+        self.frames_per_buffer = config.get('frames_per_buffer', 1024)
         self.channels = 1
         self._audio_queue: Optional[asyncio.Queue] = None  # Queue for decoupling audio callback from WebSocket send
+        
+        # Device-specific settings from config
+        self._device_index = config.get('device_index')
+        self._latency = config.get('latency', 'high')  # 'high' handles Bluetooth bursts better
+        self._is_bluetooth = config.get('is_bluetooth', False)
         
         # WebSocket URL
         connection_params = {
@@ -188,7 +195,11 @@ class AssemblyAIAsyncProvider(StreamingProviderBase, TranscriptionInterface):
             return  # Don't process if shutting down
         
         if status:
-            print(f"⚠️  Audio callback status: {status}")
+            if status.input_overflow:
+                # Audio arriving faster than we can process - usually sample rate mismatch
+                print(f"⚠️  Audio OVERFLOW - try increasing frames_per_buffer in config or check device sample rate")
+            else:
+                print(f"⚠️  Audio callback status: {status}")
         
         try:
             # Copy audio data (callback data is only valid during callback)
@@ -235,15 +246,21 @@ class AssemblyAIAsyncProvider(StreamingProviderBase, TranscriptionInterface):
             raise RuntimeError("Failed to acquire audio for transcription")
         
         # Create audio queue BEFORE opening stream (callback may fire immediately)
-        self._audio_queue = asyncio.Queue(maxsize=20)  # Buffer up to 20 chunks (4 seconds at 200ms/chunk)
+        # Larger queue for Bluetooth devices which can have bursty delivery
+        self._audio_queue = asyncio.Queue(maxsize=50)  # Buffer up to 50 chunks
         
         # Open audio stream with CALLBACK (not blocking reads!)
-        print("🎙️  Opening transcription audio stream (callback mode)...")
+        bt_mode = " [Bluetooth]" if self._is_bluetooth else ""
+        print(f"🎙️  Opening transcription audio stream (callback mode){bt_mode}...")
+        print(f"   Device: {self._device_index or 'default'}, Rate: {self.sample_rate}Hz")
+        print(f"   Blocksize: {self.frames_per_buffer} frames ({self.frames_per_buffer/self.sample_rate*1000:.0f}ms), Latency: '{self._latency}'")
         self._audio_stream = sd.InputStream(
+            device=self._device_index,
             samplerate=self.sample_rate,
             channels=self.channels,
             dtype='int16',
             blocksize=self.frames_per_buffer,
+            latency=self._latency,
             callback=self._audio_callback  # CRITICAL: Use callback instead of blocking reads
         )
         self._audio_stream.start()

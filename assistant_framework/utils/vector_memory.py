@@ -3,6 +3,11 @@ Vector Memory Manager.
 
 Orchestrates embedding generation and vector storage for semantic memory.
 Stores conversation summaries and retrieves relevant past context.
+
+Features:
+- Local numpy cache for fast similarity search (~1ms vs ~50ms)
+- Background sync with Supabase (source of truth)
+- K-fold partitioning for long conversations
 """
 
 import uuid
@@ -14,10 +19,12 @@ try:
     from ..interfaces.vector_store import VectorRecord, VectorSearchResult
     from ..providers.embedding import OpenAIEmbeddingProvider
     from ..providers.vector_store import SupabasePgVectorStore
+    from .local_vector_cache import LocalVectorCache, CachedVector, SearchResult
 except ImportError:
     from assistant_framework.interfaces.vector_store import VectorRecord, VectorSearchResult
     from assistant_framework.providers.embedding import OpenAIEmbeddingProvider
     from assistant_framework.providers.vector_store import SupabasePgVectorStore
+    from assistant_framework.utils.local_vector_cache import LocalVectorCache, CachedVector, SearchResult
 
 
 @dataclass
@@ -78,7 +85,12 @@ class VectorMemoryManager:
         # Initialize providers
         self._embedding_provider = None
         self._vector_store = None
+        self._local_cache = None
         self._initialized = False
+        
+        # Cache settings
+        self._cache_enabled = config.get("local_cache_enabled", True)
+        self._preload_on_startup = config.get("preload_on_startup", True)
         
         # Build provider configs
         embedding_provider_name = config.get("embedding_provider", "openai")
@@ -91,11 +103,19 @@ class VectorMemoryManager:
         }
         
         # Vector store config
+        embedding_dimensions = config.get("embedding_dimensions", 3072)
         self._vector_store_config = {
             "url": config.get("supabase_url"),
             "key": config.get("supabase_key"),
             "table_name": config.get("table_name", "conversation_memories"),
-            "embedding_dimensions": config.get("embedding_dimensions", 3072),
+            "embedding_dimensions": embedding_dimensions,
+        }
+        
+        # Local cache config
+        self._cache_config = {
+            "embedding_dimensions": embedding_dimensions,
+            "max_cached_vectors": config.get("max_cached_vectors", 10000),
+            "sync_interval_seconds": config.get("sync_interval_seconds", 300),
         }
         
         # Create providers
@@ -104,9 +124,13 @@ class VectorMemoryManager:
         
         if vector_store_provider_name == "supabase":
             self._vector_store = SupabasePgVectorStore(self._vector_store_config)
+        
+        # Create local cache
+        if self._cache_enabled:
+            self._local_cache = LocalVectorCache(self._cache_config)
     
     async def initialize(self) -> bool:
-        """Initialize embedding and vector store providers."""
+        """Initialize embedding and vector store providers, and load cache."""
         if not self.enabled:
             return True
         
@@ -126,6 +150,10 @@ class VectorMemoryManager:
                     print("⚠️  Failed to initialize vector store")
                     return False
             
+            # Load vectors into local cache
+            if self._local_cache and self._preload_on_startup:
+                await self._load_cache_from_database()
+            
             self._initialized = True
             print("✅ Vector memory manager initialized")
             return True
@@ -133,6 +161,68 @@ class VectorMemoryManager:
         except Exception as e:
             print(f"❌ Vector memory initialization error: {e}")
             return False
+    
+    async def _load_cache_from_database(self) -> int:
+        """
+        Load all vectors from Supabase into local cache.
+        
+        Returns:
+            Number of vectors loaded
+        """
+        if not self._vector_store or not self._local_cache:
+            return 0
+        
+        try:
+            print("📥 Loading vectors from database into local cache...")
+            
+            # Build metadata filter for user isolation
+            filter_metadata = {"user_id": self.user_id}
+            if self.console_token:
+                filter_metadata["console_token"] = self.console_token
+            
+            # Fetch all vectors from Supabase
+            # Note: This queries the table directly, not via similarity search
+            table_name = self._vector_store_config.get("table_name", "conversation_memories")
+            
+            query = self._vector_store._client.table(table_name).select("*")
+            
+            # Apply metadata filters
+            for key, value in filter_metadata.items():
+                query = query.contains("metadata", {key: value})
+            
+            # Limit to max cache size
+            query = query.limit(self._local_cache.max_vectors)
+            
+            response = query.execute()
+            
+            if response.data:
+                # Initialize cache with the vectors
+                loaded = await self._local_cache.initialize(response.data)
+                return loaded
+            else:
+                print("📦 No existing vectors found in database")
+                return 0
+                
+        except Exception as e:
+            print(f"⚠️  Failed to load cache from database: {e}")
+            import traceback
+            traceback.print_exc()
+            return 0
+    
+    async def sync_cache(self) -> int:
+        """
+        Sync local cache with database (pull latest).
+        
+        Returns:
+            Number of vectors synced
+        """
+        return await self._load_cache_from_database()
+    
+    def get_cache_stats(self) -> Dict[str, Any]:
+        """Get local cache statistics."""
+        if self._local_cache:
+            return self._local_cache.get_stats()
+        return {"enabled": False}
     
     def _parse_turns(self, conversation: str) -> List[Dict[str, str]]:
         """
@@ -393,12 +483,26 @@ class VectorMemoryManager:
                     metadata=record_metadata
                 ))
             
-            # Store all records
+            # Store all records in Supabase
             stored_count = await self._vector_store.store_batch(records)
+            
+            # Also add to local cache for immediate availability
+            if self._local_cache and stored_count > 0:
+                cached_vectors = []
+                for record in records:
+                    cached_vectors.append(CachedVector(
+                        id=record.id,
+                        embedding=record.embedding,
+                        text=record.text,
+                        metadata=record.metadata,
+                        created_at=datetime.utcnow()
+                    ))
+                await self._local_cache.add_batch(cached_vectors)
             
             if stored_count > 0:
                 num_windows = len(records) - 1  # Subtract the full conversation
-                print(f"🧠 Stored {len(records)} vectors (1 full + {num_windows} overlapping windows, k={k}) for {num_turns} turns")
+                cache_info = f" (cache: {self._local_cache.size})" if self._local_cache else ""
+                print(f"🧠 Stored {len(records)} vectors (1 full + {num_windows} overlapping windows, k={k}) for {num_turns} turns{cache_info}")
             
             return stored_count > 0
             
@@ -450,13 +554,41 @@ class VectorMemoryManager:
             if self.console_token:
                 filter_metadata["console_token"] = self.console_token
             
-            # Search vector store
-            results = await self._vector_store.search(
-                query_embedding=query_embedding,
-                top_k=top_k * 2,  # Get more, filter by age
-                min_similarity=min_similarity,
-                filter_metadata=filter_metadata
-            )
+            # Use local cache if available and populated
+            if self._local_cache and self._local_cache.size > 0:
+                # Fast local search
+                import time
+                start = time.perf_counter()
+                
+                cache_results = await self._local_cache.search(
+                    query_embedding=query_embedding,
+                    top_k=top_k * 2,  # Get more, filter by age
+                    min_similarity=min_similarity,
+                    filter_metadata=filter_metadata
+                )
+                
+                elapsed_ms = (time.perf_counter() - start) * 1000
+                print(f"⚡ Cache search: {len(cache_results)} results in {elapsed_ms:.1f}ms")
+                
+                # Convert cache results to standard format
+                results = []
+                for cr in cache_results:
+                    results.append(VectorSearchResult(
+                        id=cr.id,
+                        similarity=cr.similarity,
+                        text=cr.text,
+                        metadata=cr.metadata,
+                        created_at=cr.created_at
+                    ))
+            else:
+                # Fall back to Supabase
+                print("📡 Using Supabase (cache empty)")
+                results = await self._vector_store.search(
+                    query_embedding=query_embedding,
+                    top_k=top_k * 2,  # Get more, filter by age
+                    min_similarity=min_similarity,
+                    filter_metadata=filter_metadata
+                )
             
             # Filter by age
             cutoff_date = datetime.utcnow() - timedelta(days=self.max_age_days)

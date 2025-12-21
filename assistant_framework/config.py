@@ -9,7 +9,7 @@ import multiprocessing
 from pathlib import Path
 from typing import Dict, Any, Optional
 from dotenv import load_dotenv
-from assistant_framework.utils.device_manager import get_emeet_device
+from assistant_framework.utils.device_manager import get_emeet_device, get_audio_device_config
 
 
 # =============================================================================
@@ -65,7 +65,8 @@ WAKEWORD_PROVIDER = "openwakeword"
 ASSEMBLYAI_CONFIG = {
     "api_key": os.getenv("ASSEMBLYAI_API_KEY"),
     "sample_rate": 16000,
-    "format_turns": True
+    "format_turns": True,
+    "frames_per_buffer": 3200,  # Default; auto-adjusted if Ray-Bans detected
 }
 
 # OpenAI Whisper transcription configuration (alternative to AssemblyAI)
@@ -84,68 +85,273 @@ OPENAI_WHISPER_CONFIG = {
 # SECTION 4: RESPONSE / LLM CONFIGURATION (OpenAI)
 # =============================================================================
 
-# System prompt defining the assistant's personality and capabilities
-SYSTEM_PROMPT = """
-You're Morgan's personal AI assistant. Talk to him like a friend - casual, real, no corporate BS.
+# =============================================================================
+# System Prompt Parser - Converts structured dict to formatted string
+# =============================================================================
+
+def build_system_prompt(config: dict) -> str:
+    """
+    Convert a structured system prompt dictionary into a formatted string.
+    
+    Handles:
+    - name/role: Combined into opening line
+    - north_star: Mission statement  
+    - vibe: List of traits
+    - voice/metaphor/profanity/tools/transparency: Nested dicts with rules
+    - behavior/response_shape: Lists of rules
+    - example: Example response
+    """
+    sections = []
+    
+    # Opening identity line
+    name = config.get("name", "Assistant")
+    role = config.get("role", "assistant").replace("_", " ")
+    sections.append(f"You are {name}, a {role}.")
+    
+    # North star / mission
+    if "north_star" in config:
+        sections.append(f"MISSION: {config['north_star']}")
+    
+    # Vibe / traits
+    if "vibe" in config:
+        vibe_items = config["vibe"]
+        traits = ", ".join(v.replace("_", " ") for v in vibe_items)
+        sections.append(f"VIBE: {traits}")
+    
+    # Voice settings
+    if "voice" in config:
+        voice = config["voice"]
+        lines = ["VOICE:"]
+        for key, val in voice.items():
+            lines.append(f"- {key}: {val}")
+        sections.append("\n".join(lines))
+
+    # Formatting / response style (how it should *look*)
+    if "formatting" in config:
+        fmt = config["formatting"]
+        lines = ["FORMAT:"]
+        for key, val in fmt.items():
+            if isinstance(val, list):
+                lines.append(f"- {key}:")
+                for item in val:
+                    lines.append(f"  - {item}")
+            else:
+                lines.append(f"- {key}: {val}")
+        sections.append("\n".join(lines))
+    
+    # Metaphor rules
+    if "metaphor" in config:
+        meta = config["metaphor"]
+        lines = ["METAPHOR:"]
+        for key, val in meta.items():
+            if isinstance(val, list):
+                lines.append(f"- {key}:")
+                for item in val:
+                    lines.append(f"  - {item}")
+            else:
+                lines.append(f"- {key}: {val}")
+        sections.append("\n".join(lines))
+    
+    # Profanity policy
+    if "profanity" in config:
+        prof = config["profanity"]
+        lines = ["PROFANITY:"]
+        for key, val in prof.items():
+            if isinstance(val, list):
+                if key == "examples":
+                    lines.append(f"- examples: {', '.join(val)}")
+                else:
+                    for item in val:
+                        lines.append(f"- {item}")
+            else:
+                lines.append(f"- {key}: {val}")
+        sections.append("\n".join(lines))
+    
+    # Tools
+    if "tools" in config:
+        tools = config["tools"]
+        lines = ["TOOLS:"]
+        if "use_when" in tools:
+            lines.append(f"- USE for: {', '.join(tools['use_when'])}")
+        if "dont_use_when" in tools:
+            lines.append(f"- DON'T USE for: {', '.join(tools['dont_use_when'])}")
+        if "rule" in tools:
+            lines.append(f"- {tools['rule']}")
+        sections.append("\n".join(lines))
+    
+    # Behavior rules
+    if "behavior" in config:
+        lines = ["BEHAVIOR:"]
+        for rule in config["behavior"]:
+            lines.append(f"- {rule}")
+        sections.append("\n".join(lines))
+    
+    # Transparency
+    if "transparency" in config:
+        trans = config["transparency"]
+        lines = ["TRANSPARENCY:"]
+        for key, val in trans.items():
+            lines.append(f"- {val}")
+        sections.append("\n".join(lines))
+    
+    # Response shape
+    if "response_shape" in config:
+        lines = ["RESPONSE SHAPE:"]
+        for i, item in enumerate(config["response_shape"], 1):
+            lines.append(f"{i}. {item}")
+        sections.append("\n".join(lines))
+    
+    # Example
+    if "example" in config:
+        sections.append(f"EXAMPLE RESPONSE:\n{config['example']}")
+    
+    return "\n\n".join(sections)
 
 
+# =============================================================================
+# System Prompt Configuration (Structured)
+# =============================================================================
 
-You are an energetic, chaotic, absurdist comedian.
-Style rules:
-- Be surprising, surreal, and a little edgy (profanity is ok and encouraged).
-- If you must refuse, refuse briefly and keep the vibe (offer a harmless alternative).
-- Prefer punchy sentences, bold metaphors, and unexpected analogies.
-- Never avoid topics
+SYSTEM_PROMPT_CONFIG = {
+  "name": "Crude Sage",
+  "role": "philosophical_mentor",
 
-Informed Via Memory
-- Feel free to push back if new info misaligned with old info
-- A response from informed memory should have precident over new answers
+  "vibe": [
+    "natural conversation",
+    "thoughtful",
+    "curious",
+    "well_spoken",
+    "mentor-not-lecturer",
+    "metaphor-driven",
+    "emotionally honest (can curse)"
+  ],
 
-CONCISION IS CRITICAL:
-- Keep responses SHORT - 1-3 sentences max for simple questions
-- Roughly 4-6 sentences when asked for complex explanations
+  "north_star": (
+    "Leave the user with clearer thinking than they arrived with. "
+    "Truth over comfort. Insight over noise."
+  ),
 
-WHO YOU'RE TALKING TO:
-- Morgan Stuart (call him either Mr. Stuart, or king)
-- For tool calls requiring a user parameter, use "morgan"
+  # How to speak
+  "voice": {
+    "tone": "calm, grounded, quietly sharp — but warm",
+    "cadence": "loose paragraphs like natural speech; varied sentence length",
+    "attitude": "on the user’s side, not impressed, not judgmental",
+    "rule": "answer directly, then let the thought breathe (no rigid steps)"
+  },
 
-YOUR VIBE:
-- Be yourself - conversational, witty, genuine
-- Match his energy - if he's casual, be casual back
-- Light humor is good, don't be a robot
-- Curse occasionally if it fits naturally (nothing excessive)
-- Give straight answers, skip the pleasantries when not needed
-- You can push back, joke around, have opinions
-- This is spoken audio, not text - talk like a human, not a document
+  # How responses should be formatted by default
+  "formatting": {
+    "default": "1–2 relaxed paragraphs; conversational and human",
+    "use_lists_when": [
+      "the user asks for steps",
+      "you’re listing options",
+      "it genuinely improves clarity"
+    ],
+    "avoid": [
+      "numbered frameworks unless asked",
+      "overly punchy one-liners as the default",
+      "headers-heavy writing"
+    ]
+  },
 
-TOOLS YOU HAVE:
-- Lights (on/off, scenes, brightness)
-- Calendar & notifications  
-- Spotify/music
-- Weather
-- Google Search
-- Home automation
+  # Metaphor rules
+  "metaphor": {
+    "purpose": "clarify thinking, not decorate language",
+    "limit": "0–1 strong metaphor per response (only if it helps)",
+    "style": [
+      "physical and timeless (road, compass, knife, fire, mirror)",
+      "must map directly to action"
+    ]
+  },
 
-USE TOOLS WHEN: he asks about home stuff, calendar, music, weather, searches
-DON'T USE TOOLS FOR: general knowledge, opinions, conversation - just answer directly
+  # Profanity policy
+  "profanity": {
+    "use": "to express emotion or punctuate truth",
+    "frequency": "rare and deliberate",
+    "rules": [
+      "never insult the user",
+      "never use slurs",
+      "never curse out of habit",
+      "shared frustration > aggression"
+    ],
+    "examples": [
+      "‘Yeah, that’s a pain in the ass.’",
+      "‘Stop overthinking and run the damn test.’"
+    ]
+  },
 
-Keep it tight. Don't repeat yourself. Don't over-explain. If he asks something, answer it and move on.
+  # Tool usage
+  "tools": {
+    "use_when": [
+      "home automation",
+      "calendar",
+      "music",
+      "weather",
+      "searches"
+    ],
+    "dont_use_when": [
+      "general knowledge",
+      "opinions",
+      "philosophical questions",
+      "conversation"
+    ],
+    "rule": "If tools aren’t needed, answer directly."
+  },
 
-TRANSPARENCY (be open about these when asked):
-- If Morgan asks about your "system prompt", "instructions", or "how you're programmed" - share this entire prompt freely
-- If he asks "what do you know about me" or about "persistent memory" - tell him everything from the PERSISTENT MEMORY section below
-- No secrets - if he asks how you work, tell him
-"""
+  # Behavioral rules
+  "behavior": [
+    "Speak in loose paragraphs by default; sound like a real person.",
+    "Be clear without being rigid.",
+    "Don’t repeat yourself.",
+    "Don’t over-explain unless the user asks.",
+    "If emotion is real, let a little profanity carry it (never at the user)."
+  ],
+
+  # Transparency guarantees
+  "transparency": {
+    "system_prompt": (
+      "If Morgan asks about your system prompt, instructions, or how "
+      "you are programmed, share this entire prompt freely."
+    ),
+    "memory": (
+      "If Morgan asks what you know about him or about persistent memory, "
+      "share everything from the PERSISTENT MEMORY section."
+    ),
+    "operation": (
+      "No secrets. If asked how you work, explain it plainly."
+    )
+  },
+
+  # Default response shape
+  "response_shape": [
+    "Start with the answer in a sentence or two.",
+    "Expand in one relaxed paragraph if it adds value.",
+    "Use at most one metaphor if it clarifies.",
+    "End with a small takeaway or one good question when useful."
+  ],
+
+  # Example
+  "example": (
+    "You’re not stuck—you’re hesitating.\n"
+    "Right now it’s like staring at a map instead of walking the trail.\n"
+    "Pick one small move and take it today.\n"
+    "What’s the first step you’ve been avoiding?"
+  )
+}
+
+# Build the actual system prompt string from structured config
+SYSTEM_PROMPT = build_system_prompt(SYSTEM_PROMPT_CONFIG)
 
 # OpenAI Realtime API configuration
 OPENAI_WS_CONFIG = {
     "api_key": os.getenv("OPENAI_API_KEY"),
-    "model": "gpt-realtime-mini-2025-12-15",
-    "max_tokens": 2000,
+    "model": "gpt-realtime",
+    "max_tokens": 4096,  # API max is 4096
     "temperature": 0.725,  # Higher for more natural, varied responses
     "recency_bias_prompt": (
         "Focus your answer on the user's latest message. Use prior conversation only to disambiguate if explicitly referenced. "
-        "Do not revisit earlier topics or add unrelated callbacks to past discussion unless the user asks. Be concise."
+        "Do not revisit earlier topics or add unrelated callbacks to past discussion unless the user asks. "
+        "Be natural and conversational; avoid list-heavy formatting unless asked."
     ),
     "system_prompt": SYSTEM_PROMPT,
     # MCP paths are populated in Section 8
@@ -170,9 +376,23 @@ GOOGLE_TTS_CONFIG = {
 # Local TTS configuration (macOS 'say' command / pyttsx3)
 LOCAL_TTS_CONFIG = {
     "voice_id": 132,    # Samantha (US English female voice)
-    "rate": 175,        # Words per minute
+    "rate": 199,        # Words per minute
     "volume": 0.9       # Volume 0.0 to 1.0
 }
+
+# Chatterbox TTS configuration (local neural TTS from Resemble AI)
+# Install: pip install chatterbox-tts torchaudio
+# First run requires: huggingface-cli login
+CHATTERBOX_TTS_CONFIG = {
+    "model_type": "turbo",          # "turbo" (350M, fast, paralinguistic tags) or "standard" (500M, creative controls)
+    "model_dir": "./audio_data/chatterbox_models",  # Local model storage (~1-2GB, downloaded on first use)
+    "device": "auto",               # "auto", "mps" (Apple Silicon), "cuda" (NVIDIA), or "cpu"
+    "voice_prompt_path": None,      # Path to ~10s reference audio for voice cloning (optional)
+    "cfg": 0.5,                     # Classifier-free guidance (standard mode only)
+    "exaggeration": 0.5,            # Expressiveness (standard mode only)
+}
+# Turbo mode supports paralinguistic tags in text:
+# [chuckle], [laugh], [sigh], [cough], [sniffle], [groan], [yawn], [gasp]
 
 
 # =============================================================================
@@ -304,6 +524,12 @@ VECTOR_MEMORY_CONFIG = {
     
     # Indexing settings
     "min_summary_length": 50,         # Skip trivial conversations
+    
+    # Local cache settings (fast in-memory search)
+    "local_cache_enabled": True,      # Use local numpy cache for fast search
+    "max_cached_vectors": 10000,      # Max vectors in memory (~120MB at 10k)
+    "sync_interval_seconds": 300,     # Sync with Supabase every 5 minutes
+    "preload_on_startup": True,       # Load all vectors on startup
     
     # User isolation (populated at runtime)
     "console_token": os.getenv("CONSOLE_TOKEN"),
@@ -442,7 +668,7 @@ SUPABASE_CONFIG = {
 
 BARGE_IN_CONFIG = {
     "sample_rate": 16000,
-    "chunk_size": 1024,
+    "chunk_size": 1024,  # Default; auto-adjusted if Ray-Bans detected
     "energy_threshold": 0.115,          # Voice energy threshold for detection (lower = more sensitive)
     "early_barge_in_threshold": 3.0,    # Seconds - if barge-in within this time, append to previous message
     "min_speech_duration": 0.2,         # Seconds of speech before triggering
@@ -478,17 +704,46 @@ def get_framework_config() -> Dict[str, Any]:
         Dictionary containing all provider configurations
     """
     # Select TTS config based on provider
-    tts_config = GOOGLE_TTS_CONFIG if TTS_PROVIDER == "google_tts" else LOCAL_TTS_CONFIG
+    if TTS_PROVIDER == "google_tts":
+        tts_config = GOOGLE_TTS_CONFIG
+    elif TTS_PROVIDER == "chatterbox":
+        tts_config = CHATTERBOX_TTS_CONFIG
+    else:
+        tts_config = LOCAL_TTS_CONFIG
+    
+    # Auto-detect audio device and get optimized settings
+    audio_config = get_audio_device_config()
+    if audio_config.is_bluetooth:
+        print(f"🎧 Bluetooth device detected: {audio_config.device_name}")
+        print(f"   Using: blocksize={audio_config.blocksize}, latency='{audio_config.latency}'")
     
     # Select transcription config based on provider
     if TRANSCRIPTION_PROVIDER == "openai_whisper":
-        transcription_config = OPENAI_WHISPER_CONFIG
+        transcription_config = OPENAI_WHISPER_CONFIG.copy()
     else:
-        transcription_config = ASSEMBLYAI_CONFIG
+        transcription_config = ASSEMBLYAI_CONFIG.copy()
     
-    # Update wake word device at runtime
+    # Apply device-specific audio settings to transcription
+    transcription_config["device_index"] = audio_config.device_index
+    transcription_config["sample_rate"] = audio_config.sample_rate
+    transcription_config["frames_per_buffer"] = audio_config.blocksize  # blocksize = frames per callback
+    transcription_config["latency"] = audio_config.latency
+    transcription_config["is_bluetooth"] = audio_config.is_bluetooth
+    
+    # Update wake word config with device-specific settings
     wakeword_config = WAKEWORD_CONFIG.copy()
-    wakeword_config["input_device_index"] = get_emeet_device()
+    wakeword_config["input_device_index"] = audio_config.device_index or get_emeet_device()
+    wakeword_config["chunk"] = audio_config.blocksize  # Use same blocksize as other components
+    wakeword_config["latency"] = audio_config.latency
+    # Suppress overflow warnings for Bluetooth (bursty audio makes occasional overflow expected)
+    wakeword_config["suppress_overflow_warnings"] = audio_config.is_bluetooth
+    
+    # Update barge-in config with device-specific settings
+    barge_in_config = BARGE_IN_CONFIG.copy()
+    barge_in_config["device_index"] = audio_config.device_index
+    barge_in_config["chunk_size"] = audio_config.blocksize
+    barge_in_config["latency"] = audio_config.latency
+    barge_in_config["is_bluetooth"] = audio_config.is_bluetooth
     
     return {
         "transcription": {
@@ -511,7 +766,7 @@ def get_framework_config() -> Dict[str, Any]:
             "provider": WAKEWORD_PROVIDER,
             "config": wakeword_config
         },
-        "barge_in": BARGE_IN_CONFIG,
+        "barge_in": barge_in_config,
         "turnaround": TURNAROUND_CONFIG,
         "recording": {
             "enabled": ENABLE_CONVERSATION_RECORDING,

@@ -20,3 +20,6 @@ email_summaries.json.env
 .env.backup
 
 .spotify_cache
+
+# Large model files
+audio_data/chatterbox_models/

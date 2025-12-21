@@ -16,7 +16,7 @@ try:
     )
     from .providers.transcription_v2 import AssemblyAIAsyncProvider, OpenAIWhisperProvider
     from .providers.response import OpenAIWebSocketResponseProvider
-    from .providers.tts import GoogleTTSProvider, LocalTTSProvider
+    from .providers.tts import GoogleTTSProvider, LocalTTSProvider, ChatterboxTTSProvider
     from .providers.context import UnifiedContextProvider
     from .providers.wakeword_v2 import IsolatedOpenWakeWordProvider
 except ImportError:
@@ -30,7 +30,7 @@ except ImportError:
     )
     from assistant_framework.providers.transcription_v2 import AssemblyAIAsyncProvider, OpenAIWhisperProvider
     from assistant_framework.providers.response import OpenAIWebSocketResponseProvider
-    from assistant_framework.providers.tts import GoogleTTSProvider, LocalTTSProvider
+    from assistant_framework.providers.tts import GoogleTTSProvider, LocalTTSProvider, ChatterboxTTSProvider
     from assistant_framework.providers.context import UnifiedContextProvider
     from assistant_framework.providers.wakeword_v2 import IsolatedOpenWakeWordProvider
 
@@ -51,6 +51,7 @@ class ProviderFactory:
     TTS_PROVIDERS = {
         'google_tts': GoogleTTSProvider,
         'local_tts': LocalTTSProvider,
+        'chatterbox': ChatterboxTTSProvider,
     }
     
     CONTEXT_PROVIDERS = {

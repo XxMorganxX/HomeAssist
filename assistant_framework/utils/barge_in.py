@@ -34,10 +34,14 @@ class BargeInConfig:
     min_speech_duration: float = 0.15  # Minimum seconds of speech to trigger
     cooldown_after_tts_start: float = 0.5  # Don't detect for first N seconds (avoid TTS feedback)
     sample_rate: int = 16000
-    chunk_size: int = 1600  # 100ms at 16kHz
+    chunk_size: int = 1024  # 64ms at 16kHz (good for Bluetooth)
     # Audio buffer settings
     buffer_seconds: float = 2.0  # Keep last N seconds of audio for prefill
     capture_after_trigger: float = 0.3  # Continue capturing for N seconds after trigger
+    # Device settings
+    device_index: Optional[int] = None
+    latency: str = 'high'  # 'high' for Bluetooth devices
+    is_bluetooth: bool = False
 
 
 class BargeInDetector:
@@ -206,13 +210,16 @@ class BargeInDetector:
             self._audio_buffer.clear()
         
         # Open audio stream with callback
-        print("👂 Starting barge-in detection (with audio buffering)...")
+        bt_mode = " [Bluetooth]" if self.config.is_bluetooth else ""
+        print(f"👂 Starting barge-in detection (with audio buffering){bt_mode}...")
         try:
             self._stream = sd.InputStream(
+                device=self.config.device_index,
                 samplerate=self.config.sample_rate,
                 channels=1,
                 dtype='int16',
                 blocksize=self.config.chunk_size,
+                latency=self.config.latency,
                 callback=self._audio_callback
             )
             self._stream.start()

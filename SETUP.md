@@ -231,7 +231,40 @@ CREATE TABLE conversation_memories (
 );
 ```
 
-> 💡 **Note:** No index is needed for < 10k vectors. Search latency is ~50ms which is negligible for voice.
+> 💡 **Note:** No index is needed for < 10k vectors.
+
+**Local Caching (Fast Search):**
+
+Vector memory includes an in-memory cache for fast local search:
+
+```python
+VECTOR_MEMORY_CONFIG = {
+    # ... other settings ...
+    "local_cache_enabled": True,      # Use numpy cache for fast search
+    "max_cached_vectors": 10000,      # Max vectors in memory (~120MB)
+    "sync_interval_seconds": 300,     # Background sync interval
+    "preload_on_startup": True,       # Load all vectors on startup
+}
+```
+
+**Performance comparison:**
+
+| Method | Latency | Notes |
+|--------|---------|-------|
+| Supabase (remote) | ~50-200ms | Network round-trip |
+| Local cache (numpy) | ~1-5ms | In-memory cosine similarity |
+
+**How it works:**
+1. On startup, all vectors are loaded from Supabase into memory
+2. Searches use numpy matrix multiplication (very fast)
+3. New vectors are written to both cache and Supabase
+4. Cache stats available via `vector_memory.get_cache_stats()`
+
+**Console output:**
+```
+📦 Vector cache loaded: 150 vectors (1.8MB) in 0.45s
+⚡ Cache search: 3 results in 0.8ms
+```
 
 ---
 
