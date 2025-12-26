@@ -497,6 +497,7 @@ class RefactoredOrchestrator:
                                 beep_shutdown()  # 🔔 Shutdown/goodbye sound
                                 log_conversation_end()  # 📡 Remote console log - graceful end
                                 return None
+                                
                 except asyncio.TimeoutError:
                     if AUTO_SEND_SILENCE_TIMEOUT > 0 and accumulated_text:
                         print(f"⏱️  Auto-sending after {AUTO_SEND_SILENCE_TIMEOUT:.0f}s of silence...")
@@ -507,7 +508,7 @@ class RefactoredOrchestrator:
                 except StopAsyncIteration:
                     # Stream ended naturally
                     break
-                    
+            
             # If stream ends naturally without send phrase, return accumulated text
             return accumulated_text if accumulated_text else None
             
@@ -1132,20 +1133,20 @@ class RefactoredOrchestrator:
                         if not assistant_text:
                             print("⚠️  No response generated")
                             continue  # Try next question
-                    
-                    print(f"\n🤖 Assistant: {assistant_text}\n")
-                    
-                    # Record assistant message
-                    if self._recorder and self._recorder.current_session_id:
-                        await self._recorder.record_message("assistant", assistant_text)
-                    
-                    # Speak response with barge-in enabled
-                    # If user interrupts, we'll immediately start transcribing
-                    speech_completed = await self.run_tts(
-                        assistant_text, 
-                        transition_to_idle=False,  # Don't auto-transition, we handle it
-                        enable_barge_in=True
-                    )
+                        
+                        print(f"\n🤖 Assistant: {assistant_text}\n")
+                        
+                        # Record assistant message
+                        if self._recorder and self._recorder.current_session_id:
+                            await self._recorder.record_message("assistant", assistant_text)
+                        
+                        # Speak response with barge-in enabled
+                        # If user interrupts, we'll immediately start transcribing
+                        speech_completed = await self.run_tts(
+                            assistant_text, 
+                            transition_to_idle=False,  # Don't auto-transition, we handle it
+                            enable_barge_in=True
+                        )
                     
                     if speech_completed:
                         # Normal completion - transition to IDLE then back to transcription

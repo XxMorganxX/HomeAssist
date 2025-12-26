@@ -21,5 +21,13 @@ email_summaries.json.env
 
 .spotify_cache
 
+# Python virtual environment
+venv/
+
+# Ephemeral data from scheduled scripts (keep folders, ignore contents except .gitkeep)
+scripts/scheduled/*/ephemeral_data/*
+!scripts/scheduled/*/ephemeral_data/.gitkeep
+
 # Large model files
 audio_data/chatterbox_models/
+audio_data/piper_models/

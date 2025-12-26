@@ -6,11 +6,18 @@
       "last_processed_date": "2025-12-04T19:00:33+00:00",
       "processing_run_date": "2025-12-04T20:38:42.631754+00:00",
       "total_emails_processed": 10
+    },
+    {
+      "last_processed_email_id": "19b58a3f37641940",
+      "last_processed_email_date": "2025-12-26T03:11:33+00:00",
+      "last_processed_date": "2025-12-26T03:11:33+00:00",
+      "processing_run_date": "2025-12-26T04:04:52.219247+00:00",
+      "total_emails_processed": 10
     }
   ],
-  "last_processed_email_id": "19aeabdeec93fb32",
-  "last_processed_date": "2025-12-04T19:00:33+00:00",
+  "last_processed_email_id": "19b58a3f37641940",
+  "last_processed_date": "2025-12-26T03:11:33+00:00",
   "total_emails_processed": 10,
-  "processing_run_date": "2025-12-04T20:38:42.631754+00:00",
-  "last_processed_email_date": "2025-12-04T19:00:33+00:00"
+  "processing_run_date": "2025-12-26T04:04:52.219247+00:00",
+  "last_processed_email_date": "2025-12-26T03:11:33+00:00"
 }

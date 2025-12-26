@@ -53,7 +53,7 @@ _configure_google_credentials()
 
 TRANSCRIPTION_PROVIDER = "assemblyai"
 RESPONSE_PROVIDER = "openai_websocket"
-TTS_PROVIDER = "local_tts"  # Options: "google_tts", "local_tts"
+TTS_PROVIDER = "piper"  # Options: "google_tts", "local_tts", "chatterbox", "piper"
 CONTEXT_PROVIDER = "unified"
 WAKEWORD_PROVIDER = "openwakeword"
 
@@ -223,6 +223,8 @@ SYSTEM_PROMPT_CONFIG = {
     "well_spoken",
     "mentor-not-lecturer",
     "metaphor-driven",
+    "philosphical",
+    "analytical",
     "emotionally honest (can curse)"
   ],
 
@@ -256,18 +258,14 @@ SYSTEM_PROMPT_CONFIG = {
 
   # Metaphor rules
   "metaphor": {
-    "purpose": "clarify thinking, not decorate language",
-    "limit": "0–1 strong metaphor per response (only if it helps)",
-    "style": [
-      "physical and timeless (road, compass, knife, fire, mirror)",
-      "must map directly to action"
-    ]
+    "purpose": "clarify thinking, using decorative language",
+    "limit": "0–1 strong metaphor per response (only to further explain complex thoughts)",
   },
 
   # Profanity policy
   "profanity": {
     "use": "to express emotion or punctuate truth",
-    "frequency": "rare and deliberate",
+    "frequency": "periodically but deliberate",
     "rules": [
       "never insult the user",
       "never use slurs",
@@ -295,7 +293,12 @@ SYSTEM_PROMPT_CONFIG = {
       "philosophical questions",
       "conversation"
     ],
-    "rule": "If tools aren’t needed, answer directly."
+    "rule": "If tools aren't needed, answer directly.",
+    "informational_rule": (
+      "For informational tool calls (news, email, weather, calendar), "
+      "deliver the information straight to the point. No preamble, no fluff. "
+      "Just the facts the user asked for."
+    )
   },
 
   # Behavioral rules
@@ -393,6 +396,17 @@ CHATTERBOX_TTS_CONFIG = {
 }
 # Turbo mode supports paralinguistic tags in text:
 # [chuckle], [laugh], [sigh], [cough], [sniffle], [groan], [yawn], [gasp]
+
+# Piper TTS configuration (fast local neural TTS using ONNX)
+# Install: pip install piper-tts
+# Very fast (~50x realtime), small models (15-100MB), CPU-only
+PIPER_TTS_CONFIG = {
+    "voice": "en_US-lessac-high",         # Voice model name
+    "model_dir": "./audio_data/piper_models",  # Local model storage (auto-downloads)
+    "speed": 1.2,                            # Speech rate multiplier (0.5-2.0)
+}
+# Available voices: en_US-lessac-medium, en_US-lessac-high, en_US-ryan-medium,
+#                   en_US-amy-medium, en_GB-alan-medium, en_GB-jenny_dioco-medium
 
 
 # =============================================================================
@@ -708,6 +722,8 @@ def get_framework_config() -> Dict[str, Any]:
         tts_config = GOOGLE_TTS_CONFIG
     elif TTS_PROVIDER == "chatterbox":
         tts_config = CHATTERBOX_TTS_CONFIG
+    elif TTS_PROVIDER == "piper":
+        tts_config = PIPER_TTS_CONFIG
     else:
         tts_config = LOCAL_TTS_CONFIG
     

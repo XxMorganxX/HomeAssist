@@ -294,8 +294,8 @@ class AssemblyAIAsyncProvider(StreamingProviderBase, TranscriptionInterface):
                 except Exception as e:
                     print(f"❌ WebSocket connection failed: {e}")
                     raise
-        
-        # Clear pre-connect state (connection is now in use)
+            
+            # Clear pre-connect state (connection is now in use)
         self._preconnected = False
         self._preconnect_task = None
         

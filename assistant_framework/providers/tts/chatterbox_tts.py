@@ -55,6 +55,9 @@ def _set_hf_cache(model_dir: Path):
     os.environ['HF_HUB_CACHE'] = str(hub_dir)
     os.environ['HUGGINGFACE_HUB_CACHE'] = str(hub_dir)
     
+    # Suppress tokenizers multiprocessing warning
+    os.environ['TOKENIZERS_PARALLELISM'] = 'false'
+    
     print(f"📁 Model storage: {model_dir}")
 
 
@@ -236,11 +239,11 @@ class ChatterboxTTSProvider(TextToSpeechInterface):
         """Load the Chatterbox model (runs in thread). HuggingFace handles caching."""
         with self._model_lock:
             print(f"🔄 Loading Chatterbox {self.model_type} model...")
+            print(f"   (Validating cache, then loading ~7.7GB into {device.upper()} memory - takes ~10-15 seconds)")
             
             if self.model_type == 'turbo':
                 if _ChatterboxTurboTTS is None:
                     raise ImportError("ChatterboxTurboTTS not available")
-                # HuggingFace caches models automatically in ~/.cache/huggingface/
                 self._model = _ChatterboxTurboTTS.from_pretrained(device=device)
             else:
                 if _ChatterboxTTS is None:
@@ -507,3 +510,4 @@ async def test_chatterbox():
 
 if __name__ == "__main__":
     asyncio.run(test_chatterbox())
+

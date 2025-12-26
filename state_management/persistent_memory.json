@@ -1,18 +1,17 @@
 {
   "user_profile": {
     "name": "Morgan Stuart",
-    "location": "Ithaca, NY",
+    "location": "Costa Rica",
     "preferences": {
       "favorite_color": "orange",
       "tone": "kind/polite; sometimes blunt when requested; playful/spicy with light chaos"
     }
   },
   "known_facts": [
-    "User will be in Costa Rica from the 20th to the 26th",
     "User has a sister who is a dog whisperer.",
     "User enjoys surreal/chaotic lyric imagery, particularly jellyfish imagery, when creating lyrics",
     "User's name is Morgan Stuart",
-    "User's location is Ithaca, NY"
+    "User is currently in Costa Rica"
   ],
   "patterns": [
     {
@@ -49,6 +48,10 @@
     },
     {
       "pattern": "User uses explicit language to express frustration or emphasis",
+      "strength": "weak"
+    },
+    {
+      "pattern": "User location has changed to Costa Rica",
       "strength": "weak"
     }
   ],
@@ -112,9 +115,13 @@
     {
       "timestamp": "2025-12-20T04:06:53.008408",
       "source_summary_preview": "user: What are all the songs you ever wrote for me?\nassistant: Alright, king, let\u2019s roll out the greatest hits playlist I cooked up for you. \n\nFirst off, we got the rainy-day classic:  \n\u201cRain taps the..."
+    },
+    {
+      "timestamp": "2025-12-26T03:45:29.081669",
+      "source_summary_preview": "user: I'm currently in costa rica.\nassistant: Got it, Morgan. You\u2019re soaking up Costa Rica for a little longer\u2014right up until it\u2019s time to head back. \n\nSo what\u2019s on your mind right now? You working th..."
     }
   ],
-  "last_updated": "2025-12-20T04:06:53.008408",
+  "last_updated": "2025-12-26T03:45:29.081669",
   "corrections_log": [
     {
       "correction": "User has an upcoming trip to Spain",
@@ -137,6 +144,14 @@
     {
       "removed_fact": "User is planning a trip to Spain",
       "timestamp": "2025-12-15T04:32:55.713118"
+    },
+    {
+      "removed_fact": "User will be in Costa Rica from the 20th to the 26th",
+      "timestamp": "2025-12-26T03:45:29.081101"
+    },
+    {
+      "removed_fact": "User's location is Ithaca, NY",
+      "timestamp": "2025-12-26T03:45:29.081126"
     }
   ]
 }
