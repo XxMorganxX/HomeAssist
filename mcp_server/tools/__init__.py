@@ -11,11 +11,13 @@ All tools in this package provide:
 - Enhanced error handling and validation
 """
 
+import platform
+
 # NOTE: Imports are intentionally lazy to avoid forcing all dependencies
 # to be installed. The tool registry imports each tool file directly as needed.
 # 
 # If you need to import a specific tool, do:
-#   from mcp_server.improved_tools.improved_state_tool import StateTool
+#   from mcp_server.tools.state_tool import StateTool
 
 __all__ = [
     'StateTool',
@@ -26,3 +28,7 @@ __all__ = [
     'GoogleSearchTool',
     'WeatherTool',
 ]
+
+# Conditionally add macOS-only tools
+if platform.system() == "Darwin":
+    __all__.append('SendSMSTool')

@@ -10,13 +10,16 @@ from pathlib import Path
 import logging
 
 try:
-    from tools_config import is_tool_enabled, get_tool_config
+    from mcp_server.tools_config import is_tool_enabled, get_tool_config
 except ImportError:
-    # Fallback if config doesn't exist
-    def is_tool_enabled(tool_name: str) -> bool:
-        return True
-    def get_tool_config(tool_name: str) -> dict:
-        return {}
+    try:
+        from tools_config import is_tool_enabled, get_tool_config
+    except ImportError:
+        # Fallback if config doesn't exist
+        def is_tool_enabled(tool_name: str) -> bool:
+            return True
+        def get_tool_config(tool_name: str) -> dict:
+            return {}
 
 logger = logging.getLogger(__name__)
 
@@ -32,10 +35,10 @@ class ToolRegistry:
             tools_directory: Path to directory containing tool modules
         """
         if tools_directory is None:
-            # Default to 'improved_tools' directory only
+            # Default to 'tools' directory only
             base_path = Path(__file__).parent
             self.tools_directories = [
-                (base_path / "improved_tools", "mcp_server.improved_tools")
+                (base_path / "tools", "mcp_server.tools")
             ]
         else:
             self.tools_directories = [(Path(tools_directory), "mcp_server.tools")]

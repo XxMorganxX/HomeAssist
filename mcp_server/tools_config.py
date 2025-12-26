@@ -2,6 +2,7 @@
 Configuration for enabling/disabling MCP tools and their settings.
 """
 
+import platform
 
 # =============================================================================
 # SECTION 1: TOOL ENABLEMENT
@@ -22,6 +23,9 @@ ENABLED_TOOLS = {
     "weather": True,
     "google_search": True,
     "kasa_lighting": True,
+    
+    # macOS-only tools (conditionally enabled)
+    "send_sms": platform.system() == "Darwin",  # Only enable on macOS
 }
 
 # Tools that should NEVER be loaded (overrides ENABLED_TOOLS)
@@ -45,7 +49,11 @@ TOOL_CONFIG = {
         "allowed_rooms": ["living_room", "bedroom", "kitchen", "bathroom"],
         "max_brightness": 100,
         "min_brightness": 10,
-    }
+    },
+    "send_sms": {
+        # Default phone number for notifications (can be overridden per-call)
+        "default_phone_number": "+16319027854",
+    },
 }
 
 

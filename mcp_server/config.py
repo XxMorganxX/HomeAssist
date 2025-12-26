@@ -92,7 +92,20 @@ CALENDAR_USERS = {
 
 
 # =============================================================================
-# SECTION 6: STATE MANAGEMENT
+# SECTION 6: SMS/iMESSAGE (macOS only)
+# =============================================================================
+
+# Default phone number for SMS notifications (with country code)
+SMS_DEFAULT_PHONE_NUMBER = os.environ.get("SMS_PHONE_NUMBER", "+16319027854")
+
+# SMS configuration dict for the tool
+SMS_CONFIG = {
+    "default_phone_number": SMS_DEFAULT_PHONE_NUMBER,
+}
+
+
+# =============================================================================
+# SECTION 7: STATE MANAGEMENT
 # =============================================================================
 
 # States that can be controlled via chat commands
