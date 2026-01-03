@@ -23,6 +23,7 @@ ENABLED_TOOLS = {
     "weather": True,
     "google_search": True,
     "kasa_lighting": True,
+    "system_info": True,
     
     # macOS-only tools (conditionally enabled)
     "send_sms": platform.system() == "Darwin",  # Only enable on macOS

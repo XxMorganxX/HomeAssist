@@ -11,6 +11,7 @@ from pathlib import Path
 from typing import Optional, Dict, Any
 import wave
 import pyaudio
+import re
 
 import subprocess
 import platform
@@ -144,6 +145,9 @@ class LocalTTSProvider(TextToSpeechInterface):
         Note: For local TTS, we store the text and synthesize on-the-fly during playback.
         The engine is created fresh when needed (not during initialization).
         """
+        # Sanitize text to remove URLs and markup
+        text = self._sanitize_text_for_tts(text)
+        
         # No need to check for engine - we create it on-demand in _play_direct
         # This allows deferred initialization to avoid audio device conflicts
         
@@ -168,6 +172,38 @@ class LocalTTSProvider(TextToSpeechInterface):
                 'use_direct_playback': True
             }
         )
+    
+    def _sanitize_text_for_tts(self, raw: str) -> str:
+        """Remove or normalize ASCII markup so it isn't read literally.
+        
+        - Remove URLs (http://, https://, www., etc.)
+        - Remove asterisks used for bullets/markdown emphasis
+        - Strip backticks and code fences
+        - Collapse excessive whitespace
+        """
+        try:
+            text = raw
+            
+            # Remove URLs - more comprehensive patterns
+            # Match http:// and https:// URLs (including those in parentheses)
+            text = re.sub(r'\(?https?://[^\s\)]+\)?', '', text)
+            # Match www. URLs
+            text = re.sub(r'\(?www\.[^\s\)]+\)?', '', text)
+            # Match common domain patterns (domain.tld paths)
+            text = re.sub(r'\b\w+\.(com|org|net|edu|gov|io|ai|co|app|dev|xyz|me|us|uk|ca)[^\s]*', '', text, flags=re.IGNORECASE)
+            
+            # Remove markdown links [text](url) - replace with just the text
+            text = re.sub(r'\[([^\]]+)\]\([^\)]+\)', r'\1', text)
+            
+            # Remove code fences/backticks
+            text = text.replace("```", " ").replace("`", "")
+            # Remove asterisks
+            text = text.replace("*", "")
+            # Normalize multiple spaces
+            text = re.sub(r"\s+", " ", text).strip()
+            return text
+        except Exception:
+            return raw
     
     def _synthesize_to_bytes(self, text: str, rate: int) -> bytes:
         """Synthesize text to WAV bytes (runs in thread)."""

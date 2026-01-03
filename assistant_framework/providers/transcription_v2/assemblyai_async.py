@@ -385,8 +385,8 @@ class AssemblyAIAsyncProvider(StreamingProviderBase, TranscriptionInterface):
                     print("✅ Audio stream stopped (callbacks ceased)")
                     
                 # Brief wait for any in-flight callbacks to complete
-                # Callbacks are fast (no blocking), so this is quick
-                await asyncio.sleep(0.05)
+                # Callbacks are fast (no blocking), so this is quick (reduced from 0.05s)
+                await asyncio.sleep(0.02)
                 
             except Exception as e:
                 print(f"⚠️  Audio stream stop error: {e}")
@@ -410,8 +410,8 @@ class AssemblyAIAsyncProvider(StreamingProviderBase, TranscriptionInterface):
         if self._audio_stream:
             try:
                 self._audio_stream.close()
-                # Brief wait for audio device release
-                await asyncio.sleep(0.1)
+                # Brief wait for audio device release (reduced from 0.1s)
+                await asyncio.sleep(0.03)
                 print("✅ Audio stream closed")
             except Exception as e:
                 print(f"⚠️  Audio stream close error: {e}")
@@ -422,7 +422,7 @@ class AssemblyAIAsyncProvider(StreamingProviderBase, TranscriptionInterface):
         if self._ws and not self._ws.closed:
             try:
                 await self._ws.send_json({"type": "Terminate"})
-                await asyncio.sleep(0.05)
+                await asyncio.sleep(0.02)  # Reduced from 0.05s
                 await self._ws.close()
                 print("✅ WebSocket closed")
             except Exception as e:

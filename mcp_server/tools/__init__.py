@@ -27,8 +27,10 @@ __all__ = [
     'CalendarTool',
     'GoogleSearchTool',
     'WeatherTool',
+    'SystemInfoTool',
 ]
 
 # Conditionally add macOS-only tools
 if platform.system() == "Darwin":
     __all__.append('SendSMSTool')
+

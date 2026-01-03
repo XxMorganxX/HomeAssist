@@ -40,7 +40,7 @@ class CalendarTool(BaseTool):
         self.available_users = ["morgan_personal", "morgan_school", "spencer"]
         self.available_actions = ["read", "write", "create_event"]
         self.available_read_types = ["next_events", "day_summary", "week_summary", "specific_date"]
-        self.available_calendar_names = ["primary", "personal", "work", "school", "class", "default"]
+        self.available_calendar_names = ["primary", "personal", "work", "school", "class", "default", "homeassist", "assistant"]
     
     def get_schema(self) -> Dict[str, Any]:
         """
@@ -77,7 +77,7 @@ class CalendarTool(BaseTool):
                             },
                             "calendar_name": {
                                 "type": "string",
-                                "description": "Specific calendar to access within the user's account. 'primary'/'default' for main calendar, 'personal' for personal events, 'work' for work-related events, 'school'/'class' for academic events. Use 'class' when user asks about classes or academic schedule.",
+                                "description": "Specific calendar to access within the user's account. For READ operations, defaults to 'primary' which reads from ALL calendars. For WRITE/CREATE operations, defaults to 'homeassist' (the dedicated assistant calendar). Options: 'primary'/'default' (all calendars for reads), 'homeassist'/'assistant' (for assistant-created events), 'personal', 'work', 'school'/'class'. You usually don't need to specify this - it auto-selects based on read vs write.",
                                 "enum": self.available_calendar_names,
                                 "default": "primary"
                             },
@@ -90,7 +90,7 @@ class CalendarTool(BaseTool):
                             },
                             "date": {
                                 "type": "string",
-                                "description": "Specific date in YYYY-MM-DD format when read_type is 'specific_date' or for event creation. For 'today' queries, use current date. Required for specific_date read_type and event creation."
+                                "description": "Specific date in YYYY-MM-DD format when read_type is 'specific_date' or for event creation. IMPORTANT: Always use the current year (check CURRENT CONTEXT in system prompt) unless user explicitly mentions a different year. For 'today' queries, use current date. For relative dates like 'next Tuesday' or 'January 15th', use the current or upcoming year, not past years. Required for specific_date read_type and event creation."
                             },
                             "event_title": {
                                 "type": "string",
@@ -478,6 +478,44 @@ class CalendarTool(BaseTool):
                     if isinstance(normalized.get(alt), str) and normalized.get(alt).strip():
                         normalized["event_title"] = normalized[alt].strip()
                         break
+                
+                # Handle nested event object (e.g., {"event": {"title": "..."}})
+                if not normalized.get("event_title") and isinstance(normalized.get("event"), dict):
+                    event_obj = normalized["event"]
+                    for alt in ("title", "event_name", "summary", "name"):
+                        if isinstance(event_obj.get(alt), str) and event_obj.get(alt).strip():
+                            normalized["event_title"] = event_obj[alt].strip()
+                            break
+                    # Also extract other event fields from nested object
+                    # Handle both 'start_time'/'end_time' and 'start'/'end' variants
+                    if "start_time" in event_obj:
+                        normalized["start_time"] = event_obj["start_time"]
+                    elif "start" in event_obj:
+                        normalized["start_time"] = event_obj["start"]
+                    if "end_time" in event_obj:
+                        normalized["end_time"] = event_obj["end_time"]
+                    elif "end" in event_obj:
+                        normalized["end_time"] = event_obj["end"]
+                    if "date" in event_obj:
+                        normalized["date"] = event_obj["date"]
+                    if "description" in event_obj:
+                        normalized["event_description"] = event_obj["description"]
+                    if "location" in event_obj:
+                        normalized["location"] = event_obj["location"]
+            
+            # Also handle top-level 'start'/'end' fields as aliases
+            if not normalized.get("start_time") and normalized.get("start"):
+                normalized["start_time"] = normalized.pop("start")
+            if not normalized.get("end_time") and normalized.get("end"):
+                normalized["end_time"] = normalized.pop("end")
+            
+            # Handle "action" field as alias for read_or_write
+            if normalized.get("action") and not normalized.get("read_or_write"):
+                action = normalized["action"]
+                if action in ["create_event", "write"]:
+                    normalized["read_or_write"] = action
+                elif action == "read":
+                    normalized["read_or_write"] = "read"
             
             wt = normalized.get("write_type")
             if wt and not normalized.get("read_or_write"):
@@ -516,14 +554,22 @@ class CalendarTool(BaseTool):
                         normalized["date"] = dval.split("T", 1)[0]
                     except Exception:
                         pass
+            
+            # Set default calendar_name based on operation type
+            # - READ operations: default to "primary" (reads all calendars)
+            # - WRITE operations: default to "homeassist" (dedicated assistant calendar)
             if not normalized.get("calendar_name"):
-                normalized["calendar_name"] = "primary"
+                if normalized.get("read_or_write") in ["write", "create_event"]:
+                    normalized["calendar_name"] = "homeassist"
+                else:
+                    normalized["calendar_name"] = "primary"
             
             # Map common calendar name aliases
             calendar_name_mapping = {
                 "default": "primary",
                 "main": "primary",
-                "default_calendar": "primary"
+                "default_calendar": "primary",
+                "assistant": "homeassist",  # alias for homeassist
             }
             if normalized.get("calendar_name") in calendar_name_mapping:
                 normalized["calendar_name"] = calendar_name_mapping[normalized["calendar_name"]]

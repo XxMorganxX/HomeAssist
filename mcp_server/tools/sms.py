@@ -119,7 +119,7 @@ class SendSMSTool(BaseTool):
             if not phone_number.startswith("+"):
                 return {
                     "success": False,
-                    "error": f"Configured phone number invalid (must include country code)"
+                    "error": "Configured phone number invalid (must include country code)"
                 }
             
             if LOG_TOOLS:
@@ -163,27 +163,45 @@ class SendSMSTool(BaseTool):
         Returns:
             True if message was sent successfully, False otherwise
         """
-        # Escape quotes in message to prevent AppleScript injection
-        escaped_message = message.replace('"', '\\"').replace("'", "\\'")
+        import tempfile
+        import os
         
-        script = f'''
-        tell application "Messages"
-            set targetService to 1st account whose service type = iMessage
-            set targetBuddy to participant "{phone_number}" of targetService
-            send "{escaped_message}" to targetBuddy
-        end tell
-        '''
+        # Escape special characters for AppleScript string
+        # In AppleScript, backslash and double-quote need escaping
+        escaped_message = message.replace('\\', '\\\\').replace('"', '\\"')
+        
+        script = f'''tell application "Messages"
+    set targetService to 1st account whose service type = iMessage
+    set targetBuddy to participant "{phone_number}" of targetService
+    send "{escaped_message}" to targetBuddy
+    delay 1
+    quit
+end tell
+'''
         
         try:
-            result = subprocess.run(
-                ["osascript", "-e", script],
-                check=True,
-                capture_output=True,
-                text=True,
-                timeout=30  # 30 second timeout
-            )
-            self.logger.info(f"Message sent to {phone_number}")
-            return True
+            # Write script to temp file to avoid shell escaping issues
+            with tempfile.NamedTemporaryFile(mode='w', suffix='.applescript', delete=False) as f:
+                f.write(script)
+                script_path = f.name
+            
+            try:
+                subprocess.run(
+                    ["osascript", script_path],
+                    check=True,
+                    capture_output=True,
+                    text=True,
+                    timeout=30  # 30 second timeout
+                )
+                self.logger.info(f"Message sent to {phone_number}")
+                return True
+            finally:
+                # Clean up temp file
+                try:
+                    os.unlink(script_path)
+                except Exception:
+                    pass
+                    
         except subprocess.CalledProcessError as e:
             self.logger.error(f"Failed to send message: {e.stderr}")
             return False

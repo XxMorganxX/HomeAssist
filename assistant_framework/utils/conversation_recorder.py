@@ -65,8 +65,10 @@ class ConversationRecorder:
         self._current_session_id: Optional[str] = None
         self._last_message_id: Optional[int] = None
         self._session_message_count: int = 0  # Track messages per session
-        self._session_input_tokens: int = 0   # Track input tokens (user messages)
+        self._session_input_tokens: int = 0   # Track input tokens (full API request)
         self._session_output_tokens: int = 0  # Track output tokens (assistant messages)
+        self._session_context_tokens: int = 0  # Track context tokens (system + history)
+        self._session_tool_tokens: int = 0     # Track tool definition tokens
         self._is_initialized = False
     
     @property
@@ -90,9 +92,84 @@ class ConversationRecorder:
         return {
             "input_tokens": self._session_input_tokens,
             "output_tokens": self._session_output_tokens,
+            "context_tokens": self._session_context_tokens,
+            "tool_tokens": self._session_tool_tokens,
             "total_tokens": self._session_input_tokens + self._session_output_tokens,
             "message_count": self._session_message_count
         }
+    
+    def record_api_request(
+        self,
+        system_prompt: str = "",
+        context_messages: List[Dict[str, Any]] = None,
+        tool_definitions: List[Dict[str, Any]] = None,
+        user_message: str = "",
+        vector_context: str = ""
+    ) -> Dict[str, int]:
+        """
+        Record tokens for a full API request (all context sent to the model).
+        
+        This should be called when making an API request to get accurate
+        input token counts including system prompt, context, and tools.
+        
+        Args:
+            system_prompt: The system prompt/instructions sent to the model
+            context_messages: List of context messages (conversation history)
+            tool_definitions: List of tool schemas/definitions
+            user_message: The current user message
+            vector_context: Any vector memory context injected
+            
+        Returns:
+            Dictionary with token breakdown
+        """
+        import json
+        
+        context_messages = context_messages or []
+        tool_definitions = tool_definitions or []
+        
+        # Count system prompt tokens (includes persistent memory)
+        system_tokens = count_tokens(system_prompt)
+        
+        # Count vector context tokens
+        vector_tokens = count_tokens(vector_context)
+        
+        # Count context messages tokens
+        context_tokens = 0
+        for msg in context_messages:
+            content = msg.get("content", "")
+            role = msg.get("role", "")
+            # Add overhead for message structure
+            context_tokens += count_tokens(f"<|im_start|>{role}\n{content}<|im_end|>")
+        
+        # Count user message tokens
+        user_tokens = count_tokens(user_message)
+        
+        # Count tool definition tokens
+        tool_tokens = 0
+        for tool in tool_definitions:
+            tool_tokens += count_tokens(json.dumps(tool))
+        
+        # Update session totals
+        total_input = system_tokens + vector_tokens + context_tokens + user_tokens + tool_tokens
+        self._session_input_tokens += total_input
+        self._session_context_tokens += system_tokens + vector_tokens + context_tokens
+        self._session_tool_tokens += tool_tokens
+        
+        breakdown = {
+            "system_prompt": system_tokens,
+            "vector_context": vector_tokens,
+            "conversation_context": context_tokens,
+            "user_message": user_tokens,
+            "tool_definitions": tool_tokens,
+            "total_input": total_input
+        }
+        
+        # Print token breakdown for visibility
+        print(f"📊 API Request Tokens: {total_input:,} total "
+              f"(sys: {system_tokens:,}, ctx: {context_tokens:,}, "
+              f"vec: {vector_tokens:,}, user: {user_tokens:,}, tools: {tool_tokens:,})")
+        
+        return breakdown
     
     async def initialize(self) -> bool:
         """
@@ -166,6 +243,8 @@ class ConversationRecorder:
             self._session_message_count = 0   # Reset message counter
             self._session_input_tokens = 0    # Reset input token counter
             self._session_output_tokens = 0   # Reset output token counter
+            self._session_context_tokens = 0  # Reset context token counter
+            self._session_tool_tokens = 0     # Reset tool token counter
             
             print(f"📝 Started conversation session: {self._current_session_id[:8]}...")
             return self._current_session_id
@@ -201,30 +280,41 @@ class ConversationRecorder:
                 return True
             
             # Session has messages - update with ended_at timestamp and token stats
+            # First, get existing metadata to merge with
+            existing = self._client.table("conversation_sessions").select("metadata").eq(
+                "id", self._current_session_id
+            ).single().execute()
+            
+            merged_metadata = existing.data.get("metadata", {}) or {}
+            
+            # Add token breakdown to metadata
+            merged_metadata["token_breakdown"] = {
+                "context_tokens": self._session_context_tokens,
+                "tool_tokens": self._session_tool_tokens,
+                "user_message_tokens": max(0, self._session_input_tokens - self._session_context_tokens - self._session_tool_tokens)
+            }
+            
+            # Merge any additional metadata passed in
+            if metadata:
+                merged_metadata.update(metadata)
+            
             update_data = {
                 "ended_at": datetime.utcnow().isoformat(),
                 "total_input_tokens": self._session_input_tokens,
-                "total_output_tokens": self._session_output_tokens
+                "total_output_tokens": self._session_output_tokens,
+                "metadata": merged_metadata
             }
-            
-            if metadata:
-                # Merge with existing metadata
-                existing = self._client.table("conversation_sessions").select("metadata").eq(
-                    "id", self._current_session_id
-                ).single().execute()
-                
-                merged_metadata = existing.data.get("metadata", {})
-                merged_metadata.update(metadata)
-                update_data["metadata"] = merged_metadata
             
             self._client.table("conversation_sessions").update(update_data).eq(
                 "id", self._current_session_id
             ).execute()
             
-            # Print summary with token stats
+            # Print summary with detailed token stats
             total_tokens = self._session_input_tokens + self._session_output_tokens
             print(f"✅ Ended session: {self._current_session_id[:8]}...")
-            print(f"   📊 {self._session_message_count} messages | {total_tokens:,} tokens (in: {self._session_input_tokens:,}, out: {self._session_output_tokens:,})")
+            print(f"   📊 {self._session_message_count} messages | {total_tokens:,} total tokens")
+            print(f"   📥 Input: {self._session_input_tokens:,} (context: {self._session_context_tokens:,}, tools: {self._session_tool_tokens:,})")
+            print(f"   📤 Output: {self._session_output_tokens:,}")
             
             self._reset_session_state()
             return True
@@ -240,6 +330,8 @@ class ConversationRecorder:
         self._session_message_count = 0
         self._session_input_tokens = 0
         self._session_output_tokens = 0
+        self._session_context_tokens = 0
+        self._session_tool_tokens = 0
     
     # ─────────────────────────────────────────────────────────────────────────
     # Message Recording
@@ -276,10 +368,10 @@ class ConversationRecorder:
             # Count tokens for this message
             token_count = count_tokens(content)
             
-            # Track input vs output tokens
-            if role == "user":
-                self._session_input_tokens += token_count
-            elif role == "assistant":
+            # Track output tokens (assistant responses only)
+            # Input tokens are tracked via record_api_request() which includes
+            # the full context (system prompt, history, vector memory, tools, user message)
+            if role == "assistant":
                 self._session_output_tokens += token_count
             
             data = {

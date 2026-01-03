@@ -34,7 +34,7 @@ class SharedAudioManager:
         self._lock = threading.Lock()
         self._current_owner: Optional[str] = None
         self._owner_count = 0
-        self._cleanup_delay = 0.5
+        self._cleanup_delay = 0.1  # Reduced from 0.5 for faster transitions
         # Debug controls
         self._debug_enabled = str(os.getenv("AUDIO_DEBUG", "")).lower() in ("1", "true", "yes", "on")
         self._debug_file_path = os.getenv("AUDIO_DEBUG_FILE")

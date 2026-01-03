@@ -217,6 +217,7 @@ class GoogleTTSProvider(TextToSpeechInterface):
     def _sanitize_text_for_tts(self, raw: str) -> str:
         """Remove or normalize ASCII markup so it isn't read literally.
 
+        - Remove URLs (http://, https://, www., etc.)
         - Remove asterisks used for bullets/markdown emphasis
         - Strip backticks and code fences
         - Replace colons used as punctuation with a short pause (comma)
@@ -225,12 +226,24 @@ class GoogleTTSProvider(TextToSpeechInterface):
         """
         try:
             text = raw
+            
+            # Remove URLs - more comprehensive patterns
+            # Match http:// and https:// URLs (including those in parentheses)
+            text = re.sub(r'\(?https?://[^\s\)]+\)?', '', text)
+            # Match www. URLs
+            text = re.sub(r'\(?www\.[^\s\)]+\)?', '', text)
+            # Match common domain patterns (domain.tld paths)
+            text = re.sub(r'\b\w+\.(com|org|net|edu|gov|io|ai|co|app|dev|xyz|me|us|uk|ca)[^\s]*', '', text, flags=re.IGNORECASE)
+            
+            # Remove markdown links [text](url) - replace with just the text
+            text = re.sub(r'\[([^\]]+)\]\([^\)]+\)', r'\1', text)
+            
             # Remove code fences/backticks
             text = text.replace("```", " ").replace("`", "")
             # Remove asterisks
             text = text.replace("*", "")
             # Replace punctuation colons not between digits with a comma pause
-            text = re.sub(r"(?<!\\d):(?!\\d)", ", ", text)
+            text = re.sub(r"(?<!\d):(?!\d)", ", ", text)
             # Normalize multiple commas/spaces
             text = re.sub(r",\s*,+", ", ", text)
             text = re.sub(r"\s+", " ", text).strip()

@@ -1,6 +1,6 @@
 # HomeAssist V2
 
-HomeAssist is a fully local, always-listening voice assistant that brings your smart home to life. Just say the wake word and speak naturally—it transcribes your voice in real-time, thinks with GPT-4, and responds out loud. Control your lights, play music on Spotify, check your calendar, get the weather, and more, all hands-free. You can even interrupt it mid-sentence and it'll stop to listen. Version 2 was completely rebuilt to be rock-solid stable, fixing the crashes that plagued the original by using a smarter audio architecture that never fights with itself.
+HomeAssist (codename **Sol**) is a fully local, always-listening voice assistant that brings your smart home to life. Just say the wake word and speak naturally—it transcribes your voice in real-time, thinks with GPT-4, and responds out loud. Control your lights, play music on Spotify, check your calendar, get the weather, and more, all hands-free. You can even interrupt it mid-sentence and it'll stop to listen. Version 2 was completely rebuilt to be rock-solid stable, fixing the crashes that plagued the original by using a smarter audio architecture that never fights with itself.
 
 Key improvements:
 - **No more segfaults** – Audio resources are properly managed with explicit ownership
@@ -43,7 +43,7 @@ The `PYTHONFAULTHANDLER=1` flag helps diagnose any issues by printing a tracebac
 
 ### 4. Using the assistant
 
-1. Say the wake word (**"Alexa"**) to activate
+1. Say the wake word (**"Hey Honey"**) to activate
 2. Speak your request
 3. Say **"sir"** or **"send it"** when you're done speaking
 4. The assistant will respond via text-to-speech
@@ -62,9 +62,9 @@ HomeAssistV2/
 │   ├── config.py                 # All configuration settings
 │   │
 │   ├── providers/                # Pluggable component implementations
-│   │   ├── transcription_v2/     # Speech-to-text (AssemblyAI)
+│   │   ├── transcription_v2/     # Speech-to-text (AssemblyAI or Whisper)
 │   │   ├── response/             # AI responses (OpenAI Realtime API)
-│   │   ├── tts/                  # Text-to-speech (Google Cloud or local)
+│   │   ├── tts/                  # Text-to-speech (Piper, Google, Chatterbox, local)
 │   │   ├── wakeword_v2/          # Wake word detection (OpenWakeWord)
 │   │   └── context/              # Conversation history management
 │   │
@@ -74,8 +74,7 @@ HomeAssistV2/
 │   │   ├── barge_in.py           # Detects when user interrupts
 │   │   └── device_manager.py     # Audio device selection
 │   │
-│   ├── interfaces/               # Abstract base classes for providers
-│   └── legacy/                   # Old v1 code (for reference)
+│   └── interfaces/               # Abstract base classes for providers
 │
 ├── mcp_server/                   # Tool server for smart home control
 │   ├── server.py                 # MCP server entry point
@@ -83,12 +82,21 @@ HomeAssistV2/
 │   ├── tools_config.py           # Enable/disable individual tools
 │   └── tools/                    # Tool implementations
 │       ├── kasa_lighting.py      # Smart light control
-│       ├── spotify_tool.py       # Music playback
-│       ├── calendar_tool.py      # Google Calendar
-│       ├── weather_tool.py       # Weather forecasts
-│       └── ...
+│       ├── spotify.py            # Music playback
+│       ├── calendar.py           # Google Calendar
+│       ├── weather.py            # Weather forecasts
+│       ├── notifications.py      # Notification management
+│       ├── google_search.py      # Web search with AI summaries
+│       ├── sms.py                # Send text messages (macOS)
+│       ├── state_tool.py         # System state management
+│       └── system_info.py        # Assistant self-documentation
 │
-├── audio_data/                   # Wake word models
+├── audio_data/                   # Model files
+│   ├── wake_word_models/         # Wake word detection models
+│   ├── piper_models/             # Piper TTS voice models
+│   └── chatterbox_models/        # Chatterbox TTS models
+│
+├── state_management/             # Runtime state files
 ├── .env                          # API keys (not in repo)
 └── requirements.txt              # Python dependencies
 ```
@@ -102,22 +110,27 @@ All settings live in `assistant_framework/config.py`, organized into sections:
 | Section | What it controls |
 |---------|------------------|
 | Provider Selection | Which implementation to use for each component |
-| Transcription | AssemblyAI settings (sample rate, etc.) |
+| Transcription | AssemblyAI or OpenAI Whisper settings |
 | Response/LLM | OpenAI model, temperature, system prompt |
-| TTS | Voice selection, speed, pitch |
+| TTS | Voice selection, speed, pitch (4 providers) |
 | Wake Word | Detection threshold, cooldown timing |
 | Barge-In | Interrupt sensitivity and buffering |
 | Conversation Flow | Trigger phrases ("send it", "scratch that") |
 | Persistent Memory | Facts, preferences, and patterns extraction |
 | Vector Memory | Semantic search of past conversations (Supabase + pgvector) |
+| Presets | Dev/prod/test configuration profiles |
 
 ### Changing the TTS provider
 
 In `config.py`, change:
 ```python
-TTS_PROVIDER = "local_tts"  # Uses macOS 'say' command
+TTS_PROVIDER = "piper"       # Fast local neural TTS (default)
 # or
-TTS_PROVIDER = "google_tts"  # Uses Google Cloud TTS (requires billing)
+TTS_PROVIDER = "local_tts"   # Uses macOS 'say' command
+# or
+TTS_PROVIDER = "google_tts"  # Google Cloud TTS (requires billing)
+# or
+TTS_PROVIDER = "chatterbox"  # Resemble AI's local neural TTS with voice cloning
 ```
 
 ### Adjusting wake word sensitivity
@@ -133,14 +146,49 @@ In the `WAKEWORD_CONFIG` section:
 
 The assistant can control smart home devices and access services through MCP (Model Context Protocol) tools:
 
-- **Lighting** – Turn lights on/off, adjust brightness, set scenes
+- **Lighting** – Turn lights on/off, adjust brightness, set scenes (Kasa devices)
 - **Spotify** – Play music, control playback, search tracks
 - **Calendar** – View and create Google Calendar events
 - **Weather** – Get current conditions and forecasts
 - **Notifications** – Read and manage notifications
 - **Google Search** – Search the web with AI summaries
+- **SMS** – Send text messages via macOS Messages (macOS only)
+- **State** – Manage system state (active user, lighting scenes, volume)
+- **System Info** – Explain the assistant's own architecture and capabilities
 
 Tools can be enabled/disabled in `mcp_server/tools_config.py`.
+
+---
+
+## Model Architecture
+
+HomeAssist uses a two-model approach optimized for cost and quality:
+
+| Scenario | Model | Why |
+|----------|-------|-----|
+| **Direct conversation** | `gpt-4o-realtime-preview` | Higher quality prose for thoughtful responses |
+| **Initial tool decision** | `gpt-4o-realtime-preview` | Decides if tools are needed |
+| **Tool chaining** | `gpt-4o-mini` | Checks if additional tools are needed after each execution |
+| **Final answer (after tools)** | `gpt-4o-mini` | Composes response from tool results |
+
+When you ask a conversational question ("What do you think about X?"), you get the premium model directly. When tools are involved, the cheaper model handles composition since it's just reporting results.
+
+---
+
+## Tool Chaining
+
+Multi-step requests are handled automatically. When you say something like:
+
+> "Find me that song and text me the link"
+
+The assistant:
+1. Recognizes this requires **two tools** (search + SMS)
+2. Executes the first tool (Google search)
+3. Checks if the request is fully satisfied (it's not—no text sent yet)
+4. Calls the second tool (SMS) with the search result
+5. Composes a final response confirming both actions
+
+This loop continues until all parts of your request are fulfilled.
 
 ---
 
@@ -174,7 +222,7 @@ Requires Supabase with pgvector extension. See SETUP.md for database setup.
 - Try lowering the `threshold` value in wake word config
 
 **Audio cuts out or sounds choppy**
-- Increase `AUDIO_HANDOFF_DELAY` in config.py
+- Increase `state_transition_delay` in `TURNAROUND_CONFIG`
 - Check for other applications using the microphone
 
 **"Missing API key" errors**

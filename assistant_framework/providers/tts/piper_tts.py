@@ -15,12 +15,13 @@ Install: pip install piper-tts
 import asyncio
 import io
 import os
+import re
 import subprocess
 import tempfile
 import threading
 import wave
 from pathlib import Path
-from typing import Optional, Dict, Any, List
+from typing import Optional, Dict, Any, List, AsyncIterator
 
 try:
     from ...interfaces.text_to_speech import TextToSpeechInterface
@@ -256,6 +257,9 @@ class PiperTTSProvider(TextToSpeechInterface):
         if self._voice is None:
             raise RuntimeError("Piper TTS not initialized. Call initialize() first.")
         
+        # Sanitize text to remove URLs and markup
+        text = self._sanitize_text_for_tts(text)
+        
         effective_speed = speed if speed is not None else self.speed
         
         # Generate audio in executor (CPU-bound)
@@ -277,6 +281,38 @@ class PiperTTSProvider(TextToSpeechInterface):
             }
         )
     
+    def _sanitize_text_for_tts(self, raw: str) -> str:
+        """Remove or normalize ASCII markup so it isn't read literally.
+        
+        - Remove URLs (http://, https://, www., etc.)
+        - Remove asterisks used for bullets/markdown emphasis
+        - Strip backticks and code fences
+        - Collapse excessive whitespace
+        """
+        try:
+            text = raw
+            
+            # Remove URLs - more comprehensive patterns
+            # Match http:// and https:// URLs (including those in parentheses)
+            text = re.sub(r'\(?https?://[^\s\)]+\)?', '', text)
+            # Match www. URLs
+            text = re.sub(r'\(?www\.[^\s\)]+\)?', '', text)
+            # Match common domain patterns (domain.tld paths)
+            text = re.sub(r'\b\w+\.(com|org|net|edu|gov|io|ai|co|app|dev|xyz|me|us|uk|ca)[^\s]*', '', text, flags=re.IGNORECASE)
+            
+            # Remove markdown links [text](url) - replace with just the text
+            text = re.sub(r'\[([^\]]+)\]\([^\)]+\)', r'\1', text)
+            
+            # Remove code fences/backticks
+            text = text.replace("```", " ").replace("`", "")
+            # Remove asterisks
+            text = text.replace("*", "")
+            # Normalize multiple spaces
+            text = re.sub(r"\s+", " ", text).strip()
+            return text
+        except Exception:
+            return raw
+    
     def _generate_speech(self, text: str, speed: float) -> bytes:
         """Generate speech audio (runs in thread)."""
         from piper.config import SynthesisConfig
@@ -295,23 +331,303 @@ class PiperTTSProvider(TextToSpeechInterface):
             
             return audio_buffer.getvalue()
     
+    def _split_into_chunks(self, text: str, max_chunk_length: int = 150) -> List[str]:
+        """
+        Split text into speakable chunks at natural boundaries.
+        
+        Prioritizes splitting at:
+        1. Sentence boundaries (. ! ?)
+        2. Clause boundaries (, ; :)
+        3. Word boundaries (if chunk too long)
+        
+        Args:
+            text: Text to split
+            max_chunk_length: Maximum characters per chunk
+            
+        Returns:
+            List of text chunks
+        """
+        if len(text) <= max_chunk_length:
+            return [text]
+        
+        chunks = []
+        
+        # First split by sentences
+        sentences = re.split(r'(?<=[.!?])\s+', text)
+        
+        current_chunk = ""
+        for sentence in sentences:
+            # If adding this sentence would exceed max, save current chunk
+            if current_chunk and len(current_chunk) + len(sentence) + 1 > max_chunk_length:
+                chunks.append(current_chunk.strip())
+                current_chunk = ""
+            
+            # If single sentence is too long, split by clauses
+            if len(sentence) > max_chunk_length:
+                # Split by clause boundaries
+                clauses = re.split(r'(?<=[,;:])\s+', sentence)
+                for clause in clauses:
+                    if current_chunk and len(current_chunk) + len(clause) + 1 > max_chunk_length:
+                        chunks.append(current_chunk.strip())
+                        current_chunk = ""
+                    
+                    # If clause still too long, split by words
+                    if len(clause) > max_chunk_length:
+                        words = clause.split()
+                        for word in words:
+                            if len(current_chunk) + len(word) + 1 > max_chunk_length:
+                                if current_chunk:
+                                    chunks.append(current_chunk.strip())
+                                current_chunk = word
+                            else:
+                                current_chunk = f"{current_chunk} {word}".strip()
+                    else:
+                        current_chunk = f"{current_chunk} {clause}".strip() if current_chunk else clause
+            else:
+                current_chunk = f"{current_chunk} {sentence}".strip() if current_chunk else sentence
+        
+        if current_chunk:
+            chunks.append(current_chunk.strip())
+        
+        return chunks
+    
+    async def stream_synthesize(self,
+                               text: str,
+                               voice: Optional[str] = None,
+                               speed: Optional[float] = None,
+                               pitch: Optional[float] = None) -> AsyncIterator[AudioOutput]:
+        """
+        Stream synthesized speech in chunks for reduced latency.
+        
+        Yields audio chunks as they're synthesized, allowing playback
+        to begin before the entire text is processed.
+        
+        Args:
+            text: Text to synthesize
+            voice: Voice name (ignored, use config)
+            speed: Rate multiplier
+            pitch: Not supported
+            
+        Yields:
+            AudioOutput chunks as they become available
+        """
+        if self._voice is None:
+            raise RuntimeError("Piper TTS not initialized. Call initialize() first.")
+        
+        # Sanitize text to remove URLs and markup
+        text = self._sanitize_text_for_tts(text)
+        
+        effective_speed = speed if speed is not None else self.speed
+        chunks = self._split_into_chunks(text)
+        
+        loop = asyncio.get_event_loop()
+        
+        for i, chunk in enumerate(chunks):
+            # Synthesize this chunk
+            audio_bytes = await loop.run_in_executor(
+                None, self._generate_speech, chunk, effective_speed
+            )
+            
+            yield AudioOutput(
+                audio_data=audio_bytes,
+                format=AudioFormat.WAV,
+                sample_rate=self._sample_rate,
+                voice=self.voice_name,
+                language="en-US",
+                metadata={
+                    'engine': 'piper',
+                    'speed': effective_speed,
+                    'text': chunk,
+                    'chunk_index': i,
+                    'total_chunks': len(chunks),
+                    'is_last': i == len(chunks) - 1
+                }
+            )
+    
+    async def synthesize_and_play_chunked(self,
+                                          text: str,
+                                          speed: Optional[float] = None) -> bool:
+        """
+        Synthesize and play text in overlapping chunks for minimal latency.
+        
+        This method synthesizes the first chunk and starts playing immediately,
+        then pipelines synthesis of subsequent chunks while earlier ones play.
+        
+        Args:
+            text: Text to synthesize and play
+            speed: Rate multiplier
+            
+        Returns:
+            True if completed normally, False if interrupted
+        """
+        import sounddevice as sd
+        import numpy as np
+        
+        if self._voice is None:
+            raise RuntimeError("Piper TTS not initialized. Call initialize() first.")
+        
+        # Sanitize text to remove URLs and markup
+        text = self._sanitize_text_for_tts(text)
+        
+        effective_speed = speed if speed is not None else self.speed
+        chunks = self._split_into_chunks(text)
+        
+        if not chunks:
+            return True
+        
+        self._is_playing = True
+        self._stop_playback.clear()
+        
+        loop = asyncio.get_event_loop()
+        
+        try:
+            # Queue for synthesized audio chunks ready for playback
+            audio_queue: asyncio.Queue = asyncio.Queue()
+            synthesis_done = asyncio.Event()
+            
+            async def synthesize_chunks():
+                """Synthesize all chunks and queue them."""
+                for i, chunk in enumerate(chunks):
+                    if self._stop_playback.is_set():
+                        break
+                    
+                    audio_bytes = await loop.run_in_executor(
+                        None, self._generate_speech, chunk, effective_speed
+                    )
+                    
+                    # Parse WAV to numpy
+                    wav_io = io.BytesIO(audio_bytes)
+                    with wave.open(wav_io, 'rb') as wav:
+                        frames = wav.readframes(wav.getnframes())
+                        audio_np = np.frombuffer(frames, dtype=np.int16)
+                        sample_rate = wav.getframerate()
+                    
+                    await audio_queue.put((audio_np, sample_rate, i == len(chunks) - 1))
+                
+                synthesis_done.set()
+            
+            async def play_chunks():
+                """Play audio chunks as they become available."""
+                import time
+                
+                while True:
+                    if self._stop_playback.is_set():
+                        sd.stop()
+                        return False
+                    
+                    try:
+                        # Wait for next chunk with timeout
+                        audio_np, sample_rate, is_last = await asyncio.wait_for(
+                            audio_queue.get(),
+                            timeout=0.1
+                        )
+                    except asyncio.TimeoutError:
+                        # Check if synthesis is done and queue is empty
+                        if synthesis_done.is_set() and audio_queue.empty():
+                            return True
+                        continue
+                    
+                    # Play this chunk
+                    def play_blocking():
+                        sd.play(audio_np, samplerate=sample_rate)
+                        while sd.get_stream() is not None and sd.get_stream().active:
+                            if self._stop_playback.is_set():
+                                sd.stop()
+                                return
+                            time.sleep(0.02)
+                        if not self._stop_playback.is_set():
+                            sd.wait()
+                    
+                    await loop.run_in_executor(None, play_blocking)
+                    
+                    if self._stop_playback.is_set():
+                        return False
+                    
+                    if is_last:
+                        return True
+            
+            # Run synthesis and playback concurrently
+            synthesis_task = asyncio.create_task(synthesize_chunks())
+            result = await play_chunks()
+            
+            # Ensure synthesis task completes
+            await synthesis_task
+            
+            return result
+            
+        except Exception as e:
+            print(f"⚠️ Chunked synthesis error: {e}")
+            return False
+            
+        finally:
+            self._is_playing = False
+    
     async def play_audio_async(self, audio: AudioOutput) -> None:
-        """Play synthesized audio."""
+        """Play synthesized audio directly using sounddevice (faster than subprocess)."""
+        import sounddevice as sd
+        import numpy as np
+        import wave
+        import io
+        
         if self._is_playing:
             self.stop_audio()
-            await asyncio.sleep(0.05)
+            await asyncio.sleep(0.02)  # Reduced from 0.05s
         
         self._is_playing = True
         self._stop_playback.clear()
         
         try:
-            # Write to temp file
+            # Parse WAV data directly from memory (no temp file needed)
+            wav_io = io.BytesIO(audio.audio_data)
+            with wave.open(wav_io, 'rb') as wav:
+                frames = wav.readframes(wav.getnframes())
+                audio_np = np.frombuffer(frames, dtype=np.int16)
+                sample_rate = wav.getframerate()
+                n_channels = wav.getnchannels()
+                
+                # Reshape for stereo if needed
+                if n_channels > 1:
+                    audio_np = audio_np.reshape(-1, n_channels)
+            
+            # Play with sounddevice in executor (non-blocking)
+            loop = asyncio.get_event_loop()
+            
+            def play_blocking():
+                import time
+                try:
+                    sd.play(audio_np, samplerate=sample_rate)
+                    # Poll for completion with interrupt checking
+                    while sd.get_stream() is not None and sd.get_stream().active:
+                        if self._stop_playback.is_set():
+                            sd.stop()
+                            break
+                        time.sleep(0.05)  # Check every 50ms for interruption
+                    # Final wait to ensure playback completes
+                    if not self._stop_playback.is_set():
+                        sd.wait()
+                except Exception as e:
+                    print(f"⚠️ Sounddevice playback error: {e}")
+                    sd.stop()  # Ensure we stop on error
+            
+            await loop.run_in_executor(None, play_blocking)
+            
+        except Exception as e:
+            print(f"⚠️ Audio playback error: {e}")
+            # Fallback to subprocess method if sounddevice fails
+            await self._play_audio_subprocess_fallback(audio)
+                
+        finally:
+            self._is_playing = False
+            self._current_process = None
+    
+    async def _play_audio_subprocess_fallback(self, audio: AudioOutput) -> None:
+        """Fallback to subprocess-based playback if sounddevice fails."""
+        try:
             with tempfile.NamedTemporaryFile(suffix='.wav', delete=False) as f:
                 f.write(audio.audio_data)
                 tmp_path = f.name
             
             try:
-                # Play with system command
                 import platform
                 if platform.system() == 'Darwin':
                     self._current_process = await asyncio.create_subprocess_exec(
@@ -326,7 +642,6 @@ class PiperTTSProvider(TextToSpeechInterface):
                         stderr=asyncio.subprocess.DEVNULL
                     )
                 
-                # Wait for playback, checking for interruption
                 while self._current_process.returncode is None:
                     if self._stop_playback.is_set():
                         self._current_process.kill()
@@ -338,25 +653,27 @@ class PiperTTSProvider(TextToSpeechInterface):
                         )
                     except asyncio.TimeoutError:
                         pass
-                        
             finally:
                 Path(tmp_path).unlink(missing_ok=True)
-                
-        finally:
-            self._is_playing = False
-            self._current_process = None
+        except Exception as e:
+            print(f"⚠️ Fallback playback also failed: {e}")
     
     def stop_audio(self) -> None:
         """Stop audio playback immediately."""
         self._stop_playback.set()
         
+        # NOTE: We do NOT call sd.stop() here because it stops ALL streams globally,
+        # including input streams like barge-in detection. The play_blocking loop
+        # will detect _stop_playback being set and call sd.stop() itself.
+        
+        # Kill subprocess if using fallback
         if self._current_process:
             try:
                 self._current_process.kill()
             except Exception:
                 pass
         
-        # Also kill any afplay/aplay processes
+        # Kill any afplay/aplay processes (fallback cleanup)
         try:
             import platform
             if platform.system() == 'Darwin':
@@ -488,4 +805,5 @@ class PiperTTSProvider(TextToSpeechInterface):
     def list_available_voices() -> Dict[str, dict]:
         """List all available voice models."""
         return AVAILABLE_VOICES.copy()
+
 

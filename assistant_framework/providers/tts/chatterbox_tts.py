@@ -270,6 +270,9 @@ class ChatterboxTTSProvider(TextToSpeechInterface):
         Returns:
             AudioOutput containing synthesized audio
         """
+        # Sanitize text to remove URLs and markup
+        text = self._sanitize_text_for_tts(text)
+        
         if self._model is None:
             raise RuntimeError("Chatterbox model not initialized. Call initialize() first.")
         
@@ -302,6 +305,39 @@ class ChatterboxTTSProvider(TextToSpeechInterface):
                 'text': text
             }
         )
+    
+    def _sanitize_text_for_tts(self, raw: str) -> str:
+        """Remove or normalize ASCII markup so it isn't read literally.
+        
+        - Remove URLs (http://, https://, www., etc.)
+        - Remove asterisks used for bullets/markdown emphasis
+        - Strip backticks and code fences
+        - Collapse excessive whitespace
+        """
+        import re
+        try:
+            text = raw
+            
+            # Remove URLs - more comprehensive patterns
+            # Match http:// and https:// URLs (including those in parentheses)
+            text = re.sub(r'\(?https?://[^\s\)]+\)?', '', text)
+            # Match www. URLs
+            text = re.sub(r'\(?www\.[^\s\)]+\)?', '', text)
+            # Match common domain patterns (domain.tld paths)
+            text = re.sub(r'\b\w+\.(com|org|net|edu|gov|io|ai|co|app|dev|xyz|me|us|uk|ca)[^\s]*', '', text, flags=re.IGNORECASE)
+            
+            # Remove markdown links [text](url) - replace with just the text
+            text = re.sub(r'\[([^\]]+)\]\([^\)]+\)', r'\1', text)
+            
+            # Remove code fences/backticks
+            text = text.replace("```", " ").replace("`", "")
+            # Remove asterisks
+            text = text.replace("*", "")
+            # Normalize multiple spaces
+            text = re.sub(r"\s+", " ", text).strip()
+            return text
+        except Exception:
+            return raw
     
     def _generate_speech(self, text: str, voice_prompt: Optional[str]) -> 'torch.Tensor':
         """Generate speech from text (runs in thread)."""
@@ -510,4 +546,5 @@ async def test_chatterbox():
 
 if __name__ == "__main__":
     asyncio.run(test_chatterbox())
+
 

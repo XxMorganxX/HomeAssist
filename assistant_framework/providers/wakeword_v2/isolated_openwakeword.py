@@ -213,9 +213,9 @@ class IsolatedOpenWakeWordProvider(WakeWordInterface):
         # The state machine should have already cleaned up the previous component
         acquired = self.audio_manager.acquire_audio("wakeword", force_cleanup=False)
         if not acquired:
-            # Wait and retry once in case cleanup is still in progress
+            # Wait and retry once in case cleanup is still in progress (reduced from 1.0s)
             print("⏳ Audio busy, waiting for cleanup to complete...")
-            await asyncio.sleep(1.0)
+            await asyncio.sleep(0.3)
             acquired = self.audio_manager.acquire_audio("wakeword", force_cleanup=False)
             if not acquired:
                 raise RuntimeError("Failed to acquire audio for wake word")

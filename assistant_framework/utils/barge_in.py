@@ -109,9 +109,15 @@ class BargeInDetector:
         self._frame_count += 1
         
         # Always buffer audio (for prefill to transcription)
-        audio_copy = indata.copy().flatten()
+        # Make a safe copy before any processing
+        try:
+            audio_copy = indata.copy().flatten()
+        except Exception:
+            return  # Can't process invalid audio data
+        
         with self._buffer_lock:
-            self._audio_buffer.append(audio_copy)
+            if not self._shutdown.is_set():  # Don't append during shutdown
+                self._audio_buffer.append(audio_copy)
         
         # If already triggered, continue capturing for a bit then stop
         if self._detected.is_set():
@@ -167,10 +173,16 @@ class BargeInDetector:
         """Finalize the captured audio buffer into a single array."""
         with self._buffer_lock:
             if self._audio_buffer:
-                # Concatenate all buffered chunks into single array
-                self._captured_audio = np.concatenate(list(self._audio_buffer))
-                duration = len(self._captured_audio) / self.config.sample_rate
-                print(f"📼 Captured {duration:.2f}s of audio for transcription prefill")
+                try:
+                    # Make a copy of the buffer contents to avoid concurrent modification
+                    buffer_copy = list(self._audio_buffer)
+                    if buffer_copy:
+                        self._captured_audio = np.concatenate(buffer_copy)
+                        duration = len(self._captured_audio) / self.config.sample_rate
+                        print(f"📼 Captured {duration:.2f}s of audio for transcription prefill")
+                except Exception as e:
+                    print(f"⚠️  Error finalizing captured audio: {e}")
+                    self._captured_audio = None
     
     def _signal_detection(self):
         """Signal barge-in detection (called from event loop thread)."""
@@ -211,7 +223,8 @@ class BargeInDetector:
         
         # Open audio stream with callback
         bt_mode = " [Bluetooth]" if self.config.is_bluetooth else ""
-        print(f"👂 Starting barge-in detection (with audio buffering){bt_mode}...")
+        print(f"👂 Starting barge-in detection{bt_mode}...")
+        
         try:
             self._stream = sd.InputStream(
                 device=self.config.device_index,
@@ -235,19 +248,24 @@ class BargeInDetector:
             return
         
         print("🛑 Stopping barge-in detection...")
+        
+        # Set flags FIRST to stop callbacks from doing work
         self._shutdown.set()
         self._is_listening = False
         
-        # Finalize captured audio if not done yet
+        # Give any in-flight callbacks time to complete
+        await asyncio.sleep(0.05)
+        
+        # Now safe to finalize captured audio
         if self._detected.is_set() and self._captured_audio is None:
             self._finalize_captured_audio()
         
         if self._stream:
             try:
                 self._stream.stop()
-                await asyncio.sleep(0.05)  # Brief wait for callback to finish
+                await asyncio.sleep(0.05)  # Wait for callback thread to fully exit
                 self._stream.close()
-                await asyncio.sleep(0.1)  # Wait for device release
+                await asyncio.sleep(0.03)  # Wait for device release
                 print("✅ Barge-in detection stopped")
             except Exception as e:
                 print(f"⚠️  Barge-in stop error: {e}")

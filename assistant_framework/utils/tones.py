@@ -189,19 +189,11 @@ def beep_error() -> None:
 
 
 def _beep_impl_system_ready() -> None:
-    """Ascending two-tone chime for system ready."""
-    _beep_platform(
-        mac_sounds=["Blow", "Glass"],
-        linux_ids=["service-login", "device-added"],
-        win_tone=(800, 100),
-    )
-    # Small delay then second tone
-    import time
-    time.sleep(0.1)
+    """Single tone for system ready (simplified for faster boot)."""
     _beep_platform(
         mac_sounds=["Glass"],
-        linux_ids=["bell"],
-        win_tone=(1200, 100),
+        linux_ids=["service-login", "device-added"],
+        win_tone=(1000, 120),
     )
 
 
@@ -243,35 +235,51 @@ def beep_wake_model_ready() -> None:
     _play_async(_beep_impl_wake_model_ready)
 
 
+def beep_tool_success() -> None:
+    """Play sound when a tool executes successfully."""
+    _play_async(_beep_impl_tool_success)
+
+
+def beep_tool_failure() -> None:
+    """Play sound when a tool execution fails."""
+    _play_async(_beep_impl_tool_failure)
+
+
 def _beep_impl_shutdown() -> None:
-    """Descending two-tone for shutdown/goodbye."""
-    _beep_platform(
-        mac_sounds=["Glass"],
-        linux_ids=["service-logout", "bell"],
-        win_tone=(1000, 100),
-    )
-    import time
-    time.sleep(0.1)
+    """Single tone for shutdown/goodbye (simplified for faster transition)."""
     _beep_platform(
         mac_sounds=["Blow"],
-        linux_ids=["bell"],
-        win_tone=(600, 150),
+        linux_ids=["service-logout", "bell"],
+        win_tone=(700, 150),
     )
 
 
 def _beep_impl_wake_model_ready() -> None:
-    """Quick double-beep for wake word model ready."""
+    """Single beep for wake word model ready (user can now activate wake word)."""
     _beep_platform(
-        # Avoid "Pop" because it's also used by other events; "Purr" is unique/distinct.
-        mac_sounds=["Purr"],
+        # Clear, distinct sound to indicate system is ready for wake word
+        mac_sounds=["Glass"],
         linux_ids=["device-added", "bell"],
-        win_tone=(1100, 60),
+        win_tone=(1100, 100),
     )
-    import time
-    time.sleep(0.05)
+
+
+def _beep_impl_tool_success() -> None:
+    """Upward chime for successful tool execution."""
     _beep_platform(
-        mac_sounds=["Purr"],
-        linux_ids=["bell"],
-        win_tone=(1100, 60),
+        # Pleasant, confirmatory sounds
+        mac_sounds=["Pop", "Tink", "Glass"],
+        linux_ids=["complete", "message-sent-instant", "dialog-information"],
+        win_tone=(1200, 100),
+    )
+
+
+def _beep_impl_tool_failure() -> None:
+    """Downward tone for failed tool execution."""
+    _beep_platform(
+        # Warning/error sounds
+        mac_sounds=["Funk", "Basso"],
+        linux_ids=["dialog-warning", "message-attention"],
+        win_tone=(500, 150),
     )
 

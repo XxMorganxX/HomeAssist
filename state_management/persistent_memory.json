@@ -1,7 +1,7 @@
 {
   "user_profile": {
     "name": "Morgan Stuart",
-    "location": "Costa Rica",
+    "location": "str|null",
     "preferences": {
       "favorite_color": "orange",
       "tone": "kind/polite; sometimes blunt when requested; playful/spicy with light chaos"
@@ -11,7 +11,8 @@
     "User has a sister who is a dog whisperer.",
     "User enjoys surreal/chaotic lyric imagery, particularly jellyfish imagery, when creating lyrics",
     "User's name is Morgan Stuart",
-    "User is currently in Costa Rica"
+    "User creates calendar reminders to read emails.",
+    "User increasingly emphasizes direct, blunt emotional communication; open to provocative or outlandish wording as a tactic but dislikes using AI suggestions verbatim."
   ],
   "patterns": [
     {
@@ -36,7 +37,7 @@
     },
     {
       "pattern": "User wants to express feelings directly and bluntly; receptive to provocative or outlandish wording as a tactic, but prefers not to use suggestions verbatim",
-      "strength": "moderate"
+      "strength": "strong"
     },
     {
       "pattern": "User has a sister who is a dog whisperer",
@@ -52,6 +53,30 @@
     },
     {
       "pattern": "User location has changed to Costa Rica",
+      "strength": "weak"
+    },
+    {
+      "pattern": "User location changed away from Costa Rica (location unknown after update)",
+      "strength": "weak"
+    },
+    {
+      "pattern": "User creates calendar reminders to read emails",
+      "strength": "strong"
+    },
+    {
+      "pattern": "User seeks to communicate feelings directly and bluntly; willing to use provocative wording as a tactic but resists verbatim use of suggestions",
+      "strength": "strong"
+    },
+    {
+      "pattern": "Calendar reminders are used by the user to read emails; event scheduled for tomorrow reinforces this behavior",
+      "strength": "strong"
+    },
+    {
+      "pattern": "User uses calendar reminders to manage tasks and creates calendar events for upcoming days (e.g., 'test event number eight' for tomorrow)",
+      "strength": "strong"
+    },
+    {
+      "pattern": "User schedules calendar reminders to read emails at specific evening times (e.g., around 6 PM)",
       "strength": "weak"
     }
   ],
@@ -119,9 +144,33 @@
     {
       "timestamp": "2025-12-26T03:45:29.081669",
       "source_summary_preview": "user: I'm currently in costa rica.\nassistant: Got it, Morgan. You\u2019re soaking up Costa Rica for a little longer\u2014right up until it\u2019s time to head back. \n\nSo what\u2019s on your mind right now? You working th..."
+    },
+    {
+      "timestamp": "2025-12-28T18:30:33.642761",
+      "source_summary_preview": "user: what do you know about me\nassistant: Here\u2019s what I know so far: \n\nYour name is Morgan Stuart, and you\u2019re currently in Costa Rica. You\u2019ve got a sister who\u2019s a dog whisperer\u2014someone who works clos..."
+    },
+    {
+      "timestamp": "2026-01-02T23:07:08.516189",
+      "source_summary_preview": "user: what's in my emails right now\nassistant: Right now, you have an unread email notification about a Google Meet invitation from Beth Howland. It's scheduled for December 14, 2025, from 1 PM to 2 P..."
+    },
+    {
+      "timestamp": "2026-01-02T23:18:26.779263",
+      "source_summary_preview": "**Key Topics:** User's favorite color (orange), elephant diet, user's desire to visit Iceland, user's upcoming trip to Spain, current weather in Ithaca, NY, AI's capabilities and limitations, capital ..."
+    },
+    {
+      "timestamp": "2026-01-02T23:28:58.775951",
+      "source_summary_preview": "user: Can you put an event on my calendar tomorrow at 6pM to remind me to. read my emails\nassistant: I've set up a calendar event for you tomorrow at 6 PM to remind you to read your emails. You can ch..."
+    },
+    {
+      "timestamp": "2026-01-02T23:32:18.349624",
+      "source_summary_preview": "user: What day is it today?\nassistant: It\u2019s Friday, January 2nd, 2026.\n\nFeels like the calendar\u2019s just rolled over, right? Time\u2019s still fresh, like the first page in a new book. Anything special you\u2019r..."
+    },
+    {
+      "timestamp": "2026-01-02T23:54:02.056401",
+      "source_summary_preview": "user: What is the next event I have on my calendar, man?\nassistant: Your next event is scheduled for tomorrow, January 3rd, 2026, from 1 PM to 2 PM. It's titled \"Check discover debt.\" You can check th..."
     }
   ],
-  "last_updated": "2025-12-26T03:45:29.081669",
+  "last_updated": "2026-01-02T23:54:02.056401",
   "corrections_log": [
     {
       "correction": "User has an upcoming trip to Spain",
@@ -152,6 +201,10 @@
     {
       "removed_fact": "User's location is Ithaca, NY",
       "timestamp": "2025-12-26T03:45:29.081126"
+    },
+    {
+      "removed_fact": "User is currently in Costa Rica",
+      "timestamp": "2025-12-28T18:30:33.642683"
     }
   ]
 }

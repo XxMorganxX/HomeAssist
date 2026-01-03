@@ -19,7 +19,7 @@ try:
     from .utils.barge_in import BargeInDetector, BargeInConfig, BargeInMode
     from .utils.conversation_recorder import ConversationRecorder
     from .utils.tones import (
-        beep_system_ready, beep_wake_detected, beep_listening_start,
+        beep_wake_detected, beep_listening_start,
         beep_send_detected, beep_ready_to_listen, beep_shutdown
     )
     from .utils.console_logger import (
@@ -43,7 +43,7 @@ except ImportError:
     from assistant_framework.utils.barge_in import BargeInDetector, BargeInConfig, BargeInMode
     from assistant_framework.utils.conversation_recorder import ConversationRecorder
     from assistant_framework.utils.tones import (
-        beep_system_ready, beep_wake_detected, beep_listening_start,
+        beep_wake_detected, beep_listening_start,
         beep_send_detected, beep_ready_to_listen, beep_shutdown
     )
     from assistant_framework.utils.console_logger import (
@@ -107,10 +107,19 @@ class RefactoredOrchestrator:
         # Map config naming to BargeInConfig naming
         self._barge_in_buffer_seconds = float(barge_in_config.get('pre_barge_in_buffer_duration', barge_in_config.get('buffer_seconds', 2.0)))
         self._barge_in_capture_after_trigger = float(barge_in_config.get('post_barge_in_capture_duration', barge_in_config.get('capture_after_trigger', 0.3)))
+        # Device settings for barge-in (critical for Bluetooth/Meta glasses)
+        self._barge_in_device_index = barge_in_config.get('device_index', None)
+        self._barge_in_latency = barge_in_config.get('latency', 'high')
+        self._barge_in_is_bluetooth = barge_in_config.get('is_bluetooth', False)
         self._early_barge_in = False  # Flag: next message should append to previous
         self._previous_user_message = ""  # Store last user message for appending
         self._vector_query_override = None  # Override for vector query (raw single message)
         self._playback_start_time: Optional[float] = None  # Track when TTS playback started
+        self._transcription_preconnect_task: Optional[asyncio.Task] = None  # Track pre-connect for reliable handoff
+        
+        # TTS chunked synthesis config (for reduced latency on long messages)
+        tts_config = config.get('tts', {}).get('config', {})
+        self._chunked_synthesis_threshold = int(tts_config.get('chunked_synthesis_threshold', 150))
         
         # Conversation recording (Supabase)
         recording_config = config.get('recording', {})
@@ -186,7 +195,7 @@ class RefactoredOrchestrator:
             self.is_initialized = True
             print("\n✅ All providers initialized and ready")
             print("💡 Providers will be reused across conversations (cleanup on transitions)")
-            beep_system_ready()  # 🔔 System ready sound
+            # Note: beep_wake_model_ready() plays when wake word detection actually starts
             log_boot()  # 📡 Remote console log
             return True
             
@@ -389,6 +398,14 @@ class RefactoredOrchestrator:
                 "transcription"
             )
             
+            # Wait for pre-connect task if it was started during TTS
+            if self._transcription_preconnect_task:
+                try:
+                    await asyncio.wait_for(self._transcription_preconnect_task, timeout=0.3)
+                except asyncio.TimeoutError:
+                    pass  # Will connect on-demand
+                self._transcription_preconnect_task = None
+            
             # Use pre-initialized provider
             transcription = self._transcription
             if not transcription:
@@ -562,7 +579,15 @@ class RefactoredOrchestrator:
                 print("❌ Response provider not available (MCP not started?)")
                 return None
             
-            # Get conversation context for the response
+            # Start vector memory query in parallel (before context preparation)
+            vector_task = None
+            if self._context and hasattr(self._context, 'get_vector_memory_context'):
+                query_for_vector = getattr(self, '_vector_query_override', None) or user_message
+                vector_task = asyncio.create_task(
+                    self._context.get_vector_memory_context(query_for_vector)
+                )
+            
+            # Get conversation context for the response (runs in parallel with vector query)
             context = None
             tool_context = None
             if self._context:
@@ -570,19 +595,41 @@ class RefactoredOrchestrator:
                 context = self._context.get_recent_for_response()
                 # Get compact context for tool decisions
                 tool_context = self._context.get_tool_context()
-                
-                # Retrieve relevant past conversations from vector memory
-                # Use vector_query_text if provided (raw single message), otherwise user_message
-                if hasattr(self._context, 'get_vector_memory_context'):
-                    query_for_vector = getattr(self, '_vector_query_override', None) or user_message
-                    vector_context = await self._context.get_vector_memory_context(query_for_vector)
-                    if vector_context:
-                        # Inject vector memory as a system message in context
-                        context.insert(1, {"role": "system", "content": vector_context})
+            
+            # Wait for vector memory query (parallelized with context prep above)
+            vector_context = ""
+            if vector_task:
+                vector_context = await vector_task or ""
+                if vector_context and context:
+                    # Inject vector memory as a system message in context
+                    context.insert(1, {"role": "system", "content": vector_context})
             
             # Stream response with context
             print("💭 Generating response...")
             log_user_message(user_message)  # 📡 Remote console log
+            
+            # Record comprehensive API input tokens (system prompt + context + tools)
+            if self._recorder and self._recorder.current_session_id:
+                # Get system prompt (includes persistent memory)
+                system_prompt = ""
+                if context:
+                    for msg in context:
+                        if msg.get("role") == "system":
+                            system_prompt += msg.get("content", "") + "\n"
+                
+                # Get tool definitions from response provider
+                tool_defs = []
+                if hasattr(response, 'openai_functions'):
+                    tool_defs = response.openai_functions or []
+                
+                self._recorder.record_api_request(
+                    system_prompt=system_prompt,
+                    context_messages=context or [],
+                    tool_definitions=tool_defs,
+                    user_message=user_message,
+                    vector_context=vector_context
+                )
+            
             full_response = ""
             streamed_deltas = False
             
@@ -610,6 +657,16 @@ class RefactoredOrchestrator:
             
             print()  # Newline after response
             
+            # Capture composition API token usage (from tool decisions and final answer composition)
+            if self._recorder and hasattr(response, 'get_composition_token_usage'):
+                comp_usage = response.get_composition_token_usage()
+                if comp_usage["total"] > 0:
+                    # Add composition input tokens to session total
+                    self._recorder._session_input_tokens += comp_usage["input_tokens"]
+                    # Add composition output tokens to session total
+                    self._recorder._session_output_tokens += comp_usage["output_tokens"]
+                    print(f"📊 Composition totals: +{comp_usage['input_tokens']:,} in, +{comp_usage['output_tokens']:,} out")
+            
             # Add assistant response to context AFTER generation
             if self._context and full_response:
                 self._context.add_message("assistant", full_response)
@@ -630,6 +687,48 @@ class RefactoredOrchestrator:
             )
             await self.error_handler.handle_error(error)
             return None
+    
+    async def _record_tool_calls(self) -> None:
+        """Record any tool calls from the last response to Supabase."""
+        if not self._recorder or not self._recorder.current_session_id:
+            return
+        
+        if not self._last_tool_calls:
+            return
+        
+        import json
+        
+        for tool_call in self._last_tool_calls:
+            try:
+                # Extract tool call details
+                tool_name = getattr(tool_call, 'name', None) or 'unknown'
+                arguments = getattr(tool_call, 'arguments', {}) or {}
+                result = getattr(tool_call, 'result', None)
+                
+                # Serialize result if it's not already a string
+                if result is not None and not isinstance(result, str):
+                    try:
+                        result = json.dumps(result)
+                    except (TypeError, ValueError):
+                        result = str(result)
+                
+                # Truncate result if too long (Supabase text limit)
+                if result and len(result) > 10000:
+                    result = result[:10000] + "... [truncated]"
+                
+                await self._recorder.record_tool_call(
+                    tool_name=tool_name,
+                    arguments=arguments,
+                    result=result,
+                    duration_ms=None  # Could track this in the future
+                )
+                print(f"   📝 Recorded tool call: {tool_name}")
+                
+            except Exception as e:
+                print(f"⚠️  Failed to record tool call: {e}")
+        
+        # Clear tool calls after recording
+        self._last_tool_calls = []
     
     async def run_tts(self, text: str, transition_to_idle: bool = True, enable_barge_in: bool = True) -> bool:
         """
@@ -657,13 +756,26 @@ class RefactoredOrchestrator:
             # Use pre-initialized provider
             tts = self._tts
             
-            # Synthesize audio first
-            print("🔊 Synthesizing speech...")
-            audio = await tts.synthesize(text)
+            # Check if text is long enough to benefit from chunked synthesis
+            # Chunked synthesis reduces perceived latency by playing first chunk
+            # while synthesizing the rest
+            use_chunked = (
+                self._chunked_synthesis_threshold > 0 and
+                len(text) > self._chunked_synthesis_threshold and 
+                hasattr(tts, 'synthesize_and_play_chunked')
+            )
+            
+            if use_chunked:
+                print(f"🔊 Using chunked synthesis for {len(text)} chars...")
+            else:
+                # Synthesize audio first (for short messages)
+                print("🔊 Synthesizing speech...")
+                audio = await tts.synthesize(text)
             
             # Setup barge-in detection if enabled
             if enable_barge_in and self._barge_in_enabled:
-                print("👂 Barge-in enabled - speak to interrupt")
+                bt_mode = " [Bluetooth/Meta]" if self._barge_in_is_bluetooth else ""
+                print(f"👂 Barge-in enabled{bt_mode} - speak to interrupt")
                 self._barge_in_detector = BargeInDetector(BargeInConfig(
                     mode=BargeInMode.ENERGY,
                     energy_threshold=self._barge_in_energy_threshold,
@@ -673,12 +785,16 @@ class RefactoredOrchestrator:
                     chunk_size=self._barge_in_chunk_size,
                     buffer_seconds=self._barge_in_buffer_seconds,
                     capture_after_trigger=self._barge_in_capture_after_trigger,
+                    device_index=self._barge_in_device_index,
+                    latency=self._barge_in_latency,
+                    is_bluetooth=self._barge_in_is_bluetooth,
                 ))
                 print(
                     "🔧 Barge-in config: "
                     f"threshold={self._barge_in_energy_threshold}, "
                     f"min_speech={self._barge_in_min_speech_duration}s, "
-                    f"cooldown={self._barge_in_cooldown_after_tts_start}s"
+                    f"cooldown={self._barge_in_cooldown_after_tts_start}s, "
+                    f"device={self._barge_in_device_index}"
                 )
                 
                 # Define callback to stop TTS when barge-in detected
@@ -705,11 +821,16 @@ class RefactoredOrchestrator:
             
             # Pre-connect transcription WebSocket while speaking (for faster barge-in response)
             if self._transcription and hasattr(self._transcription, 'preconnect'):
-                asyncio.create_task(self._transcription.preconnect())
+                self._transcription_preconnect_task = asyncio.create_task(self._transcription.preconnect())
             
             # Play audio (will be interrupted if barge-in triggers)
             print("🔊 Speaking...")
-            await tts.play_audio_async(audio)
+            if use_chunked:
+                # Use chunked synthesis+playback for long messages (overlaps synthesis and playback)
+                await tts.synthesize_and_play_chunked(text)
+            else:
+                # Standard playback for short messages
+                await tts.play_audio_async(audio)
             
             # Check if barge-in occurred
             if self._barge_in_triggered:
@@ -794,22 +915,50 @@ class RefactoredOrchestrator:
                 print("❌ Response or TTS provider not available")
                 return "", False
             
-            # Get context
+            # Start vector memory query in parallel
+            vector_task = None
+            if self._context and hasattr(self._context, 'get_vector_memory_context'):
+                query_for_vector = getattr(self, '_vector_query_override', None) or user_message
+                vector_task = asyncio.create_task(
+                    self._context.get_vector_memory_context(query_for_vector)
+                )
+            
+            # Get context (runs in parallel with vector query)
             context = self._context.get_recent_for_response() if self._context else None
             tool_context = self._context.get_tool_context() if self._context else None
             
-            # Retrieve relevant past conversations from vector memory
-            # Use vector_query_override if set (raw single message), otherwise user_message
-            if self._context and hasattr(self._context, 'get_vector_memory_context'):
-                query_for_vector = getattr(self, '_vector_query_override', None) or user_message
-                vector_context = await self._context.get_vector_memory_context(query_for_vector)
+            # Wait for vector memory query (parallelized with context prep above)
+            vector_context = ""
+            if vector_task:
+                vector_context = await vector_task or ""
                 if vector_context and context:
                     # Inject vector memory as a system message in context
                     context.insert(1, {"role": "system", "content": vector_context})
             
+            # Record comprehensive API input tokens (system prompt + context + tools)
+            if self._recorder and self._recorder.current_session_id:
+                system_prompt = ""
+                if context:
+                    for msg in context:
+                        if msg.get("role") == "system":
+                            system_prompt += msg.get("content", "") + "\n"
+                
+                tool_defs = []
+                if hasattr(response, 'openai_functions'):
+                    tool_defs = response.openai_functions or []
+                
+                self._recorder.record_api_request(
+                    system_prompt=system_prompt,
+                    context_messages=context or [],
+                    tool_definitions=tool_defs,
+                    user_message=user_message,
+                    vector_context=vector_context
+                )
+            
             # Setup barge-in detection
             if enable_barge_in and self._barge_in_enabled:
-                print("👂 Barge-in enabled for streaming TTS")
+                bt_mode = " [Bluetooth/Meta]" if self._barge_in_is_bluetooth else ""
+                print(f"👂 Barge-in enabled for streaming TTS{bt_mode}")
                 self._barge_in_detector = BargeInDetector(BargeInConfig(
                     mode=BargeInMode.ENERGY,
                     energy_threshold=self._barge_in_energy_threshold,
@@ -819,6 +968,9 @@ class RefactoredOrchestrator:
                     chunk_size=self._barge_in_chunk_size,
                     buffer_seconds=self._barge_in_buffer_seconds,
                     capture_after_trigger=self._barge_in_capture_after_trigger,
+                    device_index=self._barge_in_device_index,
+                    latency=self._barge_in_latency,
+                    is_bluetooth=self._barge_in_is_bluetooth,
                 ))
                 print(
                     "🔧 Barge-in config: "
@@ -851,7 +1003,7 @@ class RefactoredOrchestrator:
             
             # Pre-connect transcription WebSocket
             if self._transcription and hasattr(self._transcription, 'preconnect'):
-                asyncio.create_task(self._transcription.preconnect())
+                self._transcription_preconnect_task = asyncio.create_task(self._transcription.preconnect())
             
             # Create async generator that yields response chunks
             streamed_any = False
@@ -931,6 +1083,14 @@ class RefactoredOrchestrator:
                     await tts.play_audio_async(audio)
                 speech_completed = not self._barge_in_triggered
             
+            # Capture composition API token usage (from tool decisions and final answer composition)
+            if self._recorder and hasattr(response, 'get_composition_token_usage'):
+                comp_usage = response.get_composition_token_usage()
+                if comp_usage["total"] > 0:
+                    self._recorder._session_input_tokens += comp_usage["input_tokens"]
+                    self._recorder._session_output_tokens += comp_usage["output_tokens"]
+                    print(f"📊 Composition totals: +{comp_usage['input_tokens']:,} in, +{comp_usage['output_tokens']:,} out")
+            
             # Add response to context
             if self._context and full_response:
                 self._context.add_message("assistant", full_response)
@@ -968,12 +1128,24 @@ class RefactoredOrchestrator:
                 wake_model = wake_event.model_name
                 break  # Got wake word, proceed
             
+            # Start pre-connecting transcription BEFORE stopping wake word (parallel operation)
+            preconnect_task = None
+            if self._transcription and hasattr(self._transcription, 'preconnect'):
+                preconnect_task = asyncio.create_task(self._transcription.preconnect())
+            
             # Explicitly stop wake word detection before proceeding
             # The async generator break doesn't stop the subprocess
             if self._wakeword:
                 await self._wakeword.stop_detection()
-                # Wait for subprocess to fully terminate
-                await asyncio.sleep(0.5)
+                # Wait for subprocess to fully terminate (reduced from 0.5s)
+                await asyncio.sleep(0.1)
+            
+            # Ensure preconnect completed (overlapped with wake word stop)
+            if preconnect_task:
+                try:
+                    await asyncio.wait_for(preconnect_task, timeout=0.5)
+                except asyncio.TimeoutError:
+                    pass  # Will connect on-demand
             
             # Start recording session and reset conversation context
             if self._recorder and self._recorder.is_initialized:
@@ -1009,6 +1181,8 @@ class RefactoredOrchestrator:
             # Record assistant message
             if self._recorder and self._recorder.current_session_id:
                 await self._recorder.record_message("assistant", assistant_text)
+                # Record tool calls used to generate this response
+                await self._record_tool_calls()
             
             # 4. Speak response with barge-in support
             speech_completed = await self.run_tts(assistant_text, transition_to_idle=True, enable_barge_in=True)
@@ -1052,12 +1226,24 @@ class RefactoredOrchestrator:
                     wake_model = wake_event.model_name
                     break  # Got wake word, enter conversation mode
                 
+                # Start pre-connecting transcription BEFORE stopping wake word (parallel operation)
+                preconnect_task = None
+                if self._transcription and hasattr(self._transcription, 'preconnect'):
+                    preconnect_task = asyncio.create_task(self._transcription.preconnect())
+                
                 # Explicitly stop wake word detection before entering conversation
                 # The async generator break doesn't stop the subprocess
                 if self._wakeword:
                     await self._wakeword.stop_detection()
-                    # Wait for subprocess to fully terminate
-                    await asyncio.sleep(0.5)
+                    # Wait for subprocess to fully terminate (reduced from 0.5s)
+                    await asyncio.sleep(0.1)
+                
+                # Ensure preconnect completed (overlapped with wake word stop)
+                if preconnect_task:
+                    try:
+                        await asyncio.wait_for(preconnect_task, timeout=0.5)
+                    except asyncio.TimeoutError:
+                        pass  # Will connect on-demand
                 
                 # Start recording session and reset conversation context
                 if self._recorder and self._recorder.is_initialized:
@@ -1127,6 +1313,8 @@ class RefactoredOrchestrator:
                         # Record assistant message
                         if self._recorder and self._recorder.current_session_id:
                             await self._recorder.record_message("assistant", assistant_text)
+                            # Record tool calls used to generate this response
+                            await self._record_tool_calls()
                     else:
                         # Traditional mode: generate full response, then speak
                         assistant_text = await self.run_response(user_text)
@@ -1139,6 +1327,8 @@ class RefactoredOrchestrator:
                         # Record assistant message
                         if self._recorder and self._recorder.current_session_id:
                             await self._recorder.record_message("assistant", assistant_text)
+                            # Record tool calls used to generate this response
+                            await self._record_tool_calls()
                         
                         # Speak response with barge-in enabled
                         # If user interrupts, we'll immediately start transcribing
@@ -1186,9 +1376,9 @@ class RefactoredOrchestrator:
                     print("🔄 Transitioning to IDLE before restarting wake word...")
                     await self.state_machine.transition_to(AudioState.IDLE)
                 
-                # Extra settling time for audio device to fully release
+                # Extra settling time for audio device to fully release (reduced from 1.0s)
                 print("⏳ Waiting for audio device to settle...")
-                await asyncio.sleep(1.0)
+                await asyncio.sleep(0.2)
                 
         except KeyboardInterrupt:
             print("\n⚠️  Stopping continuous loop...")

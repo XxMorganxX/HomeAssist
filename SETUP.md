@@ -16,6 +16,7 @@ HomeAssist is a privacy-focused voice assistant that runs locally on your machin
 - 🧠 **Persistent Memory** — Remembers user preferences and facts across sessions
 - 🏠 **Smart Home Control** — Lights, music, calendar, and more via MCP tools
 - ⚡ **Barge-In Support** — Interrupt the assistant mid-speech naturally
+- 🔔 **Audio Feedback** — Distinct sounds for tool success/failure and system events
 
 ---
 
@@ -171,6 +172,27 @@ BARGE_IN_CONFIG = {
 }
 ```
 
+#### Conversation Summarization
+
+The assistant automatically summarizes conversations using Gemini for efficient context management:
+
+```python
+"summarization": {
+    "enabled": True,
+    "first_summary_at": 8,       # Trigger first summary at this many messages
+    "summarize_every": 4,         # Re-summarize every N messages after first
+    "gemini_model": "gemini-2.0-flash",
+}
+```
+
+**How it works:**
+- Summaries are generated in the background without blocking conversation
+- Each conversation session starts fresh (no carryover from previous sessions)
+- Summaries are stored in `state_management/conversation_summary.json`
+- Used to feed context to persistent memory extraction and vector memory
+
+> 💡 **Tip:** Requires `GEMINI_API_KEY` environment variable. If not set, summarization is skipped.
+
 #### Persistent Memory
 
 The assistant remembers facts about you across sessions:
@@ -274,6 +296,14 @@ VECTOR_MEMORY_CONFIG = {
 
 The MCP (Model Context Protocol) server provides tool capabilities. Configuration is in `mcp_server/config.py`.
 
+#### System Info Tool
+
+The `system_info` tool allows the assistant to explain its own architecture and capabilities when users ask questions like "how do you work?" or "what can you do?". It reads the project README files and returns relevant documentation sections.
+
+- Enabled by default in `mcp_server/tools_config.py`
+- No configuration required
+- Supports section filtering: `overview`, `structure`, `tools`, `memory`, `config`, `framework`, `troubleshooting`, or `all`
+
 #### Kasa Smart Lights
 
 ```python
@@ -290,6 +320,13 @@ Place credentials in `mcp_server/google_creds/`:
 - `google_creds_<user>.json` — OAuth client secrets
 - `token_<user>.json` — Access tokens (auto-generated on first auth)
 
+**Calendar Selection Behavior:**
+
+- **READ operations** — Default to `primary` which queries ALL calendars (shows events from Morgan Stuart, Birthdays, Family, HomeAssist, etc.)
+- **WRITE operations** — Default to `homeassist` calendar to keep assistant-created events separate
+
+> 💡 **Tip:** Create a calendar named "HomeAssist" in Google Calendar to keep assistant events organized separately from your main calendar.
+
 #### Spotify
 
 Set environment variables and configure users:
@@ -298,6 +335,103 @@ Set environment variables and configure users:
 SPOTIFY_USERS = {
     "Morgan": {"username": "your_spotify_username"},
 }
+```
+
+---
+
+## 🔔 Audio Feedback
+
+HomeAssist provides distinct audio cues for system events and tool execution to give you real-time feedback without looking at the terminal.
+
+### System Sounds
+
+| Event | Sound | Description |
+|-------|-------|-------------|
+| 🎤 **Wake Word** | Ping/Glass | Wake word detected, assistant activated |
+| 🎙️ **Listening** | Tink | Recording your voice |
+| 🤖 **Responding** | Morse | AI is generating a response |
+| ✅ **Ready** | Frog/Bottle | System ready for next interaction |
+| 🚪 **Shutdown** | Blow | Assistant shutting down |
+
+### Tool Execution Feedback
+
+**✅ Success Sound** (Pop/Glass):
+- Tool executed successfully
+- Response contains `"success": true` or no error field
+- Pleasant, confirmatory tone
+
+**❌ Failure Sound** (Funk/Basso):
+- Tool execution failed
+- Response contains `"success": false` or `"error"` field
+- Warning tone to alert you of issues
+
+**Examples:**
+
+```json
+// Triggers success sound ✅
+{"success": true, "result": "Light turned on"}
+
+// Triggers failure sound ❌
+{"success": false, "error": "Device not found"}
+```
+
+> 💡 **Tip:** The system automatically detects success/failure from tool responses. No manual configuration needed.
+
+---
+
+## 📊 Token Tracking
+
+HomeAssist provides detailed token usage tracking for API calls, helping you understand costs and optimize context usage.
+
+### What's Tracked
+
+| Component | Description |
+|-----------|-------------|
+| **Instructions** | System prompt + persistent memory |
+| **Messages** | Conversation history context |
+| **Tools** | Tool definitions/schemas |
+| **Output** | Assistant response tokens |
+
+### Console Output
+
+Every API request logs a detailed token breakdown:
+
+```
+📊 API Input: 3,245 tokens (instructions: 1,200, messages: 845, tools: 1,200)
+```
+
+At session end, you'll see a full summary:
+
+```
+✅ Ended session: abc123...
+   📊 5 messages | 4,500 total tokens
+   📥 Input: 3,500 (context: 2,100, tools: 1,200)
+   📤 Output: 1,000
+```
+
+### Token Tracking Methods
+
+**For API requests** (includes full context):
+```python
+recorder.record_api_request(
+    system_prompt="...",           # Instructions sent to model
+    context_messages=[...],        # Conversation history
+    tool_definitions=[...],        # Tool schemas
+    user_message="...",            # Current user message
+    vector_context="..."           # Semantic memory context
+)
+```
+
+**Session statistics:**
+```python
+stats = recorder.session_token_stats
+# {
+#   "input_tokens": 3500,
+#   "output_tokens": 1000,
+#   "context_tokens": 2100,
+#   "tool_tokens": 1200,
+#   "total_tokens": 4500
+# }
 ```
 
 ---
@@ -487,14 +621,9 @@ print(results)
 
 ### Custom System Prompt
 
-Edit `SYSTEM_PROMPT` in `config.py` to change the assistant's personality:
+Edit `SYSTEM_PROMPT_CONFIG` in `config.py` to change the assistant's personality. The prompt is built from a structured dictionary for easier customization.
 
-```python
-SYSTEM_PROMPT = """
-You're a helpful assistant named Jarvis.
-Be formal and precise in your responses.
-"""
-```
+> 💡 **Tip:** The system prompt automatically includes the current date and year, so the assistant always knows what day it is when scheduling events or interpreting relative dates.
 
 ### Pattern-Based Memory
 

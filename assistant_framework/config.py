@@ -77,7 +77,7 @@ OPENAI_WHISPER_CONFIG = {
     "chunk_duration": 3.0,          # Seconds of audio per API call
     "language": "en",               # Language code (en, es, fr, de, etc.)
     "silence_threshold": 0.01,      # Energy threshold for silence detection
-    "silence_duration": 1.5,        # Seconds of silence to trigger final result
+    "silence_duration": 0.02,        # Seconds of silence to trigger final result
 }
 
 
@@ -95,18 +95,49 @@ def build_system_prompt(config: dict) -> str:
     
     Handles:
     - name/role: Combined into opening line
+    - current_context: Dynamic info like current date (auto-injected)
     - north_star: Mission statement  
     - vibe: List of traits
     - voice/metaphor/profanity/tools/transparency: Nested dicts with rules
     - behavior/response_shape: Lists of rules
     - example: Example response
     """
+    from datetime import datetime as _dt
+    
     sections = []
     
     # Opening identity line
     name = config.get("name", "Assistant")
+    name_full = config.get("name_full", name)
     role = config.get("role", "assistant").replace("_", " ")
-    sections.append(f"You are {name}, a {role}.")
+    
+    if name != name_full:
+        sections.append(f"You are {name} (short for {name_full}), a {role}.")
+    else:
+        sections.append(f"You are {name}, a {role}.")
+    
+    # Name context (helps the model understand when it's being addressed)
+    if "name_context" in config:
+        sections.append(f"IDENTITY: {config['name_context']}")
+    
+    # Name meaning (the story behind the name)
+    if "name_meaning" in config:
+        sections.append(f"NAME MEANING: {config['name_meaning']}")
+    
+    # Creator information
+    if "creator" in config:
+        sections.append(f"ORIGIN: {config['creator']}")
+    
+    # Current context (dynamic - always include current date/time)
+    now = _dt.now()
+    current_date = now.strftime("%A, %B %d, %Y")  # e.g., "Friday, January 2, 2026"
+    current_year = now.year
+    sections.append(
+        f"CURRENT CONTEXT:\n"
+        f"- Today's date: {current_date}\n"
+        f"- Current year: {current_year}\n"
+        f"- When scheduling events or interpreting dates, always use {current_year} (or later) unless the user explicitly specifies a past year."
+    )
     
     # North star / mission
     if "north_star" in config:
@@ -213,7 +244,11 @@ def build_system_prompt(config: dict) -> str:
 # =============================================================================
 
 SYSTEM_PROMPT_CONFIG = {
-  "name": "Crude Sage",
+  "name": "Sol",
+  "name_full": "Solas",
+  "name_context": "Your name is Sol (short for Solas). When the user says 'Sol' or 'Solas', they are addressing you directly.",
+  "name_meaning": "Sol means sun—steady, constant, illuminating. Solas (Gaelic) means light or comfort. A name carrying both warmth and clarity, like a lantern in the woods at dusk.",
+  "creator": "Morgan Stuart, a Cornell Information Science major (CS and AI minor) from Brooklyn, New York, built this assistant.",
   "role": "philosophical_mentor",
 
   "vibe": [
@@ -293,6 +328,7 @@ SYSTEM_PROMPT_CONFIG = {
       "philosophical questions",
       "conversation"
     ],
+    "successful_response_style": "If a tool call is returned sucessfully for an action tool (send text, change lights, set calendar event), return extremely concise response",
     "rule": "If tools aren't needed, answer directly.",
     "informational_rule": (
       "For informational tool calls (news, email, weather, calendar), "
@@ -359,7 +395,10 @@ OPENAI_WS_CONFIG = {
     "system_prompt": SYSTEM_PROMPT,
     # MCP paths are populated in Section 8
     "mcp_server_path": None,
-    "mcp_venv_python": None
+    "mcp_venv_python": None,
+    # Composed tool calling - allows AI to chain multiple tools for multi-step tasks
+    "composed_tool_calling_enabled": True,
+    "max_tool_iterations": 5,  # Maximum rounds of tool calls to prevent infinite loops
 }
 
 
@@ -404,9 +443,13 @@ PIPER_TTS_CONFIG = {
     "voice": "en_US-lessac-high",         # Voice model name
     "model_dir": "./audio_data/piper_models",  # Local model storage (auto-downloads)
     "speed": 1.2,                            # Speech rate multiplier (0.5-2.0)
+    "chunked_synthesis_threshold": 150,      # Chars above which to use chunked synthesis (0 = always full)
+    "chunk_max_length": 150,                 # Max chars per chunk for chunked synthesis
 }
 # Available voices: en_US-lessac-medium, en_US-lessac-high, en_US-ryan-medium,
 #                   en_US-amy-medium, en_GB-alan-medium, en_GB-jenny_dioco-medium
+# Chunked synthesis: For longer messages, splits text into sentences and plays
+# the first chunk while synthesizing the rest. Reduces perceived wait time.
 
 
 # =============================================================================
@@ -415,7 +458,7 @@ PIPER_TTS_CONFIG = {
 
 WAKEWORD_CONFIG = {
     "model_dir": os.getenv("WAKEWORD_MODEL_DIR", "./audio_data/wake_word_models"),
-    "model_name": "hey_honey",
+    "model_name": "hey_honey_v2",
     "sample_rate": 16000,
     "chunk": 1280,
     "threshold": 0.2,
@@ -564,23 +607,26 @@ UNIFIED_CONTEXT_CONFIG = {
         "summarize_every": 4,          # After first, re-summarize every N messages
         "output_file": "state_management/conversation_summary.json",
         "gemini_model": "gemini-2.0-flash",  # Fast & cheap
-        "prompt": """Summarize or update the summary of this conversation between a user and an AI assistant.
+        "prompt": """You are summarizing a conversation between a user and their AI assistant named Sol.
 
 {previous_summary_section}
 
-Focus on:
-1. Key topics discussed
-2. Important information shared (names, dates, preferences, requests)
-3. Any actions taken or tools used
-4. Ongoing context that would be useful for future interactions
+Create a clear, organized summary focusing on:
+1. **Key topics discussed** - What did they talk about?
+2. **Important information shared** - Names, dates, preferences, facts
+3. **Actions taken** - Tools used, tasks completed
+4. **Context to remember** - Anything useful for future interactions
 
-If a previous summary exists, integrate new information into it rather than starting fresh.
-Keep the summary length proportional to the conversation - longer conversations warrant more detail.
+IMPORTANT RULES:
+- If a previous summary exists, UPDATE it by adding new information, not just repeating it
+- Remove outdated information if contradicted by new conversation
+- Keep the summary concise but comprehensive
+- Focus on what's USEFUL for future conversations, not just listing topics
 
 CONVERSATION:
 {conversation}
 
-SUMMARY:"""
+Provide a well-organized summary:"""
     },
     # Persistent memory settings (long-term memory across all conversations)
     "persistent_memory": PERSISTENT_MEMORY_CONFIG,
@@ -648,7 +694,7 @@ TERMINATION_CHECK_MODE = "final"  # "final" or "partial"
 TERMINATION_TIMEOUT = 120  # seconds before auto-terminating
 
 # Phrases that trigger sending the buffer to the LLM
-SEND_PHRASES = ["process this", "respond to this", "send this", "send it", "sir", "shorty", "ma'am", "bitch"]
+SEND_PHRASES = ["process this", "respond to this", "send this", "send it", "sir", "shorty", "ma'am", "bitch", "please"]
 
 # Auto-send after silence (seconds of no new transcription)
 # Set to 0 to disable auto-send (require explicit send phrase)
@@ -684,6 +730,7 @@ BARGE_IN_CONFIG = {
     "sample_rate": 16000,
     "chunk_size": 1024,  # Default; auto-adjusted if Ray-Bans detected
     "energy_threshold": 0.115,          # Voice energy threshold for detection (lower = more sensitive)
+    "bluetooth_energy_threshold": 0.03, # Much lower threshold for Bluetooth (mic quality drops during playback)
     "early_barge_in_threshold": 3.0,    # Seconds - if barge-in within this time, append to previous message
     "min_speech_duration": 0.2,         # Seconds of speech before triggering
     "cooldown_after_tts_start": 0.0,    # Ignore speech for this long after TTS starts
@@ -699,9 +746,9 @@ BARGE_IN_CONFIG = {
 # Lower values = faster response, but may cause audio device conflicts on some systems.
 
 TURNAROUND_CONFIG = {
-    "state_transition_delay": 0.05,     # Delay when switching between components (default was 0.5)
-    "barge_in_resume_delay": 0.05,       # Delay after barge-in before transcription (default was 0.2)
-    "transcription_stop_delay": 0.15,   # Delay after stopping transcription (default was 0.3)
+    "state_transition_delay": 0.02,     # Delay when switching between components (aggressive, was 0.05)
+    "barge_in_resume_delay": 0.02,       # Delay after barge-in before transcription (aggressive, was 0.05)
+    "transcription_stop_delay": 0.05,   # Delay after stopping transcription (aggressive, was 0.15)
     "streaming_tts_enabled": False,     # Disabled: Play whole response at once (still has barge-in)
 }
 
@@ -760,6 +807,11 @@ def get_framework_config() -> Dict[str, Any]:
     barge_in_config["chunk_size"] = audio_config.blocksize
     barge_in_config["latency"] = audio_config.latency
     barge_in_config["is_bluetooth"] = audio_config.is_bluetooth
+    
+    # Use lower threshold for Bluetooth devices (mic quality drops during playback)
+    if audio_config.is_bluetooth:
+        barge_in_config["energy_threshold"] = BARGE_IN_CONFIG.get("bluetooth_energy_threshold", 0.03)
+        print(f"   Using Bluetooth barge-in threshold: {barge_in_config['energy_threshold']}")
     
     return {
         "transcription": {

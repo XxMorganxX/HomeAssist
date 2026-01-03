@@ -101,9 +101,18 @@ class CalendarComponent:
         return id_to_name.get(cal_id, cal_id)  # Return ID if name not found
 
     def calendar_name_to_id(self, name) -> str:
-        """Convert calendar name to calendar ID."""
+        """Convert calendar name to calendar ID (case-insensitive)."""
         _, name_to_id = self.get_calendar_mappings()
-        return name_to_id.get(name, name)  # Return name if ID not found
+        # Try exact match first
+        if name in name_to_id:
+            return name_to_id[name]
+        # Try case-insensitive match
+        name_lower = name.lower()
+        for cal_name, cal_id in name_to_id.items():
+            if cal_name.lower() == name_lower:
+                return cal_id
+        # Return the name as-is if not found (will be used as ID directly)
+        return name
 
     def get_morning_datetime(self) -> datetime:
         """Get the morning datetime for the user."""
@@ -312,8 +321,27 @@ class CalendarComponent:
             if getattr(config, "DEBUG_MODE", False):
                 print(f"📅 Retrieved {len(all_events)} events from {len(calendars_to_query)} calendars for {self.user}")
             
-            # Sort by start time
-            all_events.sort(key=lambda x: x['start'].get('dateTime', x['start'].get('date')))
+            # Sort by start time using proper datetime parsing
+            def get_event_start_time(event):
+                """Parse event start time for proper sorting."""
+                start = event.get('start', {})
+                dt_str = start.get('dateTime') or start.get('date')
+                if not dt_str:
+                    return datetime.max.replace(tzinfo=timezone.utc)
+                try:
+                    # Handle full datetime (e.g., "2026-01-03T12:00:00-05:00")
+                    if 'T' in dt_str:
+                        # Parse ISO format with timezone
+                        dt_str = dt_str.replace('Z', '+00:00')
+                        return datetime.fromisoformat(dt_str)
+                    else:
+                        # All-day event (just date "2026-01-03")
+                        # Set to midnight UTC for comparison
+                        return datetime.strptime(dt_str, "%Y-%m-%d").replace(tzinfo=timezone.utc)
+                except Exception:
+                    return datetime.max.replace(tzinfo=timezone.utc)
+            
+            all_events.sort(key=get_event_start_time)
             
             # Limit to requested number of events
             limited_events = all_events[:num_events]
@@ -691,17 +719,25 @@ class CalendarComponent:
             if event_data.get('attendees'):
                 event_body['attendees'] = [{'email': email} for email in event_data['attendees']]
             
-            # Get calendar ID
-            calendar_id = event_data.get('calendar_name', 'primary')
-            if calendar_id != 'primary':
-                # Map calendar name to ID if possible, else fallback to primary
+            # Get calendar ID - try to resolve name to ID
+            requested_calendar = event_data.get('calendar_name', 'primary')
+            calendar_id = 'primary'  # Default fallback
+            
+            if requested_calendar != 'primary':
+                # Map calendar name to ID if possible
                 try:
-                    resolved = self.calendar_name_to_id(calendar_id)
-                    if resolved and resolved != calendar_id:
+                    resolved = self.calendar_name_to_id(requested_calendar)
+                    # Verify the calendar exists by checking if we found an actual ID
+                    _, name_to_id = self.get_calendar_mappings()
+                    # Check if resolved ID exists in our known calendars
+                    id_to_name, _ = self.get_calendar_mappings()
+                    if resolved in id_to_name or resolved in name_to_id.values():
                         calendar_id = resolved
-                    # If name lookup returns the same name, it's likely already an ID or not found
+                    else:
+                        # Calendar doesn't exist, fallback to primary
+                        print(f"⚠️ Calendar '{requested_calendar}' not found, using primary")
                 except Exception:
-                    calendar_id = 'primary'
+                    pass  # Stick with primary fallback
             
             # Create the event
             created_event = self.service.events().insert(

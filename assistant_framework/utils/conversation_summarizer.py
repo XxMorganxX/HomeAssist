@@ -64,8 +64,9 @@ class ConversationSummarizer:
         output_path = Path(self.output_file)
         output_path.parent.mkdir(parents=True, exist_ok=True)
     
-        # Load previous summary if exists (for continuity across restarts)
-        self._current_summary = self.load_previous_summary()
+        # DO NOT load previous summary - each session should start fresh
+        # The old summary is preserved in the file's history for reference
+        # but should not influence new conversation summaries
     
     def _default_prompt(self) -> str:
         """Default summarization prompt template."""
@@ -163,11 +164,12 @@ SUMMARY:"""
             max_tokens = self._calculate_max_tokens(conversation_text)
             
             # Build previous summary section for context
-            previous_summary = self._current_summary or self.load_previous_summary()
+            # Only use summary from the CURRENT SESSION, not from file
+            previous_summary = self._current_summary
             if previous_summary:
-                previous_summary_section = f"PREVIOUS SUMMARY (update this with new information):\n{previous_summary}"
+                previous_summary_section = f"PREVIOUS SUMMARY FROM THIS SESSION (update this with new information):\n{previous_summary}"
             else:
-                previous_summary_section = "No previous summary exists - create a new one."
+                previous_summary_section = "No previous summary exists yet - this is the first summary of this conversation session."
             
             # Generate summary
             model = genai.GenerativeModel(
