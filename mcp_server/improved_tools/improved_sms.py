@@ -1,0 +1,209 @@
+"""
+Send SMS/iMessage Tool using BaseTool.
+
+This tool sends text messages via iMessage on macOS.
+NOTE: Only available on macOS - will not register on other platforms.
+"""
+
+import platform
+import subprocess
+from typing import Dict, Any
+from mcp_server.base_tool import BaseTool
+from mcp_server.config import LOG_TOOLS
+
+# Check if we're on macOS
+IS_MACOS = platform.system() == "Darwin"
+
+
+class SendSMSTool(BaseTool):
+    """
+    Tool to send SMS/iMessage notifications via macOS Messages app.
+    
+    This tool only works on macOS and requires:
+    - Messages app to be set up with iMessage
+    - The recipient must be reachable via iMessage
+    """
+    
+    name = "send_sms"
+    description = (
+        "Send a text message (iMessage) to a phone number. "
+        "Use this when the user wants to send themselves a reminder, notification, or message. "
+        "Only works on macOS with iMessage configured. "
+        "The message will be sent via the Messages app."
+    )
+    version = "1.0.0"
+    
+    def __init__(self, config: Dict[str, Any] = None):
+        """
+        Initialize the SMS tool.
+        
+        Args:
+            config: Configuration dictionary containing:
+                - default_phone_number: Default recipient phone number
+        """
+        super().__init__()
+        config = config or {}
+        self.default_phone_number = config.get("default_phone_number", "")
+        
+        if not IS_MACOS:
+            self.logger.warning("SendSMSTool is only available on macOS")
+    
+    @staticmethod
+    def is_available() -> bool:
+        """Check if this tool is available on the current platform."""
+        return IS_MACOS
+    
+    def get_schema(self) -> Dict[str, Any]:
+        """
+        Get the JSON schema for this tool.
+        
+        Returns:
+            JSON schema dictionary
+        """
+        schema = {
+            "type": "object",
+            "properties": {
+                "message": {
+                    "type": "string",
+                    "description": (
+                        "The text message to send. Keep it concise and clear. "
+                        "This will be sent as an iMessage to the specified phone number."
+                    )
+                },
+                "phone_number": {
+                    "type": "string",
+                    "description": (
+                        "The recipient's phone number with country code (e.g., +1XXXXXXXXXX). "
+                        "If not provided, uses the default configured phone number. "
+                        "The number must be associated with an iMessage account."
+                    )
+                }
+            },
+            "required": ["message"]
+        }
+        return schema
+    
+    def execute(self, params: Dict[str, Any]) -> Dict[str, Any]:
+        """
+        Execute the SMS tool to send a message.
+        
+        Args:
+            params: Tool parameters containing:
+                - message: The text message to send
+                - phone_number: Optional recipient phone number
+                
+        Returns:
+            Dictionary with success status and details
+        """
+        try:
+            # Check platform
+            if not IS_MACOS:
+                return {
+                    "success": False,
+                    "error": "This tool is only available on macOS",
+                    "platform": platform.system()
+                }
+            
+            # Extract parameters
+            message = params.get("message", "").strip()
+            phone_number = params.get("phone_number", "").strip() or self.default_phone_number
+            
+            # Validate inputs
+            if not message:
+                return {
+                    "success": False,
+                    "error": "Message cannot be empty"
+                }
+            
+            if not phone_number:
+                return {
+                    "success": False,
+                    "error": "No phone number provided and no default configured"
+                }
+            
+            # Validate phone number format (basic check)
+            if not phone_number.startswith("+"):
+                return {
+                    "success": False,
+                    "error": f"Phone number must include country code (e.g., +1XXXXXXXXXX). Got: {phone_number}"
+                }
+            
+            if LOG_TOOLS:
+                self.logger.info(f"Executing Tool: SMS -- Sending to {phone_number[:6]}...")
+            
+            # Send the message
+            success = self._send_imessage(message, phone_number)
+            
+            if success:
+                return {
+                    "success": True,
+                    "message_sent": message,
+                    "recipient": phone_number,
+                    "method": "iMessage",
+                    "info": "Message sent successfully via iMessage"
+                }
+            else:
+                return {
+                    "success": False,
+                    "error": "Failed to send message via iMessage",
+                    "recipient": phone_number,
+                    "suggestion": "Ensure Messages app is configured and recipient uses iMessage"
+                }
+                
+        except Exception as e:
+            self.logger.error(f"Error executing SMS tool: {e}")
+            return {
+                "success": False,
+                "error": str(e),
+                "recipient": params.get("phone_number", "unknown")
+            }
+    
+    def _send_imessage(self, message: str, phone_number: str) -> bool:
+        """
+        Send an iMessage via AppleScript.
+        
+        Args:
+            message: The text message to send
+            phone_number: Recipient phone number (with country code)
+        
+        Returns:
+            True if message was sent successfully, False otherwise
+        """
+        # Escape quotes in message to prevent AppleScript injection
+        escaped_message = message.replace('"', '\\"').replace("'", "\\'")
+        
+        script = f'''
+        tell application "Messages"
+            set targetService to 1st account whose service type = iMessage
+            set targetBuddy to participant "{phone_number}" of targetService
+            send "{escaped_message}" to targetBuddy
+        end tell
+        '''
+        
+        try:
+            result = subprocess.run(
+                ["osascript", "-e", script],
+                check=True,
+                capture_output=True,
+                text=True,
+                timeout=30  # 30 second timeout
+            )
+            self.logger.info(f"Message sent to {phone_number}")
+            return True
+        except subprocess.CalledProcessError as e:
+            self.logger.error(f"Failed to send message: {e.stderr}")
+            return False
+        except subprocess.TimeoutExpired:
+            self.logger.error("Message sending timed out")
+            return False
+        except Exception as e:
+            self.logger.error(f"Unexpected error sending message: {e}")
+            return False
+
+
+# Only export the tool class if we're on macOS
+# This prevents registration on non-macOS platforms
+if IS_MACOS:
+    __all__ = ['SendSMSTool']
+else:
+    __all__ = []

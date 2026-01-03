@@ -48,13 +48,21 @@ IMPORTANT - Use type_filter for specific requests:
 - type_filter='news' → ONLY news summaries (tech news, daily briefings)  
 - type_filter='all' → Both email AND news (default)
 
+NOTE: Only the MOST RECENT email and news sources are returned. Older entries are
+preserved as historical data but are not loaded into conversation context.
+
+BEHAVIOR: Notifications are automatically marked as 'read' when retrieved. Each notification
+includes a 'previously_seen' field - if true, the user has already been told about this
+notification before. Mention this to the user (e.g., "as I mentioned before" or "you've 
+already seen this").
+
 Examples:
 - "any new emails?" → type_filter='email'
 - "what's in the news?" → type_filter='news'
 - "any notifications?" → type_filter='all'
 
 Only query ONE user per request - never multiple users simultaneously."""
-    version = "1.3.0"
+    version = "1.5.0"
     
     def __init__(self):
         """Initialize the notifications tool."""
@@ -121,11 +129,6 @@ Only query ONE user per request - never multiple users simultaneously."""
                     "maximum": 50,
                     "default": 10
                 },
-                "mark_as_read": {
-                    "type": "boolean",
-                    "description": "Whether to mark notifications as read and permanently remove them from the pending queue after retrieval. Set to true when user wants to 'clear' or 'dismiss' notifications after viewing. Set to false when user just wants to 'check' or 'see' notifications without removing them. Cannot be undone once marked as read.",
-                    "default": False
-                },
                 "include_metadata": {
                     "type": "boolean",
                     "description": "Whether to include additional metadata such as timestamps, priority levels, source application, and read status. Metadata helps with notification management but increases response size. Useful for detailed analysis or when user asks about 'when' or 'from where' notifications originated.",
@@ -172,7 +175,6 @@ Only query ONE user per request - never multiple users simultaneously."""
                 user = "Morgan"
             type_filter = params.get("type_filter", "all")
             limit = params.get("limit", 10)
-            mark_as_read = params.get("mark_as_read", False)
             include_metadata = params.get("include_metadata", True)
             priority_filter = params.get("priority_filter", "all")
             
@@ -219,8 +221,19 @@ Only query ONE user per request - never multiple users simultaneously."""
             
             # Process notifications for output
             processed_notifications = []
+            unread_notification_ids = []  # Track unread notifications to mark as read
+            
             for notif in limited_notifications:
                 processed_notif = notif.copy()
+                
+                # Determine if this notification was previously seen (already read before this retrieval)
+                original_read_status = notif.get("read_status", "unread")
+                previously_seen = original_read_status == "read"
+                processed_notif["previously_seen"] = previously_seen
+                
+                # Track unread notifications to mark as read after processing
+                if not previously_seen and notif.get("id"):
+                    unread_notification_ids.append(notif.get("id"))
                 
                 # Optionally remove metadata
                 if not include_metadata:
@@ -241,11 +254,11 @@ Only query ONE user per request - never multiple users simultaneously."""
                 
                 processed_notifications.append(processed_notif)
             
-            # Mark as read if requested
+            # Automatically mark unread notifications as read (they've now been sent to provider)
             marked_count = 0
-            if mark_as_read and limited_notifications:
-                notification_ids = [n.get("id") for n in limited_notifications if n.get("id")]
-                marked_count = self._mark_notifications_as_read(user, notification_ids)
+            if unread_notification_ids:
+                marked_count = self._mark_notifications_as_read(user, unread_notification_ids)
+                self.logger.debug(f"Auto-marked {marked_count} notifications as read after retrieval")
             
             # Prepare response with comprehensive information
             response = {
@@ -257,8 +270,7 @@ Only query ONE user per request - never multiple users simultaneously."""
                 "count": len(processed_notifications),
                 "total_available": total_available,
                 "has_more": total_available > limit,
-                "marked_as_read": mark_as_read,
-                "marked_count": marked_count,
+                "newly_marked_as_read": marked_count,  # How many were just marked as read
                 "metadata_included": include_metadata,
                 "filters_applied": {
                     "type": type_filter,
@@ -301,15 +313,14 @@ Only query ONE user per request - never multiple users simultaneously."""
 
         Data sources in priority order:
         1) Supabase notification_sources table (cloud, persistent)
-        2) Local app_state.json (fallback for offline/legacy data)
-        
-        Merges both sources, deduplicating by ID with Supabase taking precedence.
+        2) Local app_state.json (fallback ONLY if Supabase didn't return data for that type)
         
         Args:
             type_filter: Filter by notification type ('email', 'news', 'other', 'all')
             user_filter: Optional user to filter by (filters at query level for efficiency)
         """
         notifications: Dict[str, List[Dict]] = {}
+        supabase_loaded_types: set = set()  # Track which types were loaded from Supabase
         
         # Try Supabase first (primary source) - filters at database level for efficiency
         if self._supabase_available and self._supabase_client:
@@ -317,49 +328,59 @@ Only query ONE user per request - never multiple users simultaneously."""
                 supabase_notifications = self._load_from_supabase(type_filter=type_filter, user_filter=user_filter)
                 if supabase_notifications:
                     notifications = supabase_notifications
-                    self.logger.debug(f"Loaded notifications from Supabase: {sum(len(v) for v in notifications.values())} total (type={type_filter})")
+                    # Track which types were successfully loaded from Supabase
+                    for user_notifs in supabase_notifications.values():
+                        for n in user_notifs:
+                            supabase_loaded_types.add(n.get("type"))
+                    self.logger.debug(f"Loaded notifications from Supabase: {sum(len(v) for v in notifications.values())} total (types={supabase_loaded_types})")
             except Exception as e:
                 self.logger.warning(f"Failed to load from Supabase, falling back to local: {e}")
         
-        # Load from local state (fallback/merge)
+        # Load from local state ONLY as fallback for types not loaded from Supabase
+        # Skip local state entirely for types that Supabase already provided
         local_notifications = self._load_from_local_state(type_filter=type_filter, user_filter=user_filter)
         
-        # Merge local notifications with Supabase (Supabase takes precedence)
-        # Use content-based deduplication since IDs may differ between sources
         for user, local_list in local_notifications.items():
             if user not in notifications:
                 notifications[user] = []
             
-            # Build a set of normalized IDs and content hashes from Supabase for deduplication
+            # Build sets for deduplication
             existing_ids = set()
-            existing_content_hashes = set()
+            existing_email_ids = set()  # Dedupe by email_ids for emails
             for n in notifications.get(user, []):
                 nid = n.get("id", "")
                 existing_ids.add(nid)
-                # Also add the base ID without prefix (email_, news_)
                 existing_ids.add(self._strip_id_prefix(nid))
-                # Add content hash for content-based deduplication
-                content_hash = self._content_hash(n.get("content", ""), n.get("title", ""))
-                if content_hash:
-                    existing_content_hashes.add(content_hash)
+                # Track email_ids for email deduplication
+                for eid in (n.get("email_ids") or []):
+                    existing_email_ids.add(eid)
             
-            # Add local notifications that aren't duplicates
+            # Add local notifications ONLY if that type wasn't loaded from Supabase
             for notif in local_list:
+                notif_type = notif.get("type", "other")
+                
+                # Skip if this type was already loaded from Supabase
+                if notif_type in supabase_loaded_types:
+                    self.logger.debug(f"Skipping local {notif_type} notification (Supabase has data for this type)")
+                    continue
+                
                 notif_id = notif.get("id", "")
                 base_id = self._strip_id_prefix(notif_id)
-                content_hash = self._content_hash(notif.get("content", ""), notif.get("title", ""))
                 
-                # Skip if ID matches (with or without prefix) OR content is duplicate
+                # Skip if ID matches
                 if notif_id in existing_ids or base_id in existing_ids:
                     continue
-                if content_hash and content_hash in existing_content_hashes:
+                
+                # Skip if email_ids overlap (same underlying email)
+                notif_email_ids = notif.get("email_ids") or []
+                if notif_email_ids and any(eid in existing_email_ids for eid in notif_email_ids):
                     continue
                 
                 notifications[user].append(notif)
                 existing_ids.add(notif_id)
                 existing_ids.add(base_id)
-                if content_hash:
-                    existing_content_hashes.add(content_hash)
+                for eid in notif_email_ids:
+                    existing_email_ids.add(eid)
         
         return notifications
     
@@ -372,16 +393,12 @@ Only query ONE user per request - never multiple users simultaneously."""
                 return notif_id[len(prefix):]
         return notif_id
     
-    def _content_hash(self, content: str, title: str) -> str:
-        """Generate a simple hash from content and title for deduplication."""
-        if not content and not title:
-            return ""
-        import hashlib
-        combined = f"{title}|{content[:200]}"  # Use first 200 chars of content
-        return hashlib.md5(combined.encode("utf-8", errors="ignore")).hexdigest()[:12]
     
     def _load_from_supabase(self, type_filter: str = "all", user_filter: Optional[str] = None) -> Dict[str, List[Dict]]:
         """Load notifications from Supabase notification_sources table.
+        
+        Only returns the MOST RECENT source for each type (email, news).
+        Older entries are left as historical data but not loaded into conversation context.
         
         Args:
             type_filter: Filter by source_type ('email', 'news', 'other', 'all')
@@ -391,64 +408,88 @@ Only query ONE user per request - never multiple users simultaneously."""
             return {}
         
         try:
-            # Build query with filters at database level for efficiency
-            query = (
-                self._supabase_client.table("notification_sources")
-                .select("*")
-                .eq("read_status", "unread")
-            )
-            
-            # Apply type filter at database level (most important for separating email/news)
-            if type_filter and type_filter != "all":
-                query = query.eq("source_type", type_filter)
-                self.logger.debug(f"Supabase query filtered by source_type={type_filter}")
-            
-            # Apply user filter at database level
-            if user_filter:
-                query = query.eq("user_id", user_filter)
-            
-            # Execute with ordering and limit
-            response = query.order("created_at", desc=True).limit(100).execute()
-            
-            if not response.data:
-                return {}
-            
-            # Group by user_id
             notifications: Dict[str, List[Dict]] = {}
-            for row in response.data:
-                user_id = row.get("user_id", "Unknown")
+            
+            # Determine which types to fetch
+            types_to_fetch = []
+            if type_filter == "all":
+                types_to_fetch = ["email", "news"]
+            elif type_filter in ["email", "news"]:
+                types_to_fetch = [type_filter]
+            
+            # For each type, fetch only the most recent batch
+            # Note: We fetch both read and unread to show previously seen notifications
+            for source_type in types_to_fetch:
+                # First, find the most recent batch_id for this type (regardless of read status)
+                batch_query = (
+                    self._supabase_client.table("notification_sources")
+                    .select("batch_id")
+                    .eq("source_type", source_type)
+                )
+                if user_filter:
+                    batch_query = batch_query.eq("user_id", user_filter)
                 
-                # Parse timestamp
-                created_at = row.get("created_at")
-                source_generated_at = row.get("source_generated_at")
-                timestamp = self._parse_supabase_timestamp(source_generated_at or created_at)
+                # Get the most recent batch_id
+                batch_response = batch_query.order("created_at", desc=True).limit(1).execute()
                 
-                # Map source_type to type
-                source_type = row.get("source_type", "other")
-                notif_type = source_type if source_type in ["email", "news"] else "other"
+                if not batch_response.data:
+                    continue
                 
-                # Extract metadata
-                metadata = row.get("metadata") or {}
+                most_recent_batch_id = batch_response.data[0].get("batch_id")
+                if not most_recent_batch_id:
+                    continue
                 
-                normalized = {
-                    "id": row.get("id"),
-                    "content": row.get("content", ""),
-                    "type": notif_type,
-                    "priority": row.get("priority", "normal"),
-                    "timestamp": timestamp,
-                    "source": f"supabase_{source_type}",
-                    "read_status": row.get("read_status", "unread"),
-                    "title": row.get("title", ""),
-                    # Include metadata fields
-                    "topic": metadata.get("topic"),
-                    "email_ids": metadata.get("email_ids"),
-                    "source_articles_count": metadata.get("source_articles_count"),
-                    "batch_id": row.get("batch_id"),
-                }
+                self.logger.debug(f"Loading most recent {source_type} batch: {most_recent_batch_id}")
                 
-                if user_id not in notifications:
-                    notifications[user_id] = []
-                notifications[user_id].append(normalized)
+                # Now fetch all notifications from that batch (both read and unread)
+                query = (
+                    self._supabase_client.table("notification_sources")
+                    .select("*")
+                    .eq("source_type", source_type)
+                    .eq("batch_id", most_recent_batch_id)
+                )
+                if user_filter:
+                    query = query.eq("user_id", user_filter)
+                
+                response = query.order("created_at", desc=True).execute()
+                
+                if not response.data:
+                    continue
+                
+                # Process results
+                for row in response.data:
+                    user_id = row.get("user_id", "Unknown")
+                    
+                    # Parse timestamp
+                    created_at = row.get("created_at")
+                    source_generated_at = row.get("source_generated_at")
+                    timestamp = self._parse_supabase_timestamp(source_generated_at or created_at)
+                    
+                    # Map source_type to type
+                    notif_type = source_type if source_type in ["email", "news"] else "other"
+                    
+                    # Extract metadata
+                    metadata = row.get("metadata") or {}
+                    
+                    normalized = {
+                        "id": row.get("id"),
+                        "content": row.get("content", ""),
+                        "type": notif_type,
+                        "priority": row.get("priority", "normal"),
+                        "timestamp": timestamp,
+                        "source": f"supabase_{source_type}",
+                        "read_status": row.get("read_status", "unread"),
+                        "title": row.get("title", ""),
+                        # Include metadata fields
+                        "topic": metadata.get("topic"),
+                        "email_ids": metadata.get("email_ids"),
+                        "source_articles_count": metadata.get("source_articles_count"),
+                        "batch_id": row.get("batch_id"),
+                    }
+                    
+                    if user_id not in notifications:
+                        notifications[user_id] = []
+                    notifications[user_id].append(normalized)
             
             return notifications
             
@@ -471,6 +512,9 @@ Only query ONE user per request - never multiple users simultaneously."""
     
     def _load_from_local_state(self, type_filter: str = "all", user_filter: Optional[str] = None) -> Dict[str, List[Dict]]:
         """Load notifications from local app_state.json (fallback).
+        
+        Only returns the MOST RECENT source for each type (email, news).
+        Older entries are left as historical data but not loaded into conversation context.
         
         Supports structures:
         1) New format: state["notifications"][user] -> list of normalized notifications
@@ -501,6 +545,9 @@ Only query ONE user per request - never multiple users simultaneously."""
                         user: [n for n in notifs if n.get("type") == type_filter]
                         for user, notifs in result.items()
                     }
+                # Only return most recent for each type
+                for user_key in result:
+                    result[user_key] = self._filter_most_recent_per_type(result[user_key])
                 return result
 
             # Fallback to legacy format and normalize
@@ -554,18 +601,34 @@ Only query ONE user per request - never multiple users simultaneously."""
                         })
 
                 # Process 'emails' queue items (only if type_filter is 'email' or 'all')
+                # Only include the MOST RECENT email batch
                 if type_filter in ["all", "email"]:
                     emails_list = (user_data or {}).get("emails", [])
+                    
+                    # Find the most recent email by timestamp
+                    most_recent_email = None
+                    most_recent_timestamp = 0
+                    
                     for email_item in emails_list:
                         try:
-                            email_content = email_item.get("content", "")
-                            email_title = email_item.get("title") or "Email Update"
+                            timestamp = self._coerce_timestamp(email_item.get("timestamp"))
+                            if timestamp >= most_recent_timestamp:
+                                most_recent_timestamp = timestamp
+                                most_recent_email = email_item
+                        except Exception:
+                            continue
+                    
+                    # Only include the most recent email
+                    if most_recent_email:
+                        try:
+                            email_content = most_recent_email.get("content", "")
+                            email_title = most_recent_email.get("title") or "Email Update"
                             content = email_content
                             notif_type = "email"
-                            priority = self._normalize_priority(email_item.get("priority"))
-                            timestamp = self._coerce_timestamp(email_item.get("timestamp"))
-                            source = email_item.get("source", "email_summarizer")
-                            notif_id = email_item.get("id") or self._generate_notification_id(
+                            priority = self._normalize_priority(most_recent_email.get("priority"))
+                            timestamp = self._coerce_timestamp(most_recent_email.get("timestamp"))
+                            source = most_recent_email.get("source", "email_summarizer")
+                            notif_id = most_recent_email.get("id") or self._generate_notification_id(
                                 f"{email_title}|{email_content}", notif_type, timestamp
                             )
 
@@ -576,18 +639,19 @@ Only query ONE user per request - never multiple users simultaneously."""
                                 "priority": priority,
                                 "timestamp": timestamp,
                                 "source": source,
-                                "read_status": email_item.get("read_status", "unread"),
+                                "read_status": most_recent_email.get("read_status", "unread"),
                                 # Preserve helpful metadata
                                 "title": email_title,
-                                "topic": email_item.get("topic"),
-                                "email_ids": email_item.get("email_ids"),
+                                "topic": most_recent_email.get("topic"),
+                                "email_ids": most_recent_email.get("email_ids"),
                             }
                             normalized_list.append(normalized_entry)
                         except Exception:
                             # Skip malformed email entries
-                            continue
+                            pass
 
                 # Process 'news' data (only if type_filter is 'news' or 'all')
+                # News is already a single entry, so this naturally returns only the most recent
                 if type_filter in ["all", "news"]:
                     news_data = (user_data or {}).get("news")
                     if news_data and isinstance(news_data, dict):
@@ -639,6 +703,49 @@ Only query ONE user per request - never multiple users simultaneously."""
         except Exception as e:
             self.logger.error(f"Error loading notifications from local state: {e}")
             return {}
+    
+    def _filter_most_recent_per_type(self, notifications: List[Dict]) -> List[Dict]:
+        """Filter to only include the most recent notification per type (email, news).
+        
+        Args:
+            notifications: List of notification dicts
+            
+        Returns:
+            Filtered list with only the most recent entry per type
+        """
+        if not notifications:
+            return []
+        
+        # Group by type and find the most recent for each
+        most_recent_by_type: Dict[str, Dict] = {}
+        
+        for notif in notifications:
+            notif_type = notif.get("type", "other")
+            timestamp = self._coerce_timestamp(notif.get("timestamp"))
+            
+            # For email and news, only keep the most recent
+            if notif_type in ["email", "news"]:
+                existing = most_recent_by_type.get(notif_type)
+                if existing is None or timestamp > self._coerce_timestamp(existing.get("timestamp")):
+                    most_recent_by_type[notif_type] = notif
+            else:
+                # For 'other' types, include all
+                if notif_type not in most_recent_by_type:
+                    most_recent_by_type[notif_type] = []
+                if isinstance(most_recent_by_type[notif_type], list):
+                    most_recent_by_type[notif_type].append(notif)
+                else:
+                    most_recent_by_type[notif_type] = [most_recent_by_type[notif_type], notif]
+        
+        # Flatten results
+        result = []
+        for notif_type, value in most_recent_by_type.items():
+            if isinstance(value, list):
+                result.extend(value)
+            else:
+                result.append(value)
+        
+        return result
 
     def _generate_notification_id(self, content: str, notif_type: str, timestamp: Any) -> str:
         """Generate a deterministic ID from content/type/timestamp for legacy entries."""
