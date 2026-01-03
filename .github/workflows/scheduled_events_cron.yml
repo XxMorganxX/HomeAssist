@@ -1,5 +1,26 @@
+# ============================================
 # GitHub Actions Workflow for Scheduled Events
+# ============================================
 # Runs email and news summarizers on a cron schedule
+# Results are stored in Supabase notification_sources table
+#
+# REQUIRED SECRETS (Settings → Secrets → Actions → Repository secrets):
+#   - GEMINI_API_KEY        : Google Gemini API key (email summarization)
+#   - OPENAI_API_KEY        : OpenAI API key (news analysis)
+#   - SUPABASE_URL          : Supabase project URL
+#   - SUPABASE_KEY          : Supabase service role key
+#   - NEWS_API_KEY_1        : NewsAPI.org key (get free at newsapi.org)
+#
+# OPTIONAL SECRETS (for email summarizer):
+#   - GMAIL_CLIENT_ID       : From Google Cloud Console OAuth credentials
+#   - GMAIL_CLIENT_SECRET   : From Google Cloud Console OAuth credentials
+#   - GMAIL_REFRESH_TOKEN   : From your token.json (get via reauth_gmail.py locally)
+#   - NEWS_API_KEY_2 to _5  : Additional NewsAPI keys for quota rotation
+#
+# OPTIONAL VARIABLES (Settings → Secrets → Actions → Variables):
+#   - EMAIL_NOTIFICATION_RECIPIENT : Target user (default: Morgan)
+#   - NEWS_NOTIFICATION_RECIPIENT  : Target user (default: Morgan)
+# ============================================
 
 name: Scheduled Events (Email & News)
 
@@ -69,28 +90,27 @@ jobs:
           SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
           SUPABASE_KEY: ${{ secrets.SUPABASE_KEY }}
           EMAIL_NOTIFICATION_RECIPIENT: ${{ vars.EMAIL_NOTIFICATION_RECIPIENT || 'Morgan' }}
-          # Gmail OAuth tokens (base64 encoded JSON)
-          GOOGLE_CREDENTIALS_JSON: ${{ secrets.GOOGLE_CREDENTIALS_JSON }}
-          GOOGLE_TOKEN_JSON: ${{ secrets.GOOGLE_TOKEN_JSON }}
+          # Gmail OAuth via environment variables (no files needed!)
+          # Extract these from your Google OAuth JSON credentials
+          GMAIL_CLIENT_ID: ${{ secrets.GMAIL_CLIENT_ID }}
+          GMAIL_CLIENT_SECRET: ${{ secrets.GMAIL_CLIENT_SECRET }}
+          GMAIL_REFRESH_TOKEN: ${{ secrets.GMAIL_REFRESH_TOKEN }}
+          # Mark as headless/CI environment
+          CI: 'true'
         run: |
           echo "📧 Running email summarizer..."
           
-          # Decode and write Google credentials if provided
-          if [ -n "$GOOGLE_CREDENTIALS_JSON" ]; then
-            echo "$GOOGLE_CREDENTIALS_JSON" | base64 -d > ../../../google_creds/email_summarizer_credentials.json
-            echo "✅ Wrote Google credentials"
-          fi
-          
-          if [ -n "$GOOGLE_TOKEN_JSON" ]; then
-            echo "$GOOGLE_TOKEN_JSON" | base64 -d > ../../../google_creds/email_summarizer_token.json
-            echo "✅ Wrote Google token"
-          fi
-          
-          # Create ephemeral_data directory
+          # Create ephemeral data directory
           mkdir -p ephemeral_data
           
-          # Run the email summarizer
-          python mail_main.py || echo "⚠️ Email summarizer completed with warnings"
+          # Check if Gmail credentials are configured
+          if [ -n "$GMAIL_CLIENT_ID" ] && [ -n "$GMAIL_CLIENT_SECRET" ] && [ -n "$GMAIL_REFRESH_TOKEN" ]; then
+            echo "✅ Gmail OAuth credentials found (via environment variables)"
+            python mail_main.py || echo "⚠️ Email summarizer completed with warnings"
+          else
+            echo "⏭️ Skipping email summarizer (Gmail credentials not configured)"
+            echo "   To enable, add these secrets: GMAIL_CLIENT_ID, GMAIL_CLIENT_SECRET, GMAIL_REFRESH_TOKEN"
+          fi
       
       # ─────────────────────────────────────────────────────────────
       # NEWS SUMMARIZER
@@ -102,7 +122,8 @@ jobs:
           OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
           OPENAI_KEY: ${{ secrets.OPENAI_API_KEY }}
           # NewsAPI keys (supports rotation when quota exhausted)
-          NEWS_API_KEY_1: ${{ secrets.NEWS_API_KEY_1 }}
+          # If you only have one key, set NEWS_API_KEY_1 or NEWS_API_KEY
+          NEWS_API_KEY_1: ${{ secrets.NEWS_API_KEY_1 || secrets.NEWS_API_KEY }}
           NEWS_API_KEY_2: ${{ secrets.NEWS_API_KEY_2 }}
           NEWS_API_KEY_3: ${{ secrets.NEWS_API_KEY_3 }}
           NEWS_API_KEY_4: ${{ secrets.NEWS_API_KEY_4 }}
@@ -112,6 +133,11 @@ jobs:
           NEWS_NOTIFICATION_RECIPIENT: ${{ vars.NEWS_NOTIFICATION_RECIPIENT || 'Morgan' }}
         run: |
           echo "📰 Running news summarizer..."
+          
+          # Debug: Check if API keys are set (shows only if set, not the value)
+          echo "Checking NewsAPI keys..."
+          [ -n "$NEWS_API_KEY_1" ] && echo "✅ NEWS_API_KEY_1 is set" || echo "❌ NEWS_API_KEY_1 is NOT set"
+          [ -n "$NEWS_API_KEY_2" ] && echo "✅ NEWS_API_KEY_2 is set" || echo "⚪ NEWS_API_KEY_2 is not set (optional)"
           
           # Create ephemeral_data directory
           mkdir -p ephemeral_data
