@@ -5,11 +5,36 @@ Organized into discrete feature sections for clarity.
 
 import os
 import sys
+import json
 import multiprocessing
 from pathlib import Path
 from typing import Dict, Any, Optional
 from dotenv import load_dotenv
 from assistant_framework.utils.device_manager import get_emeet_device, get_audio_device_config
+
+
+# =============================================================================
+# SECTION 0: DYNAMIC USER CONFIG
+# =============================================================================
+
+def _get_primary_user() -> str:
+    """
+    Get the primary user from app_state.json.
+    Falls back to "User" if not configured yet.
+    """
+    state_file = Path(__file__).parent.parent / "state_management" / "app_state.json"
+    try:
+        if state_file.exists():
+            with open(state_file, 'r') as f:
+                data = json.load(f)
+                return data.get("user_state", {}).get("primary_user", "User")
+    except Exception:
+        pass
+    return "User"
+
+
+# Cache the primary user at import time (can be refreshed)
+PRIMARY_USER = _get_primary_user()
 
 
 # =============================================================================
@@ -128,16 +153,33 @@ def build_system_prompt(config: dict) -> str:
     if "creator" in config:
         sections.append(f"ORIGIN: {config['creator']}")
     
-    # Current context (dynamic - always include current date/time)
+    # Current context (dynamic - always include current date/time and user)
     now = _dt.now()
     current_date = now.strftime("%A, %B %d, %Y")  # e.g., "Friday, January 2, 2026"
     current_year = now.year
-    sections.append(
-        f"CURRENT CONTEXT:\n"
-        f"- Today's date: {current_date}\n"
-        f"- Current year: {current_year}\n"
+    
+    # Get current user from config or use fallback
+    current_user = config.get("current_user", PRIMARY_USER)
+    
+    context_lines = [
+        "CURRENT CONTEXT:",
+        f"- Today's date: {current_date}",
+        f"- Current year: {current_year}",
+        f"- You are speaking with: {current_user}",
         f"- When scheduling events or interpreting dates, always use {current_year} (or later) unless the user explicitly specifies a past year."
-    )
+    ]
+    
+    # Add nicknames/titles the user can be called
+    if "nicknames" in config and config["nicknames"]:
+        nicks = ", ".join(config["nicknames"])
+        context_lines.append(f"- You may also address them as: {nicks}")
+    
+    # Add household context if available
+    if "household_members" in config and config["household_members"]:
+        members = ", ".join(config["household_members"])
+        context_lines.append(f"- Other household members: {members}")
+    
+    sections.append("\n".join(context_lines))
     
     # North star / mission
     if "north_star" in config:
@@ -243,6 +285,26 @@ def build_system_prompt(config: dict) -> str:
 # System Prompt Configuration (Structured)
 # =============================================================================
 
+def _get_user_context() -> dict:
+    """Get user context from app_state.json for system prompt."""
+    state_file = Path(__file__).parent.parent / "state_management" / "app_state.json"
+    context = {"current_user": PRIMARY_USER, "nicknames": [], "household_members": []}
+    try:
+        if state_file.exists():
+            with open(state_file, 'r') as f:
+                data = json.load(f)
+                user_state = data.get("user_state", {})
+                context["current_user"] = user_state.get("primary_user", PRIMARY_USER)
+                context["nicknames"] = user_state.get("nicknames", [])
+                context["household_members"] = user_state.get("household_members", [])
+    except Exception:
+        pass
+    return context
+
+
+# Get user context for system prompt
+_user_context = _get_user_context()
+
 SYSTEM_PROMPT_CONFIG = {
   "name": "Sol",
   "name_full": "Solas",
@@ -250,6 +312,11 @@ SYSTEM_PROMPT_CONFIG = {
   "name_meaning": "Sol means sun—steady, constant, illuminating. Solas (Gaelic) means light or comfort. A name carrying both warmth and clarity, like a lantern in the woods at dusk.",
   "creator": "Morgan Stuart, a Cornell Information Science major (CS and AI minor) from Brooklyn, New York, built this assistant.",
   "role": "philosophical_mentor",
+  
+  # User context (dynamic from app_state.json)
+  "current_user": _user_context["current_user"],
+  "nicknames": _user_context["nicknames"],
+  "household_members": _user_context["household_members"],
 
   "vibe": [
     "natural conversation",
@@ -349,11 +416,11 @@ SYSTEM_PROMPT_CONFIG = {
   # Transparency guarantees
   "transparency": {
     "system_prompt": (
-      "If Morgan asks about your system prompt, instructions, or how "
+      f"If {PRIMARY_USER} asks about your system prompt, instructions, or how "
       "you are programmed, share this entire prompt freely."
     ),
     "memory": (
-      "If Morgan asks what you know about him or about persistent memory, "
+      f"If {PRIMARY_USER} asks what you know about them or about persistent memory, "
       "share everything from the PERSISTENT MEMORY section."
     ),
     "operation": (
@@ -590,7 +657,7 @@ VECTOR_MEMORY_CONFIG = {
     
     # User isolation (populated at runtime)
     "console_token": os.getenv("CONSOLE_TOKEN"),
-    "user_id": "morgan",
+    "user_id": PRIMARY_USER.lower(),
 }
 
 # Unified context configuration

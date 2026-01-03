@@ -17,6 +17,7 @@ try:
     # Try relative imports first (when used as package)
     from ...interfaces.response import ResponseInterface
     from ...models.data_models import ResponseChunk, ToolCall
+    from ...config import PRIMARY_USER
 except ImportError:
     # Fall back to absolute imports (when run as module)
     import sys
@@ -24,6 +25,10 @@ except ImportError:
     sys.path.append(str(Path(__file__).parent.parent.parent))
     from interfaces.response import ResponseInterface
     from models.data_models import ResponseChunk, ToolCall
+    try:
+        from assistant_framework.config import PRIMARY_USER
+    except ImportError:
+        PRIMARY_USER = "User"
 
 
 class OpenAIWebSocketResponseProvider(ResponseInterface):
@@ -499,7 +504,7 @@ class OpenAIWebSocketResponseProvider(ResponseInterface):
                                     heuristic = ("inbox" in (messages[-1].get("content", "").lower()) or
                                                  "email" in (messages[-1].get("content", "").lower()))
                                     if heuristic and self.available_tools.get("get_notifications"):
-                                        args = {"user": "Morgan", "type_filter": "email", "limit": 10}
+                                        args = {"user": PRIMARY_USER, "type_filter": "email", "limit": 10}
                                         tool_call = ToolCall(name="get_notifications", arguments=args)
                                         result = await self.execute_tool("get_notifications", args)
                                         tool_call.result = result

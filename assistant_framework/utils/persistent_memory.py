@@ -419,14 +419,30 @@ JSON:"""
             json.dump(memory, f, indent=2)
     
     def load_memory(self) -> Optional[Dict[str, Any]]:
-        """Load the current memory from file."""
-        if os.path.exists(self.output_file):
+        """Load the current memory from file, creating template if missing."""
+        if not os.path.exists(self.output_file):
+            print(f"📝 Initializing new persistent memory file at {self.output_file}")
+            template = {
+                "user_profile": {},
+                "known_facts": [],
+                "patterns": [],
+                "update_history": [],
+                "last_updated": None
+            }
             try:
-                with open(self.output_file, "r") as f:
-                    return json.load(f)
+                with open(self.output_file, "w") as f:
+                    json.dump(template, f, indent=2)
+                return template
             except Exception as e:
-                print(f"⚠️  Failed to load persistent memory: {e}")
-        return None
+                print(f"⚠️  Failed to create persistent memory file: {e}")
+                return None
+        
+        try:
+            with open(self.output_file, "r") as f:
+                return json.load(f)
+        except Exception as e:
+            print(f"⚠️  Failed to load persistent memory: {e}")
+            return None
     
     @property
     def current_memory(self) -> Optional[Dict[str, Any]]:

@@ -21,12 +21,19 @@ email_summaries.json.env
 
 .spotify_cache
 
+# Legacy MCP state file (now uses state_management/app_state.json)
+.mcp_state.json
+
 # Python virtual environment
 venv/
 
 # Ephemeral data from scheduled scripts (keep folders, ignore contents except .gitkeep)
 scripts/scheduled/*/ephemeral_data/*
 !scripts/scheduled/*/ephemeral_data/.gitkeep
+
+# State management files (user-specific runtime data)
+state_management/*.json
+!state_management/.gitkeep
 
 # Large model files
 audio_data/chatterbox_models/

@@ -15,6 +15,16 @@ except ImportError:
     # Fallback for MCP server context
     config = None
 
+# Import user config for dynamic user resolution
+try:
+    from mcp_server.user_config import get_calendar_users, get_default_calendar_user
+except ImportError:
+    # Fallback if user_config not available
+    def get_calendar_users():
+        return ["user_personal", "user_school"]
+    def get_default_calendar_user():
+        return "user_personal"
+
 # Import calendar component with fallback
 try:
     from mcp_server.clients.calendar_client import CalendarComponent
@@ -26,8 +36,13 @@ class CalendarTool(BaseTool):
     """Enhanced tool for accessing and managing Google Calendar events with comprehensive command support."""
     
     name = "calendar_data"
-    description = "Access Google Calendar for reading and creating events across multiple users and calendars. Supports viewing upcoming events, daily summaries, and event creation. DEFAULTS: User defaults to 'morgan_personal', action defaults to 'read' (only use 'write'/'create_event' when user explicitly asks to add/create/schedule a new event). CRITICAL RESTRICTION: Only query ONE user per request - never multiple users simultaneously. For day summaries, user MUST explicitly say 'today' in their request."
-    version = "1.0.1"
+    version = "1.0.2"
+    
+    @property
+    def description(self) -> str:
+        """Dynamic description using configured default user."""
+        default_user = get_default_calendar_user()
+        return f"Access Google Calendar for reading and creating events across multiple users and calendars. Supports viewing upcoming events, daily summaries, and event creation. DEFAULTS: User defaults to '{default_user}', action defaults to 'read' (only use 'write'/'create_event' when user explicitly asks to add/create/schedule a new event). CRITICAL RESTRICTION: Only query ONE user per request - never multiple users simultaneously. For day summaries, user MUST explicitly say 'today' in their request."
     
     def __init__(self):
         """Initialize the calendar tool."""
@@ -36,11 +51,18 @@ class CalendarTool(BaseTool):
         # Cache calendar instances for each user
         self.calendar_instances: Dict[str, CalendarComponent] = {}
         
-        # Available users and calendar types
-        self.available_users = ["morgan_personal", "morgan_school", "spencer"]
+        # Available users from config (dynamically loaded)
+        self._available_users = None
         self.available_actions = ["read", "write", "create_event"]
         self.available_read_types = ["next_events", "day_summary", "week_summary", "specific_date"]
         self.available_calendar_names = ["primary", "personal", "work", "school", "class", "default", "homeassist", "assistant"]
+    
+    @property
+    def available_users(self) -> List[str]:
+        """Dynamically get available users from config."""
+        if self._available_users is None:
+            self._available_users = get_calendar_users()
+        return self._available_users
     
     def get_schema(self) -> Dict[str, Any]:
         """
@@ -54,7 +76,7 @@ class CalendarTool(BaseTool):
             "properties": {
                 "commands": {
                     "type": "array",
-                    "description": f"List of calendar commands to execute. DEFAULTS: user='morgan_personal', read_or_write='read'. CRITICAL: Only ONE user per request. Available users: {self.available_users}. For 'What classes does Spencer have today?' use [{{'read_or_write': 'read', 'user': 'spencer', 'read_type': 'day_summary', 'calendar_name': 'class'}}]. For 'What's my next meeting?' use [{{'read_type': 'next_events', 'limit': 3}}] (defaults to morgan_personal + read).",
+                    "description": f"List of calendar commands to execute. DEFAULTS: user='{get_default_calendar_user()}', read_or_write='read'. CRITICAL: Only ONE user per request. Available users: {self.available_users}. For 'What's my next meeting?' use [{{'read_type': 'next_events', 'limit': 3}}] (defaults to primary user + read).",
                     "items": {
                         "type": "object",
                         "properties": {
@@ -66,9 +88,9 @@ class CalendarTool(BaseTool):
                             },
                             "user": {
                                 "type": "string",
-                                "description": "Which user's calendar to access. Defaults to 'morgan_personal'. 'morgan_personal' for Morgan's personal calendar, 'morgan_school' for Morgan's academic calendar, 'spencer' for Spencer's calendar. Each user has different permissions and calendar access. NEVER query multiple users in a single request.",
+                                "description": f"Which user's calendar to access. Defaults to '{get_default_calendar_user()}'. Each user has different permissions and calendar access. NEVER query multiple users in a single request.",
                                 "enum": self.available_users,
-                                "default": "morgan_personal"
+                                "default": get_default_calendar_user()
                             },
                             "read_type": {
                                 "type": "string",
@@ -127,7 +149,7 @@ class CalendarTool(BaseTool):
                                 "description": "Time zone for event times. Uses system default if not specified. Format like 'America/New_York', 'Europe/London', etc."
                             }
                         },
-                        "required": [],  # user defaults to morgan_personal, read_or_write defaults to read
+                        "required": [],  # user defaults to primary user, read_or_write defaults to read
                         "if": {
                             "properties": {"read_or_write": {"const": "read"}}
                         },
@@ -458,7 +480,7 @@ class CalendarTool(BaseTool):
 
     def _normalize_command(self, cmd: Dict[str, Any]) -> Dict[str, Any]:
         """Normalize inputs for calendar commands.
-        - Default user to 'morgan_personal' unless otherwise specified
+        - Default user to primary user unless otherwise specified
         - Default read_or_write to 'read' unless explicitly creating an event
         - Accept 'write_type': 'create_event' alias by mapping to read_or_write
         - Accept ISO datetimes in start_time/end_time and derive date/HH:MM
@@ -468,9 +490,9 @@ class CalendarTool(BaseTool):
         try:
             normalized = dict(cmd)
             
-            # Default user to morgan_personal unless otherwise specified
+            # Default user to primary user unless otherwise specified
             if not normalized.get("user"):
-                normalized["user"] = "morgan_personal"
+                normalized["user"] = get_default_calendar_user()
             
             # Map common title synonyms to event_title
             if not normalized.get("event_title"):

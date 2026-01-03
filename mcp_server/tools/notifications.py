@@ -11,12 +11,23 @@ from pathlib import Path
 from mcp_server.base_tool import BaseTool
 from mcp_server.config import LOG_TOOLS
 
+# Import user config for dynamic user resolution
+try:
+    from mcp_server.user_config import get_notification_users, get_default_notification_user
+except ImportError:
+    # Fallback if user_config not available
+    def get_notification_users():
+        return ["User"]
+    def get_default_notification_user():
+        return "User"
+
+
 class GetNotificationsTool(BaseTool):
     """Enhanced tool to retrieve pending notifications with comprehensive filtering and metadata."""
     
     name = "get_notifications"
     description = "Check for pending notifications with comprehensive filtering options. Use when user asks about notifications, messages, emails, or news updates. Supports filtering by user, type, and limiting results. Always returns detailed notification content with timestamps and metadata. IMPORTANT: Only query ONE user per request - never multiple users simultaneously."
-    version = "1.1.0"
+    version = "1.2.0"
     
     def __init__(self):
         """Initialize the notifications tool."""
@@ -24,6 +35,10 @@ class GetNotificationsTool(BaseTool):
         
         # Path to app_state.json
         self.state_file = Path(__file__).parent.parent.parent / "state_management" / "app_state.json"
+        
+        # Get configured users dynamically
+        self._configured_users = get_notification_users()
+        self._default_user = get_default_notification_user()
         
     def get_schema(self) -> Dict[str, Any]:
         """
@@ -37,9 +52,9 @@ class GetNotificationsTool(BaseTool):
             "properties": {
                 "user": {
                     "type": "string",
-                    "description": "Which user's notifications to check. Must specify exactly ONE user per request - NEVER query multiple users simultaneously. Each user has separate notification queues with different permissions and content. Morgan typically has work emails and system notifications, Spencer has personal and academic notifications.",
-                    "enum": ["Morgan", "Spencer"],
-                    "default": "Morgan"
+                    "description": f"Which user's notifications to check. Must specify exactly ONE user per request - NEVER query multiple users simultaneously. Each user has separate notification queues with different permissions and content.",
+                    "enum": self._configured_users,
+                    "default": self._default_user
                 },
                 "type_filter": {
                     "type": "string",
@@ -86,15 +101,19 @@ class GetNotificationsTool(BaseTool):
         """
         try:
             # Extract parameters with defaults
-            user = params.get("user", "Morgan")
+            user = params.get("user", self._default_user)
             # Normalize user input to title-case and handle simple aliases
             try:
                 if isinstance(user, str):
                     lowered = user.strip().lower()
-                    if lowered in {"morgan", "spencer"}:
-                        user = lowered.title()
+                    # Check if user matches any configured user
+                    configured_lower = [u.lower() for u in self._configured_users]
+                    if lowered in configured_lower:
+                        # Find the properly-cased version
+                        idx = configured_lower.index(lowered)
+                        user = self._configured_users[idx]
                     elif lowered in {"me", "my", "default"}:
-                        user = "Morgan"
+                        user = self._default_user
                     else:
                         user = user.title()
             except Exception:

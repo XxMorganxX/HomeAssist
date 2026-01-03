@@ -4,7 +4,10 @@ Simplified CLI for refactored assistant framework (v2).
 
 import asyncio
 import argparse
+import json
+import sys
 from pathlib import Path
+from datetime import datetime
 
 try:
     from .orchestrator_v2 import RefactoredOrchestrator
@@ -14,6 +17,181 @@ except ImportError:
     from assistant_framework.orchestrator_v2 import RefactoredOrchestrator
     from assistant_framework.config import get_framework_config, print_config_summary
     from assistant_framework.utils.logging_config import setup_logging
+
+
+# =============================================================================
+# FIRST-TIME SETUP
+# =============================================================================
+
+def _get_state_file_path() -> Path:
+    """Get path to app_state.json."""
+    return Path(__file__).parent.parent / "state_management" / "app_state.json"
+
+
+def _run_first_time_setup() -> dict:
+    """
+    Interactive first-time setup for new users.
+    Called from main process (has stdin access).
+    """
+    print("\n" + "=" * 60)
+    print("🏠 HOMEASSIST FIRST-TIME SETUP")
+    print("=" * 60)
+    print("\nWelcome! Let's configure your assistant.\n")
+    
+    # =========================================================================
+    # PRIMARY USER
+    # =========================================================================
+    while True:
+        primary_user = input("👤 Enter your name (primary user): ").strip()
+        if primary_user:
+            break
+        print("   Name cannot be empty. Please try again.")
+    
+    # =========================================================================
+    # NICKNAMES (optional)
+    # =========================================================================
+    print(f"\n🏷️  Nicknames & Titles (optional)")
+    print("   What else can Sol call you? (e.g., Mr. Stuart, boss, chief)")
+    print("   Enter nicknames separated by commas, or press Enter to skip.")
+    nicknames_input = input("   Nicknames: ").strip()
+    nicknames = []
+    if nicknames_input:
+        nicknames = [name.strip() for name in nicknames_input.split(",") if name.strip()]
+    
+    # =========================================================================
+    # HOUSEHOLD MEMBERS (optional)
+    # =========================================================================
+    print(f"\n👥 Household Members (optional)")
+    print("   Add other people who will use this assistant.")
+    print("   Enter names separated by commas, or press Enter to skip.")
+    household_input = input("   Household members: ").strip()
+    household_members = []
+    if household_input:
+        household_members = [name.strip() for name in household_input.split(",") if name.strip()]
+    
+    # =========================================================================
+    # INTEGRATIONS
+    # =========================================================================
+    integrations = {}
+    
+    # Spotify
+    print(f"\n📻 Spotify Integration")
+    spotify_enabled = input("   Enable Spotify? [Y/n]: ").strip().lower() != 'n'
+    if spotify_enabled:
+        spotify_user = input(f"   Spotify username [{primary_user}]: ").strip()
+        if not spotify_user:
+            spotify_user = primary_user
+        integrations["spotify"] = {
+            "enabled": True,
+            "username": spotify_user
+        }
+    else:
+        spotify_user = primary_user
+        integrations["spotify"] = {"enabled": False}
+    
+    # Calendar
+    print(f"\n📅 Google Calendar Integration")
+    calendar_enabled = input("   Enable Google Calendar? [Y/n]: ").strip().lower() != 'n'
+    if calendar_enabled:
+        integrations["calendar"] = {
+            "enabled": True,
+            "default_calendar": "primary"
+        }
+    else:
+        integrations["calendar"] = {"enabled": False}
+    
+    # Smart Home
+    print(f"\n💡 Smart Home Integration")
+    smart_home_enabled = input("   Enable smart home controls? [Y/n]: ").strip().lower() != 'n'
+    if smart_home_enabled:
+        integrations["smart_home"] = {"enabled": True}
+    else:
+        integrations["smart_home"] = {"enabled": False}
+    
+    # =========================================================================
+    # DEFAULT PREFERENCES
+    # =========================================================================
+    print(f"\n⚙️  Default Preferences")
+    
+    # Lighting scene
+    print("   Lighting scene options: mood, party, movie, all_on, all_off")
+    lighting_scene = input("   Default lighting scene [all_on]: ").strip().lower()
+    if lighting_scene not in ["mood", "party", "movie", "all_on", "all_off"]:
+        lighting_scene = "all_on"
+    
+    # Volume
+    volume_input = input("   Default volume (0-100) [50]: ").strip()
+    try:
+        volume_level = int(volume_input) if volume_input else 50
+        volume_level = max(0, min(100, volume_level))
+    except ValueError:
+        volume_level = 50
+    
+    # =========================================================================
+    # COMPLETE
+    # =========================================================================
+    print("\n" + "=" * 60)
+    print(f"✅ Setup complete for {primary_user}!")
+    if household_members:
+        print(f"   Household: {', '.join(household_members)}")
+    enabled_integrations = [k for k, v in integrations.items() if v.get("enabled")]
+    if enabled_integrations:
+        print(f"   Integrations: {', '.join(enabled_integrations)}")
+    print("=" * 60 + "\n")
+    
+    # Build initial state structure
+    return {
+        "user_state": {
+            "primary_user": primary_user,
+            "nicknames": nicknames,
+            "household_members": household_members,
+            "created_at": datetime.now().isoformat(),
+            "integrations": integrations
+        },
+        "chat_controlled_state": {
+            "current_spotify_user": spotify_user,
+            "lighting_scene": lighting_scene,
+            "volume_level": str(volume_level),
+            "do_not_disturb": "false"
+        },
+        "autonomous_state": {
+            "notification_queue": {
+                primary_user: {
+                    "notifications": [],
+                    "emails": []
+                }
+            }
+        }
+    }
+
+
+def ensure_first_time_setup():
+    """
+    Check if first-time setup is needed and run it if so.
+    Must be called from main process BEFORE any subprocesses start.
+    """
+    state_file = _get_state_file_path()
+    
+    if state_file.exists():
+        return  # Already configured
+    
+    # Check if we can run interactively
+    if not sys.stdin.isatty():
+        print("⚠️  First-time setup required but running non-interactively.")
+        print("   Run the assistant in a terminal to complete setup.")
+        sys.exit(1)
+    
+    # Ensure directory exists
+    state_file.parent.mkdir(parents=True, exist_ok=True)
+    
+    # Run interactive setup
+    state = _run_first_time_setup()
+    
+    # Save state
+    with open(state_file, 'w') as f:
+        json.dump(state, f, indent=2)
+    
+    print(f"📝 Configuration saved to {state_file}\n")
 
 
 def create_parser() -> argparse.ArgumentParser:
@@ -210,6 +388,10 @@ def main():
         setup_logging(level=log_level)
     except Exception as e:
         print(f"⚠️  Failed to setup logging: {e}")
+
+    # Check for first-time setup BEFORE anything else
+    # This must happen in main process (has stdin access)
+    ensure_first_time_setup()
 
     try:
         asyncio.run(async_main())

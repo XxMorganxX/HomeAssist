@@ -13,6 +13,14 @@ try:
 except ImportError:
     # Fallback for MCP server context
     config = None
+
+# Import user config for dynamic user resolution
+try:
+    from mcp_server.user_config import get_spotify_users
+except ImportError:
+    def get_spotify_users():
+        return ["user"]
+
 from typing import Dict, Any
 
 
@@ -22,12 +30,12 @@ class StateTool(BaseTool):
     name = "state_tool"
     description = (
         "Manage system state including user preferences, current settings, and application state. "
-        "Use this tool ONLY for changing default settings like which Spotify user account to use "
-        "(Morgan/Spencer), lighting SCENE presets (mood/party/movie), volume level, or do-not-disturb. "
+        "Use this tool ONLY for changing default settings like which Spotify user account to use, "
+        "lighting SCENE presets (mood/party/movie), volume level, or do-not-disturb. "
         "Do NOT use this to control Spotify playback (play/pause/skip) - use spotify_playback for that. "
         "Do NOT use this for direct device control of lights — use kasa_lighting instead."
     )
-    version = "1.0.1"
+    version = "1.0.2"
     
     def __init__(self):
         """Initialize the state management tool."""
@@ -51,17 +59,21 @@ class StateTool(BaseTool):
         Returns:
             Comprehensive JSON schema dictionary
         """
+        # Get configured spotify users for description
+        spotify_users = get_spotify_users()
+        users_str = "/".join([u.title() for u in spotify_users])
+        
         return {
             "type": "object",
             "properties": {
                 "state_type": {
                     "type": "string",
-                    "description": "The type of system state to control. Options: 'current_spotify_user' (change active Spotify account between Morgan/Spencer), 'lighting_scene' (set mood/party/movie/all_on/all_off), 'volume_level' (adjust system volume 0-100), 'do_not_disturb' (enable/disable DND mode). Choose based on what the user wants to change.",
+                    "description": f"The type of system state to control. Options: 'current_spotify_user' (change active Spotify account), 'lighting_scene' (set mood/party/movie/all_on/all_off), 'volume_level' (adjust system volume 0-100), 'do_not_disturb' (enable/disable DND mode). Choose based on what the user wants to change.",
                     "enum": self.valid_state_types
                 },
                 "new_state": {
                     "type": "string", 
-                    "description": "The new value to set for the specified state type. For 'current_spotify_user': use 'Morgan' or 'Spencer'. For 'lighting_scene': use 'mood', 'party', 'movie', 'all_on', or 'all_off'. For 'volume_level': use number as string '0'-'100'. For 'do_not_disturb': use 'true' or 'false'. Always match the value to the state_type being changed."
+                    "description": f"The new value to set for the specified state type. For 'current_spotify_user': use one of {users_str}. For 'lighting_scene': use 'mood', 'party', 'movie', 'all_on', or 'all_off'. For 'volume_level': use number as string '0'-'100'. For 'do_not_disturb': use 'true' or 'false'. Always match the value to the state_type being changed."
                 }
             },
             "required": ["state_type", "new_state"]

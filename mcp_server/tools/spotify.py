@@ -9,7 +9,7 @@ import os
 import spotipy
 from spotipy.oauth2 import SpotifyOAuth
 from spotipy.cache_handler import CacheFileHandler
-from typing import Dict, Any, Optional, Literal
+from typing import Dict, Any, Optional, Literal, List
 from mcp_server.base_tool import BaseTool
 from dotenv import load_dotenv
 from mcp_server.config import LOG_TOOLS
@@ -20,6 +20,16 @@ except ImportError:
     # Fallback for MCP server context
     config = None
 
+# Import user config for dynamic user resolution
+try:
+    from mcp_server.user_config import get_spotify_users, get_default_spotify_user
+except ImportError:
+    # Fallback if user_config not available
+    def get_spotify_users():
+        return ["user"]
+    def get_default_spotify_user():
+        return "user"
+
 load_dotenv()
 
 
@@ -27,46 +37,55 @@ class SpotifyPlaybackTool(BaseTool):
     """Enhanced tool for comprehensive Spotify playback control with detailed command specifications."""
     
     name = "spotify_playback"
-    description = "Control Spotify playback with comprehensive voice commands including play/pause, track navigation, volume control, and music search. Supports multiple users (Morgan/Spencer) and provides detailed playback status information. Use this when users want to control music playback, search for songs, or adjust audio settings."
-    version = "1.0.1"
+    description = "Control Spotify playback with comprehensive voice commands including play/pause, track navigation, volume control, and music search. Supports configured users and provides detailed playback status information. Use this when users want to control music playback, search for songs, or adjust audio settings."
+    version = "1.0.2"
     
     def __init__(self):
         """Initialize the Spotify playback tool."""
         super().__init__()
         
-        # Spotify credentials for multiple users (use lowercase keys)
-        self.SPOTIPY_CLIENT_ID = {
-            "morgan": os.getenv("SPOTIFY_CLIENT_ID"),
-            "spencer": os.getenv("SPENCER_SPOTIFY_CLIENT_ID")
-        }
-        self.SPOTIPY_CLIENT_SECRET = {
-            "morgan": os.getenv("SPOTIFY_CLIENT_SECRET"),
-            "spencer": os.getenv("SPENCER_SPOTIFY_CLIENT_SECRET")
-        }
+        # Get configured users dynamically
+        self._configured_users = get_spotify_users()
+        self._default_user = get_default_spotify_user()
+        
+        # Spotify credentials for configured users (use lowercase keys)
+        # Primary user uses default env vars, others use prefixed env vars
+        self.SPOTIPY_CLIENT_ID = {}
+        self.SPOTIPY_CLIENT_SECRET = {}
+        
+        for user in self._configured_users:
+            user_lower = user.lower()
+            if user_lower == self._default_user.lower():
+                # Primary user uses default env vars
+                self.SPOTIPY_CLIENT_ID[user_lower] = os.getenv("SPOTIFY_CLIENT_ID")
+                self.SPOTIPY_CLIENT_SECRET[user_lower] = os.getenv("SPOTIFY_CLIENT_SECRET")
+            else:
+                # Other users use prefixed env vars
+                prefix = user_lower.upper()
+                self.SPOTIPY_CLIENT_ID[user_lower] = os.getenv(f"{prefix}_SPOTIFY_CLIENT_ID")
+                self.SPOTIPY_CLIENT_SECRET[user_lower] = os.getenv(f"{prefix}_SPOTIFY_CLIENT_SECRET")
         
         # Debug: Log what was loaded from environment
         self.logger.info("🔍 Spotify Credentials Debug:")
-        for user in ["morgan", "spencer"]:
-            client_id = self.SPOTIPY_CLIENT_ID.get(user)
-            client_secret = self.SPOTIPY_CLIENT_SECRET.get(user)
+        for user in self._configured_users:
+            user_lower = user.lower()
+            client_id = self.SPOTIPY_CLIENT_ID.get(user_lower)
+            client_secret = self.SPOTIPY_CLIENT_SECRET.get(user_lower)
             self.logger.info(f"  {user}:")
             self.logger.info(f"    CLIENT_ID present: {bool(client_id)} (length: {len(client_id) if client_id else 0})")
             self.logger.info(f"    CLIENT_SECRET present: {bool(client_secret)} (length: {len(client_secret) if client_secret else 0})")
         
         # Use config values if available, otherwise fallbacks
-        # Check environment variable first, then config, then default to port 8889 (8888 conflicts with MCP server)
         default_redirect_uri = os.getenv("SPOTIFY_REDIRECT_URI", "http://127.0.0.1:8888/callback")
         
-        if config:
-            self.SPOTIPY_REDIRECT_URI = {
-                "morgan": getattr(config, 'MORGAN_SPOTIFY_URI', default_redirect_uri),
-                "spencer": getattr(config, 'SPENCER_SPOTIFY_URI', default_redirect_uri)
-            }
-        else:
-            self.SPOTIPY_REDIRECT_URI = {
-                "morgan": default_redirect_uri,
-                "spencer": default_redirect_uri
-            }
+        self.SPOTIPY_REDIRECT_URI = {}
+        for user in self._configured_users:
+            user_lower = user.lower()
+            if config:
+                uri_attr = f'{user_lower.upper()}_SPOTIFY_URI'
+                self.SPOTIPY_REDIRECT_URI[user_lower] = getattr(config, uri_attr, default_redirect_uri)
+            else:
+                self.SPOTIPY_REDIRECT_URI[user_lower] = default_redirect_uri
         
         # Log redirect URIs for debugging
         self.logger.info("🔍 Spotify Redirect URIs:")
@@ -82,9 +101,13 @@ class SpotifyPlaybackTool(BaseTool):
         self._devices_cache_time = {}
         self.CACHE_TIMEOUT = 30  # seconds
         
-        # Available users and actions (use lowercase for consistency)
-        self.available_users = ["morgan", "spencer"]
+        # Available actions
         self.available_actions = ["play", "pause", "next", "previous", "volume", "search_track", "search_artist", "status", "devices", "shuffle", "repeat"]
+    
+    @property
+    def available_users(self) -> List[str]:
+        """Dynamically get available users from config."""
+        return [u.lower() for u in self._configured_users]
     
     def get_schema(self) -> Dict[str, Any]:
         """
@@ -103,9 +126,9 @@ class SpotifyPlaybackTool(BaseTool):
                 },
                 "user": {
                     "type": "string",
-                    "description": "Which user's Spotify account to control (case-insensitive). Each user has separate playlists, preferences, and playback state. Morgan typically has work/focus playlists, Spencer has personal/entertainment music. Default is morgan if not specified.",
+                    "description": f"Which user's Spotify account to control (case-insensitive). Each user has separate playlists, preferences, and playback state. Default is {self._default_user} if not specified.",
                     "enum": self.available_users,
-                    "default": "morgan"
+                    "default": self._default_user.lower()
                 },
                 "query": {
                     "type": "string",
@@ -154,7 +177,7 @@ class SpotifyPlaybackTool(BaseTool):
         try:
             action = params.get("action")
             # Normalize user to lowercase for case-insensitive matching
-            user = params.get("user", "morgan").lower() if params.get("user") else "morgan"
+            user = params.get("user", self._default_user).lower() if params.get("user") else self._default_user.lower()
             
             # Validate parameters
             if not action:

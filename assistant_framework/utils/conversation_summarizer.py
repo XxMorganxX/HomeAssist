@@ -63,6 +63,19 @@ class ConversationSummarizer:
         # Ensure output directory exists
         output_path = Path(self.output_file)
         output_path.parent.mkdir(parents=True, exist_ok=True)
+        
+        # Initialize empty file if it doesn't exist
+        if not output_path.exists():
+            print(f"📝 Initializing new conversation summary file at {self.output_file}")
+            template = {
+                "current_summary": None,
+                "history": []
+            }
+            try:
+                with open(self.output_file, "w") as f:
+                    json.dump(template, f, indent=2)
+            except Exception as e:
+                print(f"⚠️  Failed to create conversation summary file: {e}")
     
         # DO NOT load previous summary - each session should start fresh
         # The old summary is preserved in the file's history for reference
