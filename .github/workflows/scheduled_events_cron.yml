@@ -101,7 +101,12 @@ jobs:
         env:
           OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
           OPENAI_KEY: ${{ secrets.OPENAI_API_KEY }}
-          NEWS_API_KEY: ${{ secrets.NEWS_API_KEY }}
+          # NewsAPI keys (supports rotation when quota exhausted)
+          NEWS_API_KEY_1: ${{ secrets.NEWS_API_KEY_1 }}
+          NEWS_API_KEY_2: ${{ secrets.NEWS_API_KEY_2 }}
+          NEWS_API_KEY_3: ${{ secrets.NEWS_API_KEY_3 }}
+          NEWS_API_KEY_4: ${{ secrets.NEWS_API_KEY_4 }}
+          NEWS_API_KEY_5: ${{ secrets.NEWS_API_KEY_5 }}
           SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
           SUPABASE_KEY: ${{ secrets.SUPABASE_KEY }}
           NEWS_NOTIFICATION_RECIPIENT: ${{ vars.NEWS_NOTIFICATION_RECIPIENT || 'Morgan' }}
