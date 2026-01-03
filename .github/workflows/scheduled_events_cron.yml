@@ -1,0 +1,130 @@
+# GitHub Actions Workflow for Scheduled Events
+# Runs email and news summarizers on a cron schedule
+
+name: Scheduled Events (Email & News)
+
+on:
+  # Run daily at 7:00 AM UTC (2:00 AM EST / 3:00 AM EDT)
+  schedule:
+    - cron: '0 7 * * *'
+  
+  # Allow manual trigger from GitHub UI
+  workflow_dispatch:
+    inputs:
+      skip_email:
+        description: 'Skip email summarizer'
+        required: false
+        default: 'false'
+        type: boolean
+      skip_news:
+        description: 'Skip news summarizer'
+        required: false
+        default: 'false'
+        type: boolean
+
+env:
+  PYTHON_VERSION: '3.12'
+
+jobs:
+  run-scheduled-events:
+    runs-on: ubuntu-latest
+    
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+      
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: ${{ env.PYTHON_VERSION }}
+          cache: 'pip'
+      
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r scripts/scheduled/requirements_cron.txt
+      
+      - name: Set up environment variables
+        run: |
+          echo "Setting up environment..."
+        env:
+          # These secrets must be configured in GitHub repo settings
+          GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
+          OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
+          OPENAI_KEY: ${{ secrets.OPENAI_API_KEY }}
+          SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
+          SUPABASE_KEY: ${{ secrets.SUPABASE_KEY }}
+          NEWS_API_KEY: ${{ secrets.NEWS_API_KEY }}
+          EMAIL_NOTIFICATION_RECIPIENT: ${{ vars.EMAIL_NOTIFICATION_RECIPIENT || 'Morgan' }}
+          NEWS_NOTIFICATION_RECIPIENT: ${{ vars.NEWS_NOTIFICATION_RECIPIENT || 'Morgan' }}
+      
+      # ─────────────────────────────────────────────────────────────
+      # EMAIL SUMMARIZER
+      # ─────────────────────────────────────────────────────────────
+      - name: Run Email Summarizer
+        if: ${{ github.event.inputs.skip_email != 'true' }}
+        working-directory: scripts/scheduled/email_summarizer
+        env:
+          GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
+          SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
+          SUPABASE_KEY: ${{ secrets.SUPABASE_KEY }}
+          EMAIL_NOTIFICATION_RECIPIENT: ${{ vars.EMAIL_NOTIFICATION_RECIPIENT || 'Morgan' }}
+          # Gmail OAuth tokens (base64 encoded JSON)
+          GOOGLE_CREDENTIALS_JSON: ${{ secrets.GOOGLE_CREDENTIALS_JSON }}
+          GOOGLE_TOKEN_JSON: ${{ secrets.GOOGLE_TOKEN_JSON }}
+        run: |
+          echo "📧 Running email summarizer..."
+          
+          # Decode and write Google credentials if provided
+          if [ -n "$GOOGLE_CREDENTIALS_JSON" ]; then
+            echo "$GOOGLE_CREDENTIALS_JSON" | base64 -d > ../../../google_creds/email_summarizer_credentials.json
+            echo "✅ Wrote Google credentials"
+          fi
+          
+          if [ -n "$GOOGLE_TOKEN_JSON" ]; then
+            echo "$GOOGLE_TOKEN_JSON" | base64 -d > ../../../google_creds/email_summarizer_token.json
+            echo "✅ Wrote Google token"
+          fi
+          
+          # Create ephemeral_data directory
+          mkdir -p ephemeral_data
+          
+          # Run the email summarizer
+          python mail_main.py || echo "⚠️ Email summarizer completed with warnings"
+      
+      # ─────────────────────────────────────────────────────────────
+      # NEWS SUMMARIZER
+      # ─────────────────────────────────────────────────────────────
+      - name: Run News Summarizer
+        if: ${{ github.event.inputs.skip_news != 'true' }}
+        working-directory: scripts/scheduled/news_summary
+        env:
+          OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
+          OPENAI_KEY: ${{ secrets.OPENAI_API_KEY }}
+          NEWS_API_KEY: ${{ secrets.NEWS_API_KEY }}
+          SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
+          SUPABASE_KEY: ${{ secrets.SUPABASE_KEY }}
+          NEWS_NOTIFICATION_RECIPIENT: ${{ vars.NEWS_NOTIFICATION_RECIPIENT || 'Morgan' }}
+        run: |
+          echo "📰 Running news summarizer..."
+          
+          # Create ephemeral_data directory
+          mkdir -p ephemeral_data
+          
+          # Run the news summarizer with cleanup
+          python news_main.py --clean || echo "⚠️ News summarizer completed with warnings"
+      
+      # ─────────────────────────────────────────────────────────────
+      # SUMMARY
+      # ─────────────────────────────────────────────────────────────
+      - name: Print Summary
+        if: always()
+        run: |
+          echo "════════════════════════════════════════════════════════════"
+          echo "📊 SCHEDULED EVENTS COMPLETE"
+          echo "════════════════════════════════════════════════════════════"
+          echo "Time: $(date -u '+%Y-%m-%d %H:%M:%S UTC')"
+          echo ""
+          echo "Check Supabase notification_sources table for results."
+          echo "════════════════════════════════════════════════════════════"
+
