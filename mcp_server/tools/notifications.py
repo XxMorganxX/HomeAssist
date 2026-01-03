@@ -3,11 +3,17 @@ Get Notifications Tool using BaseTool.
 
 This tool retrieves pending notifications with enhanced parameter descriptions,
 better type safety, and comprehensive filtering options.
+
+Data sources (in priority order):
+1. Supabase notification_sources table (cloud, persistent)
+2. Local app_state.json (fallback for offline/legacy)
 """
 
 import json
+import os
 from typing import Dict, List, Optional, Any
 from pathlib import Path
+from datetime import datetime, timezone
 from mcp_server.base_tool import BaseTool
 from mcp_server.config import LOG_TOOLS
 
@@ -21,25 +27,71 @@ except ImportError:
     def get_default_notification_user():
         return "User"
 
+# Import Supabase client
+try:
+    from supabase import create_client, Client
+    SUPABASE_AVAILABLE = True
+except ImportError:
+    SUPABASE_AVAILABLE = False
+    create_client = None
+    Client = None
+
 
 class GetNotificationsTool(BaseTool):
     """Enhanced tool to retrieve pending notifications with comprehensive filtering and metadata."""
     
     name = "get_notifications"
-    description = "Check for pending notifications with comprehensive filtering options. Use when user asks about notifications, messages, emails, or news updates. Supports filtering by user, type, and limiting results. Always returns detailed notification content with timestamps and metadata. IMPORTANT: Only query ONE user per request - never multiple users simultaneously."
-    version = "1.2.0"
+    description = """Check for pending notifications with comprehensive filtering options.
+
+IMPORTANT - Use type_filter for specific requests:
+- type_filter='email' → ONLY email summaries (inbox updates, email digests)
+- type_filter='news' → ONLY news summaries (tech news, daily briefings)  
+- type_filter='all' → Both email AND news (default)
+
+Examples:
+- "any new emails?" → type_filter='email'
+- "what's in the news?" → type_filter='news'
+- "any notifications?" → type_filter='all'
+
+Only query ONE user per request - never multiple users simultaneously."""
+    version = "1.3.0"
     
     def __init__(self):
         """Initialize the notifications tool."""
         super().__init__()
         
-        # Path to app_state.json
+        # Path to app_state.json (fallback)
         self.state_file = Path(__file__).parent.parent.parent / "state_management" / "app_state.json"
         
         # Get configured users dynamically
         self._configured_users = get_notification_users()
         self._default_user = get_default_notification_user()
         
+        # Initialize Supabase client
+        self._supabase_client: Optional[Client] = None
+        self._supabase_available = False
+        self._init_supabase()
+        
+    def _init_supabase(self):
+        """Initialize Supabase client for notification retrieval."""
+        if not SUPABASE_AVAILABLE:
+            self.logger.debug("Supabase package not installed, using local state only")
+            return
+        
+        url = os.getenv("SUPABASE_URL")
+        key = os.getenv("SUPABASE_KEY")
+        
+        if not url or not key:
+            self.logger.debug("SUPABASE_URL or SUPABASE_KEY not set, using local state only")
+            return
+        
+        try:
+            self._supabase_client = create_client(url, key)
+            self._supabase_available = True
+            self.logger.debug("Supabase client initialized for notifications")
+        except Exception as e:
+            self.logger.warning(f"Failed to initialize Supabase client: {e}")
+    
     def get_schema(self) -> Dict[str, Any]:
         """
         Get the JSON schema for this tool with detailed parameter descriptions.
@@ -58,7 +110,7 @@ class GetNotificationsTool(BaseTool):
                 },
                 "type_filter": {
                     "type": "string",
-                    "description": "Filter notifications by specific type. 'email' includes work and personal messages, calendar invites, and important communications. 'news' includes system updates, app notifications, and announcements. 'other' covers calendar reminders, task notifications, and miscellaneous alerts. Use 'all' to retrieve notifications of all types without filtering.",
+                    "description": "CRITICAL: Filter notifications by type. Use 'email' for email summaries ONLY (inbox updates, email digests from the email summarizer). Use 'news' for news summaries ONLY (tech news briefings from the news scraper). Use 'other' for miscellaneous notifications. Use 'all' to get everything. ALWAYS use the specific filter when the user asks about emails OR news separately - do NOT use 'all' when they ask for one specific type.",
                     "enum": ["email", "news", "other", "all"],
                     "default": "all"
                 },
@@ -136,18 +188,12 @@ class GetNotificationsTool(BaseTool):
                 # Log to stderr via logging so it shows in the agent terminal
                 self.logger.info("Executing Tool: Notifications -- %s", params)
             
-            # Load notifications from state file
-            notifications_data = self._load_notifications()
+            # Load notifications with filtering at source level for efficiency
+            # This filters at database level in Supabase and in-memory for local state
+            notifications_data = self._load_notifications(type_filter=type_filter, user_filter=user)
             
-            # Get user's notifications
+            # Get user's notifications (already filtered by type at load time)
             user_notifications = notifications_data.get(user, [])
-            
-            # Apply type filter
-            if type_filter != "all":
-                user_notifications = [
-                    notif for notif in user_notifications 
-                    if notif.get("type", "other").lower() == type_filter.lower()
-                ]
             
             # Apply priority filter
             if priority_filter != "all":
@@ -186,7 +232,6 @@ class GetNotificationsTool(BaseTool):
                     # Add human-readable timestamp if available
                     if "timestamp" in processed_notif:
                         try:
-                            from datetime import datetime, timezone
                             ts = processed_notif["timestamp"]
                             if isinstance(ts, (int, float)):
                                 processed_notif["human_time"] = datetime.fromtimestamp(ts, timezone.utc).strftime("%Y-%m-%d %H:%M:%S")
@@ -251,17 +296,195 @@ class GetNotificationsTool(BaseTool):
                 "total_available": 0
             }
     
-    def _load_notifications(self) -> Dict[str, List[Dict]]:
-        """Load notifications from state, including email topic entries.
+    def _load_notifications(self, type_filter: str = "all", user_filter: Optional[str] = None) -> Dict[str, List[Dict]]:
+        """Load notifications from Supabase (primary) and local state (fallback).
 
+        Data sources in priority order:
+        1) Supabase notification_sources table (cloud, persistent)
+        2) Local app_state.json (fallback for offline/legacy data)
+        
+        Merges both sources, deduplicating by ID with Supabase taking precedence.
+        
+        Args:
+            type_filter: Filter by notification type ('email', 'news', 'other', 'all')
+            user_filter: Optional user to filter by (filters at query level for efficiency)
+        """
+        notifications: Dict[str, List[Dict]] = {}
+        
+        # Try Supabase first (primary source) - filters at database level for efficiency
+        if self._supabase_available and self._supabase_client:
+            try:
+                supabase_notifications = self._load_from_supabase(type_filter=type_filter, user_filter=user_filter)
+                if supabase_notifications:
+                    notifications = supabase_notifications
+                    self.logger.debug(f"Loaded notifications from Supabase: {sum(len(v) for v in notifications.values())} total (type={type_filter})")
+            except Exception as e:
+                self.logger.warning(f"Failed to load from Supabase, falling back to local: {e}")
+        
+        # Load from local state (fallback/merge)
+        local_notifications = self._load_from_local_state(type_filter=type_filter, user_filter=user_filter)
+        
+        # Merge local notifications with Supabase (Supabase takes precedence)
+        # Use content-based deduplication since IDs may differ between sources
+        for user, local_list in local_notifications.items():
+            if user not in notifications:
+                notifications[user] = []
+            
+            # Build a set of normalized IDs and content hashes from Supabase for deduplication
+            existing_ids = set()
+            existing_content_hashes = set()
+            for n in notifications.get(user, []):
+                nid = n.get("id", "")
+                existing_ids.add(nid)
+                # Also add the base ID without prefix (email_, news_)
+                existing_ids.add(self._strip_id_prefix(nid))
+                # Add content hash for content-based deduplication
+                content_hash = self._content_hash(n.get("content", ""), n.get("title", ""))
+                if content_hash:
+                    existing_content_hashes.add(content_hash)
+            
+            # Add local notifications that aren't duplicates
+            for notif in local_list:
+                notif_id = notif.get("id", "")
+                base_id = self._strip_id_prefix(notif_id)
+                content_hash = self._content_hash(notif.get("content", ""), notif.get("title", ""))
+                
+                # Skip if ID matches (with or without prefix) OR content is duplicate
+                if notif_id in existing_ids or base_id in existing_ids:
+                    continue
+                if content_hash and content_hash in existing_content_hashes:
+                    continue
+                
+                notifications[user].append(notif)
+                existing_ids.add(notif_id)
+                existing_ids.add(base_id)
+                if content_hash:
+                    existing_content_hashes.add(content_hash)
+        
+        return notifications
+    
+    def _strip_id_prefix(self, notif_id: str) -> str:
+        """Strip email_ or news_ prefix from notification ID for comparison."""
+        if not notif_id:
+            return ""
+        for prefix in ("email_", "news_"):
+            if notif_id.startswith(prefix):
+                return notif_id[len(prefix):]
+        return notif_id
+    
+    def _content_hash(self, content: str, title: str) -> str:
+        """Generate a simple hash from content and title for deduplication."""
+        if not content and not title:
+            return ""
+        import hashlib
+        combined = f"{title}|{content[:200]}"  # Use first 200 chars of content
+        return hashlib.md5(combined.encode("utf-8", errors="ignore")).hexdigest()[:12]
+    
+    def _load_from_supabase(self, type_filter: str = "all", user_filter: Optional[str] = None) -> Dict[str, List[Dict]]:
+        """Load notifications from Supabase notification_sources table.
+        
+        Args:
+            type_filter: Filter by source_type ('email', 'news', 'other', 'all')
+            user_filter: Optional user_id to filter by
+        """
+        if not self._supabase_client:
+            return {}
+        
+        try:
+            # Build query with filters at database level for efficiency
+            query = (
+                self._supabase_client.table("notification_sources")
+                .select("*")
+                .eq("read_status", "unread")
+            )
+            
+            # Apply type filter at database level (most important for separating email/news)
+            if type_filter and type_filter != "all":
+                query = query.eq("source_type", type_filter)
+                self.logger.debug(f"Supabase query filtered by source_type={type_filter}")
+            
+            # Apply user filter at database level
+            if user_filter:
+                query = query.eq("user_id", user_filter)
+            
+            # Execute with ordering and limit
+            response = query.order("created_at", desc=True).limit(100).execute()
+            
+            if not response.data:
+                return {}
+            
+            # Group by user_id
+            notifications: Dict[str, List[Dict]] = {}
+            for row in response.data:
+                user_id = row.get("user_id", "Unknown")
+                
+                # Parse timestamp
+                created_at = row.get("created_at")
+                source_generated_at = row.get("source_generated_at")
+                timestamp = self._parse_supabase_timestamp(source_generated_at or created_at)
+                
+                # Map source_type to type
+                source_type = row.get("source_type", "other")
+                notif_type = source_type if source_type in ["email", "news"] else "other"
+                
+                # Extract metadata
+                metadata = row.get("metadata") or {}
+                
+                normalized = {
+                    "id": row.get("id"),
+                    "content": row.get("content", ""),
+                    "type": notif_type,
+                    "priority": row.get("priority", "normal"),
+                    "timestamp": timestamp,
+                    "source": f"supabase_{source_type}",
+                    "read_status": row.get("read_status", "unread"),
+                    "title": row.get("title", ""),
+                    # Include metadata fields
+                    "topic": metadata.get("topic"),
+                    "email_ids": metadata.get("email_ids"),
+                    "source_articles_count": metadata.get("source_articles_count"),
+                    "batch_id": row.get("batch_id"),
+                }
+                
+                if user_id not in notifications:
+                    notifications[user_id] = []
+                notifications[user_id].append(normalized)
+            
+            return notifications
+            
+        except Exception as e:
+            self.logger.error(f"Error loading from Supabase: {e}")
+            return {}
+    
+    def _parse_supabase_timestamp(self, ts_str: Optional[str]) -> int:
+        """Parse a Supabase timestamp string to epoch seconds."""
+        if not ts_str:
+            return 0
+        try:
+            # Handle ISO format with timezone
+            if ts_str.endswith("Z"):
+                ts_str = ts_str[:-1] + "+00:00"
+            dt = datetime.fromisoformat(ts_str)
+            return int(dt.timestamp())
+        except Exception:
+            return 0
+    
+    def _load_from_local_state(self, type_filter: str = "all", user_filter: Optional[str] = None) -> Dict[str, List[Dict]]:
+        """Load notifications from local app_state.json (fallback).
+        
         Supports structures:
         1) New format: state["notifications"][user] -> list of normalized notifications
         2) Legacy format: state["autonomous_state"]["notification_queue"][user]["notifications"]
-        3) Emails list: state["autonomous_state"]["notification_queue"][user]["emails"] -> list of email topic entries
+        3) Emails list: state["autonomous_state"]["notification_queue"][user]["emails"]
+        4) News data: state["autonomous_state"]["notification_queue"][user]["news"]
+        
+        Args:
+            type_filter: Filter by type ('email', 'news', 'other', 'all')
+            user_filter: Optional user to filter by
         """
         try:
             if not self.state_file.exists():
-                self.logger.warning(f"State file not found: {self.state_file}")
+                self.logger.debug(f"State file not found: {self.state_file}")
                 return {}
 
             with open(self.state_file, 'r') as f:
@@ -269,123 +492,152 @@ class GetNotificationsTool(BaseTool):
 
             # Prefer new format if present
             if isinstance(state.get("notifications"), dict):
-                return state["notifications"]
+                result = state["notifications"]
+                # Apply filters
+                if user_filter:
+                    result = {k: v for k, v in result.items() if k == user_filter}
+                if type_filter and type_filter != "all":
+                    result = {
+                        user: [n for n in notifs if n.get("type") == type_filter]
+                        for user, notifs in result.items()
+                    }
+                return result
 
-            # Fallback to legacy format and normalize; also merge 'emails' entries
+            # Fallback to legacy format and normalize
             autonomous_state = state.get("autonomous_state", {})
             notification_queue = autonomous_state.get("notification_queue", {})
             if not isinstance(notification_queue, dict):
                 return {}
 
+            # Helper to check if we should include a notification type
+            def should_include_type(notif_type: str) -> bool:
+                if type_filter == "all":
+                    return True
+                return notif_type == type_filter
+
             normalized: Dict[str, List[Dict]] = {}
             for user, user_data in notification_queue.items():
-                raw_list = (user_data or {}).get("notifications", [])
+                # Skip users that don't match filter
+                if user_filter and user != user_filter:
+                    continue
+                
                 normalized_list: List[Dict[str, Any]] = []
-                for raw in raw_list:
-                    # Normalize fields
-                    content = raw.get("notification_content") or raw.get("content") or ""
-                    raw_type = raw.get("type")
-                    notif_type = self._normalize_type(raw_type, content)
-                    priority = self._normalize_priority(raw.get("priority"))
-                    timestamp = self._coerce_timestamp(raw.get("timestamp"))
-                    source = raw.get("source", "unknown")
+                
+                # Process general notifications (only if type_filter allows 'other' or 'all')
+                if type_filter in ["all", "other"]:
+                    raw_list = (user_data or {}).get("notifications", [])
+                    for raw in raw_list:
+                        # Normalize fields
+                        content = raw.get("notification_content") or raw.get("content") or ""
+                        raw_type = raw.get("type")
+                        notif_type = self._normalize_type(raw_type, content)
+                        
+                        # Skip if type doesn't match filter
+                        if not should_include_type(notif_type):
+                            continue
+                        
+                        priority = self._normalize_priority(raw.get("priority"))
+                        timestamp = self._coerce_timestamp(raw.get("timestamp"))
+                        source = raw.get("source", "unknown")
 
-                    # Generate a stable ID for mark-as-read matching
-                    notif_id = raw.get("id") or self._generate_notification_id(content, notif_type, timestamp)
+                        # Generate a stable ID for mark-as-read matching
+                        notif_id = raw.get("id") or self._generate_notification_id(content, notif_type, timestamp)
 
-                    normalized_list.append({
-                        "id": notif_id,
-                        "content": content,
-                        "type": notif_type,
-                        "priority": priority,
-                        "timestamp": timestamp,
-                        "source": source,
-                        "read_status": raw.get("read_status", "unread")
-                    })
-
-                # Merge 'emails' queue items as notifications of type 'email'
-                emails_list = (user_data or {}).get("emails", [])
-                for email_item in emails_list:
-                    try:
-                        email_content = email_item.get("content", "")
-                        email_title = email_item.get("title") or "Email Update"
-                        content = email_content
-                        notif_type = "email"
-                        priority = self._normalize_priority(email_item.get("priority"))
-                        timestamp = self._coerce_timestamp(email_item.get("timestamp"))
-                        source = email_item.get("source", "email_summarizer")
-                        notif_id = email_item.get("id") or self._generate_notification_id(
-                            f"{email_title}|{email_content}", notif_type, timestamp
-                        )
-
-                        normalized_entry = {
+                        normalized_list.append({
                             "id": notif_id,
                             "content": content,
                             "type": notif_type,
                             "priority": priority,
                             "timestamp": timestamp,
                             "source": source,
-                            "read_status": email_item.get("read_status", "unread"),
-                            # Preserve helpful metadata
-                            "title": email_title,
-                            "topic": email_item.get("topic"),
-                            "email_ids": email_item.get("email_ids"),
-                        }
-                        normalized_list.append(normalized_entry)
-                    except Exception:
-                        # Skip malformed email entries
-                        continue
+                            "read_status": raw.get("read_status", "unread")
+                        })
 
-                # Merge 'news' data as a notification of type 'news'
-                news_data = (user_data or {}).get("news")
-                if news_data and isinstance(news_data, dict):
-                    try:
-                        news_summary = news_data.get("summary", "")
-                        news_title = "Tech News Summary"
-                        content = news_summary
-                        notif_type = "news"
-                        priority = "normal"  # News summaries are typically normal priority
-                        
-                        # Use generated_at timestamp if available, otherwise current time
-                        generated_at = news_data.get("generated_at")
-                        if generated_at:
-                            try:
-                                from datetime import datetime
-                                timestamp = int(datetime.fromisoformat(generated_at).timestamp())
-                            except Exception:
+                # Process 'emails' queue items (only if type_filter is 'email' or 'all')
+                if type_filter in ["all", "email"]:
+                    emails_list = (user_data or {}).get("emails", [])
+                    for email_item in emails_list:
+                        try:
+                            email_content = email_item.get("content", "")
+                            email_title = email_item.get("title") or "Email Update"
+                            content = email_content
+                            notif_type = "email"
+                            priority = self._normalize_priority(email_item.get("priority"))
+                            timestamp = self._coerce_timestamp(email_item.get("timestamp"))
+                            source = email_item.get("source", "email_summarizer")
+                            notif_id = email_item.get("id") or self._generate_notification_id(
+                                f"{email_title}|{email_content}", notif_type, timestamp
+                            )
+
+                            normalized_entry = {
+                                "id": notif_id,
+                                "content": content,
+                                "type": notif_type,
+                                "priority": priority,
+                                "timestamp": timestamp,
+                                "source": source,
+                                "read_status": email_item.get("read_status", "unread"),
+                                # Preserve helpful metadata
+                                "title": email_title,
+                                "topic": email_item.get("topic"),
+                                "email_ids": email_item.get("email_ids"),
+                            }
+                            normalized_list.append(normalized_entry)
+                        except Exception:
+                            # Skip malformed email entries
+                            continue
+
+                # Process 'news' data (only if type_filter is 'news' or 'all')
+                if type_filter in ["all", "news"]:
+                    news_data = (user_data or {}).get("news")
+                    if news_data and isinstance(news_data, dict):
+                        try:
+                            news_summary = news_data.get("summary", "")
+                            news_title = "Tech News Summary"
+                            content = news_summary
+                            notif_type = "news"
+                            priority = "normal"  # News summaries are typically normal priority
+                            
+                            # Use generated_at timestamp if available, otherwise current time
+                            generated_at = news_data.get("generated_at")
+                            if generated_at:
+                                try:
+                                    timestamp = int(datetime.fromisoformat(generated_at).timestamp())
+                                except Exception:
+                                    timestamp = self._coerce_timestamp(None)
+                            else:
                                 timestamp = self._coerce_timestamp(None)
-                        else:
-                            timestamp = self._coerce_timestamp(None)
-                        
-                        source = "news_summarizer"
-                        notif_id = self._generate_notification_id(
-                            f"{news_title}|{news_summary}", notif_type, timestamp
-                        )
+                            
+                            source = "news_summarizer"
+                            notif_id = self._generate_notification_id(
+                                f"{news_title}|{news_summary}", notif_type, timestamp
+                            )
 
-                        normalized_entry = {
-                            "id": notif_id,
-                            "content": content,
-                            "type": notif_type,
-                            "priority": priority,
-                            "timestamp": timestamp,
-                            "source": source,
-                            "read_status": "unread",
-                            # Preserve helpful metadata
-                            "title": news_title,
-                            "generated_at": generated_at,
-                            "source_articles_count": news_data.get("source_articles_count"),
-                            "source_file": news_data.get("source_file"),
-                        }
-                        normalized_list.append(normalized_entry)
-                    except Exception:
-                        # Skip malformed news entries
-                        continue
+                            normalized_entry = {
+                                "id": notif_id,
+                                "content": content,
+                                "type": notif_type,
+                                "priority": priority,
+                                "timestamp": timestamp,
+                                "source": source,
+                                "read_status": "unread",
+                                # Preserve helpful metadata
+                                "title": news_title,
+                                "generated_at": generated_at,
+                                "source_articles_count": news_data.get("source_articles_count"),
+                                "source_file": news_data.get("source_file"),
+                            }
+                            normalized_list.append(normalized_entry)
+                        except Exception:
+                            # Skip malformed news entries
+                            continue
+                
                 normalized[user] = normalized_list
 
             return normalized
 
         except Exception as e:
-            self.logger.error(f"Error loading notifications: {e}")
+            self.logger.error(f"Error loading notifications from local state: {e}")
             return {}
 
     def _generate_notification_id(self, content: str, notif_type: str, timestamp: Any) -> str:
@@ -431,7 +683,6 @@ class GetNotificationsTool(BaseTool):
             if isinstance(raw_ts, (int, float)):
                 return int(raw_ts)
             # Try parse from string
-            from datetime import datetime
             try:
                 # ISO-like or common formats; best-effort
                 return int(datetime.fromisoformat(str(raw_ts)).timestamp())
@@ -442,7 +693,7 @@ class GetNotificationsTool(BaseTool):
     
     def _mark_notifications_as_read(self, user: str, notification_ids: List[str]) -> int:
         """
-        Mark specified notifications as read.
+        Mark specified notifications as read in both Supabase and local state.
         
         Args:
             user: User whose notifications to mark
@@ -451,6 +702,56 @@ class GetNotificationsTool(BaseTool):
         Returns:
             Number of notifications actually marked as read
         """
+        if not notification_ids:
+            return 0
+        
+        marked_count = 0
+        
+        # Mark as read in Supabase (primary)
+        if self._supabase_available and self._supabase_client:
+            try:
+                supabase_marked = self._mark_as_read_in_supabase(notification_ids)
+                marked_count += supabase_marked
+                self.logger.debug(f"Marked {supabase_marked} notifications as read in Supabase")
+            except Exception as e:
+                self.logger.warning(f"Failed to mark as read in Supabase: {e}")
+        
+        # Also mark as read in local state (for sync)
+        try:
+            local_marked = self._mark_as_read_in_local_state(user, notification_ids)
+            # Don't double-count if we already marked in Supabase
+            if not self._supabase_available:
+                marked_count += local_marked
+            self.logger.debug(f"Marked {local_marked} notifications as read in local state")
+        except Exception as e:
+            self.logger.warning(f"Failed to mark as read in local state: {e}")
+        
+        self.logger.info(f"Marked {marked_count} notifications as read for {user}")
+        return marked_count
+    
+    def _mark_as_read_in_supabase(self, notification_ids: List[str]) -> int:
+        """Mark notifications as read in Supabase."""
+        if not self._supabase_client or not notification_ids:
+            return 0
+        
+        try:
+            marked = 0
+            for notif_id in notification_ids:
+                try:
+                    self._supabase_client.table("notification_sources").update(
+                        {"read_status": "read"}
+                    ).eq("id", notif_id).execute()
+                    marked += 1
+                except Exception as e:
+                    self.logger.debug(f"Failed to mark {notif_id} as read: {e}")
+            
+            return marked
+        except Exception as e:
+            self.logger.error(f"Error marking as read in Supabase: {e}")
+            return 0
+    
+    def _mark_as_read_in_local_state(self, user: str, notification_ids: List[str]) -> int:
+        """Mark notifications as read in local app_state.json."""
         try:
             if not self.state_file.exists():
                 return 0
@@ -492,6 +793,15 @@ class GetNotificationsTool(BaseTool):
                 initial_count = len(raw_list)
                 user_block["notifications"] = remaining
                 
+                # Check if any email notifications were marked as read
+                emails_list = user_block.get("emails", [])
+                remaining_emails = []
+                for email_item in emails_list:
+                    email_id = email_item.get("id")
+                    if email_id and email_id not in notification_ids:
+                        remaining_emails.append(email_item)
+                user_block["emails"] = remaining_emails
+                
                 # Check if any news notifications were marked as read and remove the news key
                 news_data = user_block.get("news")
                 if news_data and isinstance(news_data, dict):
@@ -501,7 +811,6 @@ class GetNotificationsTool(BaseTool):
                     generated_at = news_data.get("generated_at")
                     if generated_at:
                         try:
-                            from datetime import datetime
                             timestamp = int(datetime.fromisoformat(generated_at).timestamp())
                         except Exception:
                             timestamp = 0
@@ -523,9 +832,8 @@ class GetNotificationsTool(BaseTool):
             with open(self.state_file, 'w') as f:
                 json.dump(state, f, indent=2)
 
-            self.logger.info(f"Marked {marked_count} notifications as read for {user}")
             return marked_count
             
         except Exception as e:
-            self.logger.error(f"Error marking notifications as read: {e}")
+            self.logger.error(f"Error marking notifications as read in local state: {e}")
             return 0

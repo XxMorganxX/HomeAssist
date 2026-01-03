@@ -454,10 +454,20 @@ def main():
                 notifs = build_notifications_from_summaries(summaries)
                 if notifs:
                     save_notifications_to_file(notifs, NOTIFICATIONS_FILE)
-                    # Append only to the 'emails' queue in app_state (no main notifications write)
+                    recipient = os.getenv("EMAIL_NOTIFICATION_RECIPIENT", "Morgan")
+                    
+                    # Store to Supabase (persistent cloud storage)
+                    try:
+                        from scripts.scheduled.notification_store import NotificationStore
+                        notification_store = NotificationStore()
+                        if notification_store.is_available():
+                            notification_store.store_email_notifications(notifs, user=recipient)
+                    except Exception as e:
+                        print(f"⚠️  Failed to store email notifications to Supabase: {e}")
+                    
+                    # Append to local app_state (for immediate access)
                     try:
                         from state_management.statemanager import StateManager
-                        recipient = os.getenv("EMAIL_NOTIFICATION_RECIPIENT", "Morgan")
                         state = StateManager()
                         print("Notifications:", notifs)
                         state.add_emails_to_notification_queue(notifs, recipient)

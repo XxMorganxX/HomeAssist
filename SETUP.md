@@ -255,6 +255,37 @@ CREATE TABLE conversation_memories (
 
 > 💡 **Note:** No index is needed for < 10k vectors.
 
+**Notification Sources Table (Email & News Summaries):**
+
+Scheduled email and news summary processes store their outputs to Supabase for persistent storage:
+
+```sql
+CREATE TABLE notification_sources (
+    id TEXT PRIMARY KEY,
+    source_type TEXT NOT NULL,           -- 'email', 'news', etc.
+    user_id TEXT NOT NULL,
+    title TEXT NOT NULL,
+    content TEXT,
+    metadata JSONB DEFAULT '{}',
+    read_status TEXT DEFAULT 'unread',   -- 'unread', 'read', 'dismissed'
+    priority TEXT DEFAULT 'normal',      -- 'high', 'normal', 'low'
+    created_at TIMESTAMPTZ DEFAULT NOW(),
+    source_generated_at TIMESTAMPTZ,
+    expires_at TIMESTAMPTZ,
+    batch_id TEXT
+);
+
+-- Indexes for common queries
+CREATE INDEX idx_notifications_user_type ON notification_sources(user_id, source_type);
+CREATE INDEX idx_notifications_user_unread ON notification_sources(user_id) WHERE read_status = 'unread';
+CREATE INDEX idx_notifications_created ON notification_sources(created_at DESC);
+CREATE INDEX idx_notifications_metadata ON notification_sources USING gin (metadata);
+CREATE INDEX idx_notifications_batch ON notification_sources(batch_id);
+```
+
+- `EMAIL_NOTIFICATION_RECIPIENT` — Target user for email notifications (default: primary user)
+- `NEWS_NOTIFICATION_RECIPIENT` — Target user for news summaries (default: primary user)
+
 **Local Caching (Fast Search):**
 
 Vector memory includes an in-memory cache for fast local search:

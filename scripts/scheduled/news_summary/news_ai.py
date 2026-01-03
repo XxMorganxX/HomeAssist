@@ -466,29 +466,46 @@ class NewsSummaryGenerator(BaseAnalysis):
         return datetime.now().isoformat()
     
     def write_to_state_file(self, summary_data):
-        """Write the news summary to the state management system"""
+        """Write the news summary to state management and Supabase"""
+        success = True
+        
+        # Import with proper path handling
+        import sys
+        import os
+        
+        # Add the project root to the path so we can import core
+        project_root = os.path.abspath(os.path.join(os.path.dirname(__file__), '..', '..', '..'))
+        if project_root not in sys.path:
+            sys.path.insert(0, project_root)
+        
+        # Get the target user
+        user = os.getenv("NEWS_NOTIFICATION_RECIPIENT", "Morgan")
+        
+        # Store to Supabase (persistent cloud storage)
         try:
-            # Import StateManager with proper path handling
-            import sys
-            import os
-            
-            # Add the project root to the path so we can import core
-            project_root = os.path.abspath(os.path.join(os.path.dirname(__file__), '..', '..', '..'))
-            if project_root not in sys.path:
-                sys.path.insert(0, project_root)
-            
+            from scripts.scheduled.notification_store import NotificationStore
+            notification_store = NotificationStore()
+            if notification_store.is_available():
+                notification_store.store_news_summary(summary_data, user=user)
+        except Exception as e:
+            print(f"⚠️  Failed to store news summary to Supabase: {type(e).__name__}: {str(e)}")
+            success = False
+        
+        # Write to local state file (for immediate access)
+        try:
             from state_management.statemanager import StateManager
             
             # Initialize state manager and refresh the news summary
             state_manager = StateManager()
-            state_manager.refresh_news_summary(summary_data)
+            state_manager.refresh_news_summary(summary_data, user=user)
             
             print("News summary successfully written to state file")
-            return True
             
         except Exception as e:
             print(f"Error writing to state file: {type(e).__name__}: {str(e)}")
-            return False
+            success = False
+        
+        return success
 
         
         

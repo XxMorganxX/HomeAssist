@@ -645,6 +645,41 @@ class VectorMemoryManager:
         
         return "\n".join(lines)
     
+    def _is_tool_focused_query(self, message: str) -> bool:
+        """
+        Check if the query is clearly tool-focused and shouldn't need RAG context.
+        
+        Tool-focused queries are direct requests for current data that tools provide,
+        where past conversation context would just add noise.
+        """
+        msg_lower = message.lower().strip()
+        
+        # Patterns that indicate tool-focused queries (notifications, emails, news, etc.)
+        tool_patterns = [
+            # Notification/email/news checks
+            "what email", "what's in my email", "any email", "check email", "my email",
+            "what news", "what's in the news", "any news", "check news", "my news",
+            "what notification", "any notification", "check notification", "my notification",
+            "do i have email", "do i have news", "do i have notification",
+            # Calendar checks
+            "what's on my calendar", "what's on the calendar", "my calendar today",
+            "what events", "any events", "upcoming events",
+            # Weather checks  
+            "what's the weather", "how's the weather", "weather today", "weather tomorrow",
+            # Time/date checks
+            "what time is it", "what's the date", "what day is it",
+            # Smart home
+            "turn on", "turn off", "set the lights", "dim the lights",
+            # Music
+            "play music", "play song", "what's playing", "skip song", "pause music",
+        ]
+        
+        for pattern in tool_patterns:
+            if pattern in msg_lower:
+                return True
+        
+        return False
+    
     async def get_context_enrichment(self, user_message: str) -> str:
         """
         Convenience method: retrieve relevant memories and format for context.
@@ -655,6 +690,11 @@ class VectorMemoryManager:
         Returns:
             Formatted context string (empty if no relevant memories)
         """
+        # Skip RAG for tool-focused queries where past context adds noise
+        if self._is_tool_focused_query(user_message):
+            print("⏭️  Skipping vector recall (tool-focused query)")
+            return ""
+        
         memories = await self.retrieve_relevant(user_message)
 
         # Smart filtering: only take top 2 if they have similar scores

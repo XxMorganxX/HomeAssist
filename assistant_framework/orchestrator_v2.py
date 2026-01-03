@@ -538,6 +538,12 @@ class RefactoredOrchestrator:
                 exception=e
             )
             await self.error_handler.handle_error(error)
+            # Transition to IDLE to allow recovery
+            try:
+                if self.state_machine.current_state != AudioState.IDLE:
+                    await self.state_machine.transition_to(AudioState.IDLE)
+            except ValueError:
+                await self.state_machine.emergency_reset()
             return None
         
         # Note: No finally block needed - state machine handles cleanup on transition
@@ -686,6 +692,13 @@ class RefactoredOrchestrator:
                 exception=e
             )
             await self.error_handler.handle_error(error)
+            # Transition to IDLE to allow recovery (PROCESSING_RESPONSE can't go directly to TRANSCRIBING)
+            try:
+                if self.state_machine.current_state != AudioState.IDLE:
+                    await self.state_machine.transition_to(AudioState.IDLE)
+            except ValueError:
+                # If normal transition fails, use emergency reset
+                await self.state_machine.emergency_reset()
             return None
     
     async def _record_tool_calls(self) -> None:
@@ -1306,6 +1319,9 @@ class RefactoredOrchestrator:
                         
                         if not assistant_text:
                             print("⚠️  No response generated")
+                            # Transition to IDLE before continuing (state may be stuck in PROCESSING_RESPONSE/SYNTHESIZING)
+                            if self.state_machine.current_state != AudioState.IDLE:
+                                await self.state_machine.transition_to(AudioState.IDLE)
                             continue
                         
                         print(f"\n🤖 Assistant: {assistant_text}\n")
@@ -1320,6 +1336,9 @@ class RefactoredOrchestrator:
                         assistant_text = await self.run_response(user_text)
                         if not assistant_text:
                             print("⚠️  No response generated")
+                            # Transition to IDLE before continuing (state may be stuck in PROCESSING_RESPONSE)
+                            if self.state_machine.current_state != AudioState.IDLE:
+                                await self.state_machine.transition_to(AudioState.IDLE)
                             continue  # Try next question
                         
                         print(f"\n🤖 Assistant: {assistant_text}\n")
