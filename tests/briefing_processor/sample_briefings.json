@@ -1,0 +1,64 @@
+{
+  "briefings": [
+    {
+      "id": "test-001",
+      "user_id": "Morgan",
+      "content": {
+        "message": "Your Amazon package was delivered at 2:15 PM",
+        "llm_instructions": "Mention this casually as a quick heads-up",
+        "meta": {
+          "timestamp": "2026-01-04T14:15:00Z",
+          "source": "delivery_tracker"
+        }
+      },
+      "priority": "normal"
+    },
+    {
+      "id": "test-002",
+      "user_id": "Morgan",
+      "content": {
+        "message": "Rain expected this afternoon starting around 3 PM",
+        "llm_instructions": "Suggest bringing an umbrella if going out",
+        "meta": {
+          "timestamp": "2026-01-04T10:00:00Z",
+          "source": "weather_api"
+        }
+      },
+      "priority": "high"
+    },
+    {
+      "id": "test-003",
+      "user_id": "Morgan",
+      "content": {
+        "message": "Your calendar reminder: Team standup in 30 minutes",
+        "llm_instructions": "Be brief, this is time-sensitive",
+        "meta": {
+          "timestamp": "2026-01-04T09:30:00Z",
+          "source": "google_calendar"
+        }
+      },
+      "priority": "high"
+    },
+    {
+      "id": "test-004",
+      "user_id": "Morgan",
+      "content": {
+        "message": "Mom called while you were away",
+        "llm_instructions": "Mention gently, suggest calling back",
+        "meta": {
+          "source": "missed_calls"
+        }
+      },
+      "priority": "normal"
+    },
+    {
+      "id": "test-005",
+      "user_id": "Morgan",
+      "content": {
+        "message": "Your Spotify Wrapped is ready to view"
+      },
+      "priority": "low"
+    }
+  ]
+}
+

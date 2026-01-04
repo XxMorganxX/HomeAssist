@@ -1,0 +1,100 @@
+{
+  "test_run": {
+    "timestamp": "2026-01-04T01:02:50.859359",
+    "input_file": "/Users/morgannstuart/Desktop/HomeAssistV2/tests/briefing_processor/sample_briefings.json",
+    "briefing_count": 5,
+    "model": "gpt-4o-mini",
+    "temperature": 0.7
+  },
+  "individual_openers": [
+    {
+      "id": "test-001",
+      "priority": "normal",
+      "input": {
+        "message": "Your Amazon package was delivered at 2:15 PM",
+        "llm_instructions": "Mention this casually as a quick heads-up",
+        "meta": {
+          "timestamp": "2026-01-04T14:15:00Z",
+          "source": "delivery_tracker"
+        }
+      },
+      "generated_opener": "Hey there! Just a quick heads-up that your Amazon package was delivered at 2:15 PM. Need help with anything else?",
+      "success": true,
+      "char_count": 113
+    },
+    {
+      "id": "test-002",
+      "priority": "high",
+      "input": {
+        "message": "Rain expected this afternoon starting around 3 PM",
+        "llm_instructions": "Suggest bringing an umbrella if going out",
+        "meta": {
+          "timestamp": "2026-01-04T10:00:00Z",
+          "source": "weather_api"
+        }
+      },
+      "generated_opener": "Good morning! It looks like some rain is headed our way this afternoon, starting around 3 PM. If you\u2019re planning to head out, you might want to grab an umbrella. How can I assist you today?",
+      "success": true,
+      "char_count": 189
+    },
+    {
+      "id": "test-003",
+      "priority": "high",
+      "input": {
+        "message": "Your calendar reminder: Team standup in 30 minutes",
+        "llm_instructions": "Be brief, this is time-sensitive",
+        "meta": {
+          "timestamp": "2026-01-04T09:30:00Z",
+          "source": "google_calendar"
+        }
+      },
+      "generated_opener": "Hi there! Just a quick reminder that your team standup is coming up in about 30 minutes. How can I assist you before then?",
+      "success": true,
+      "char_count": 122
+    },
+    {
+      "id": "test-004",
+      "priority": "normal",
+      "input": {
+        "message": "Mom called while you were away",
+        "llm_instructions": "Mention gently, suggest calling back",
+        "meta": {
+          "source": "missed_calls"
+        }
+      },
+      "generated_opener": "Hi there! Just a quick note\u2014your mom called while you were out. Would you like to give her a call back?",
+      "success": true,
+      "char_count": 103
+    },
+    {
+      "id": "test-005",
+      "priority": "low",
+      "input": {
+        "message": "Your Spotify Wrapped is ready to view"
+      },
+      "generated_opener": "Hey there! Your Spotify Wrapped is ready for you to check out. Want me to help you dive into it?",
+      "success": true,
+      "char_count": 96
+    }
+  ],
+  "combined_opener": {
+    "briefing_count": 5,
+    "briefing_ids": [
+      "test-001",
+      "test-002",
+      "test-003",
+      "test-004",
+      "test-005"
+    ],
+    "generated_opener": "Hey there! Just a quick heads-up: your Amazon package was delivered a little while ago, and rain is expected this afternoon, so you might want to grab an umbrella if you're heading out. Also, don\u2019t forget about your team standup in 30 minutes, and your mom called while you were away, so you might want to give her a call back. By the way, your Spotify Wrapped is ready to check out! How can I assist you today?",
+    "success": true,
+    "char_count": 411
+  },
+  "summary": {
+    "total_briefings": 5,
+    "successful_individual": 5,
+    "failed_individual": 0,
+    "combined_success": true,
+    "avg_opener_length": 124
+  }
+}
