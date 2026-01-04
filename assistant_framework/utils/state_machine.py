@@ -72,6 +72,8 @@ class AudioStateMachine:
             AudioState.IDLE: idle_transitions,
             AudioState.WAKE_WORD_LISTENING: [
                 AudioState.TRANSCRIBING,
+                AudioState.PROCESSING_RESPONSE,  # For proactive responses (LLM-generated briefing)
+                AudioState.SYNTHESIZING,  # For pre-generated briefing openers (TTS only, no LLM)
                 AudioState.IDLE,
                 AudioState.ERROR
             ],

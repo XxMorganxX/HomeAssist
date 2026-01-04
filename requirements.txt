@@ -1,0 +1,44 @@
+# HomeAssistV2 (root) dependencies
+#
+# This is the "union" requirements file to run:
+# - The local voice assistant (`assistant_framework`)
+# - The MCP tool server (`mcp_server`)
+# - Scheduled email/news summarizers (`scripts/scheduled/*`)
+#
+# If you want a minimal install, see:
+# - `mcp_server/requirements.txt`
+# - `scripts/scheduled/requirements_cron.txt`
+
+# Core runtime
+python-dotenv>=1.0.0
+aiohttp>=3.9.0
+requests>=2.31.0
+numpy>=1.26.0
+sounddevice>=0.4.6
+pyaudio>=0.2.14
+tiktoken>=0.6.0
+pydantic>=2.0.0
+
+# Supabase (vector memory + conversation recorder + notifications)
+supabase>=2.0.0
+
+# MCP (client used by assistant response provider)
+mcp
+
+# MCP server tool dependencies
+fastmcp
+python-kasa
+spotipy
+
+# Scheduled email/news summarizers
+openai>=1.0.0
+google-generativeai>=0.3.0
+google-auth>=2.0.0
+google-auth-oauthlib>=1.0.0
+google-api-python-client>=2.0.0
+newsapi-python>=0.2.7
+newspaper3k>=0.2.8
+lxml[html_clean]>=5.0.0
+httpx>=0.25.0
+
+

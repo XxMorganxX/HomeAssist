@@ -4,7 +4,8 @@ Simplified, reliable pipeline execution.
 """
 
 import asyncio
-from typing import Dict, Any, Optional
+import os
+from typing import Dict, Any, Optional, List
 
 try:
     from .interfaces import (
@@ -29,6 +30,7 @@ try:
     from .providers.wakeword_v2 import IsolatedOpenWakeWordProvider
     from .providers.transcription_v2 import AssemblyAIAsyncProvider
     from .providers.context import UnifiedContextProvider
+    from .utils.briefing_manager import BriefingManager
     from .config import get_active_preset
 except ImportError:
     from assistant_framework.interfaces import (
@@ -53,6 +55,7 @@ except ImportError:
     from assistant_framework.providers.wakeword_v2 import IsolatedOpenWakeWordProvider
     from assistant_framework.providers.transcription_v2 import AssemblyAIAsyncProvider
     from assistant_framework.providers.context import UnifiedContextProvider
+    from assistant_framework.utils.briefing_manager import BriefingManager
     from assistant_framework.config import get_active_preset
 
 
@@ -94,6 +97,12 @@ class RefactoredOrchestrator:
         self._barge_in_detector: Optional[BargeInDetector] = None
         self._barge_in_triggered = False  # Flag to signal TTS interruption
         self._barge_in_audio: Optional[bytes] = None  # Captured audio from barge-in
+
+        # Briefing announcements
+        try:
+            self._briefing_manager: Optional[BriefingManager] = BriefingManager()
+        except Exception:
+            self._briefing_manager = None
         
         # Early barge-in tracking (append to previous message if interrupted early)
         barge_in_config = config.get('barge_in', {})
@@ -1223,7 +1232,109 @@ class RefactoredOrchestrator:
             if self._recorder and self._recorder.current_session_id:
                 await self._recorder.end_session(metadata={"ended_reason": "error", "error": str(e)})
             await self.state_machine.emergency_reset()
-    
+
+    def _get_primary_user(self) -> str:
+        """
+        Best-effort resolve primary user for briefings retrieval.
+        Falls back to 'Morgan' if not configured.
+        """
+        try:
+            user_state = self.config.get("user_state", {})
+            primary_user = user_state.get("primary_user")
+            if primary_user:
+                return primary_user
+        except Exception:
+            pass
+        return os.getenv("EMAIL_NOTIFICATION_RECIPIENT", "Morgan")
+
+    async def _brief_pending_announcements(self, user: str) -> None:
+        """
+        Fetch pending briefings and proactively announce to the user before conversation starts.
+        
+        Uses pre-generated openers (TTS only, no LLM latency) if available.
+        Falls back to LLM generation if briefings don't have openers yet.
+        Marks delivered after speaking.
+        """
+        if not self._briefing_manager:
+            return
+
+        # First, try to get briefings with pre-generated openers (fast path - TTS only)
+        try:
+            briefings_with_opener = await self._briefing_manager.get_pending_briefings_with_opener(user=user)
+        except Exception:
+            briefings_with_opener = []
+
+        if briefings_with_opener:
+            # Fast path: use pre-generated opener (no LLM call needed)
+            opener = self._briefing_manager.get_combined_opener(briefings_with_opener)
+            if opener:
+                print(f"📢 Speaking pre-generated opener for {len(briefings_with_opener)} briefing(s)")
+                await self.run_tts(opener, transition_to_idle=False, enable_barge_in=True)
+                ids = [b.get("id") for b in briefings_with_opener if b.get("id")]
+                try:
+                    await self._briefing_manager.mark_delivered(ids)
+                except Exception:
+                    pass
+                return
+
+        # Fallback: check for briefings without openers (need LLM generation)
+        try:
+            pending = await self._briefing_manager.get_pending_briefings(user=user)
+        except Exception:
+            return
+
+        pending = [p for p in pending if p]
+        if not pending:
+            return
+
+        # Generate opener via LLM (slower path, for backwards compatibility)
+        print("⚠️  Briefings without pre-generated openers, falling back to LLM generation")
+        
+        briefing_lines: List[str] = []
+        for idx, briefing in enumerate(pending, 1):
+            content = briefing.get("content") or {}
+            # Handle content as string (JSON) or dict
+            if isinstance(content, str):
+                try:
+                    import json
+                    content = json.loads(content)
+                except (json.JSONDecodeError, TypeError):
+                    content = {"message": content}
+            meta = content.get("meta") or {}
+            instructions = content.get("llm_instructions")
+
+            meta_bits = []
+            ts = meta.get("timestamp")
+            src = meta.get("source")
+            if ts:
+                meta_bits.append(f"time: {ts}")
+            if src:
+                meta_bits.append(f"source: {src}")
+            meta_str = f" ({'; '.join(meta_bits)})" if meta_bits else ""
+
+            # Support both 'message' and legacy 'fact' key
+            message = content.get('message') or content.get('fact', '')
+            line = f"{idx}. {message}{meta_str}"
+            if instructions:
+                line += f" [llm_instructions: {instructions}]"
+            briefing_lines.append(line)
+
+        # Embed guidance in the prompt itself
+        briefing_prompt = (
+            "[INSTRUCTION: You are proactively briefing the user on pending announcements before taking requests. "
+            "Be concise, friendly, and avoid over-explaining. Offer to handle or dismiss items if appropriate.]\n\n"
+            "Pending briefings to announce:\n" + "\n".join(briefing_lines)
+        )
+
+        response = await self.run_response(briefing_prompt)
+        if response:
+            await self.run_tts(response, transition_to_idle=False, enable_barge_in=True)
+            ids = [b.get("id") for b in pending if b.get("id")]
+            try:
+                await self._briefing_manager.mark_delivered(ids)
+            except Exception:
+                pass
+
     async def run_continuous_loop(self):
         """Run continuous conversation loop with multi-turn support and barge-in."""
         print("🔁 Starting continuous conversation loop...")
@@ -1264,6 +1375,18 @@ class RefactoredOrchestrator:
                 if self._context:
                     self._context.reset()
                     print("🧠 Conversation context reset for new session")
+
+                # Proactively announce pending briefings IF triggered by a briefing wake word
+                # Check config for which wake words should trigger briefings
+                briefing_wake_words = self.config.get('wakeword', {}).get('config', {}).get('briefing_wake_words', [])
+                should_brief = wake_model in briefing_wake_words if briefing_wake_words else False
+                
+                if should_brief:
+                    print(f"📢 Briefing wake word detected: {wake_model}")
+                    primary_user = self._get_primary_user()
+                    await self._brief_pending_announcements(primary_user)
+                elif briefing_wake_words:
+                    print(f"💬 Standard wake word detected: {wake_model} (skipping briefings)")
 
                 # 2. Enter multi-turn conversation mode
                 print("💬 Conversation mode active (say termination phrase to exit)")

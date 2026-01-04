@@ -48,7 +48,8 @@ def _wake_word_worker(config: Dict[str, Any], event_queue: mp.Queue, stop_event:
     chunk = config['chunk']
     threshold = config['threshold']
     cooldown_seconds = config['cooldown_seconds']
-    model_path = config['model_path']
+    # Support multiple models
+    model_paths = config.get('model_paths', [config['model_path']])
     input_device_index = config.get('input_device_index')
     verbose = config.get('verbose', False)
     suppress_overflow = config.get('suppress_overflow_warnings', False)
@@ -58,17 +59,19 @@ def _wake_word_worker(config: Dict[str, Any], event_queue: mp.Queue, stop_event:
     embed_model = config.get('embed_model')
     
     try:
-        # Initialize model in clean process
-        print(f"🔄 [Worker] Initializing wake word model (PID: {os.getpid()})...")
+        # Initialize model(s) in clean process
+        print(f"🔄 [Worker] Initializing {len(model_paths)} wake word model(s) (PID: {os.getpid()})...")
+        for mp in model_paths:
+            print(f"   - {mp}")
         
-        model_kwargs = {'wakeword_models': [model_path], 'inference_framework': inference_framework}
+        model_kwargs = {'wakeword_models': model_paths, 'inference_framework': inference_framework}
         if melspec_model:
             model_kwargs['melspec_model_path'] = melspec_model
         if embed_model:
             model_kwargs['embedding_model_path'] = embed_model
         
         model = Model(**model_kwargs)
-        print(f"✅ [Worker] Model initialized")
+        print(f"✅ [Worker] {len(model_paths)} model(s) initialized")
         
         # Open audio stream
         # Use configurable latency - 'high' for Bluetooth devices to handle bursty audio
@@ -169,29 +172,46 @@ class IsolatedOpenWakeWordProvider(WakeWordInterface):
         self._stop_event: Optional[mp.Event] = None
         self._is_listening = False
         
-        # Prepare model paths
+        # Prepare model paths - support multiple models
         model_dir = Path(config.get('model_dir', './audio_data/wake_word_models'))
-        model_name = config.get('model_name', 'alexa_v0.1')
         
-        # Try .onnx first, then .tflite
-        model_path = model_dir / f"{model_name}.onnx"
-        inference_framework = 'onnx'
-        melspec_model = model_dir / "melspectrogram.onnx"
-        embed_model = model_dir / "embedding_model.onnx"
+        # Support both single model_name and multiple model_names
+        model_names = config.get('model_names', [])
+        if not model_names:
+            model_names = [config.get('model_name', 'alexa_v0.1')]
         
-        if not model_path.exists():
-            model_path = model_dir / f"{model_name}.tflite"
-            inference_framework = 'tflite'
-            melspec_model = model_dir / "melspectrogram.tflite"
-            embed_model = model_dir / "embedding_model.tflite"
+        # Find all model paths
+        model_paths = []
+        inference_framework = 'onnx'  # Default
         
-        if not model_path.exists():
-            raise FileNotFoundError(f"Wake word model not found: {model_name}")
+        for model_name in model_names:
+            # Try .onnx first, then .tflite
+            model_path = model_dir / f"{model_name}.onnx"
+            if model_path.exists():
+                model_paths.append(str(model_path))
+                inference_framework = 'onnx'
+            else:
+                model_path = model_dir / f"{model_name}.tflite"
+                if model_path.exists():
+                    model_paths.append(str(model_path))
+                    inference_framework = 'tflite'
+                else:
+                    print(f"⚠️  Wake word model not found: {model_name}")
         
-        self.config['model_path'] = str(model_path)
+        if not model_paths:
+            raise FileNotFoundError(f"No wake word models found in {model_dir}")
+        
+        # Helper model paths
+        melspec_model = model_dir / f"melspectrogram.{inference_framework}"
+        embed_model = model_dir / f"embedding_model.{inference_framework}"
+        
+        self.config['model_paths'] = model_paths  # List of model paths
+        self.config['model_path'] = model_paths[0]  # Backward compat
         self.config['inference_framework'] = inference_framework
         self.config['melspec_model'] = str(melspec_model) if melspec_model.exists() else None
         self.config['embed_model'] = str(embed_model) if embed_model.exists() else None
+        
+        print(f"📋 Wake word models configured: {[Path(p).stem for p in model_paths]}")
     
     async def initialize(self) -> bool:
         """Initialize provider (one-time setup)."""

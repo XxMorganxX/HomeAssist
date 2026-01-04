@@ -525,7 +525,12 @@ PIPER_TTS_CONFIG = {
 
 WAKEWORD_CONFIG = {
     "model_dir": os.getenv("WAKEWORD_MODEL_DIR", "./audio_data/wake_word_models"),
-    "model_name": "hey_honey_v2",
+    "model_name": "hey_honey_v2",  # Primary wake word (backward compat)
+    # Multiple wake words with different behaviors:
+    # - "hey_honey_v2" → normal conversation (skip briefings)
+    # - "hey_honey_whats_new" → announce pending briefings first
+    "model_names": ["hey_honey_v2"],  # Add second model name here when ready
+    "briefing_wake_words": [],  # Wake words that trigger briefing announcements (e.g., ["hey_honey_whats_new"])
     "sample_rate": 16000,
     "chunk": 1280,
     "threshold": 0.2,
@@ -533,6 +538,45 @@ WAKEWORD_CONFIG = {
     "min_playback_interval": 0.5,
     "input_device_index": None,  # None = use default device, populated at runtime
     "verbose": True
+}
+
+
+# =============================================================================
+# SECTION 6B: BRIEFING PROCESSOR CONFIGURATION
+# =============================================================================
+# Configuration for pre-generating conversation openers from briefing announcements.
+# The BriefingProcessor uses these settings to generate natural spoken greetings.
+
+BRIEFING_PROCESSOR_CONFIG = {
+    # Model to use for opener generation (fast, cheap model recommended)
+    "model": os.getenv("BRIEFING_PROCESSOR_MODEL", "gpt-4o-mini"),
+    
+    # Generation parameters
+    "max_tokens_single": 150,      # Max tokens for single briefing opener
+    "max_tokens_combined": 200,    # Max tokens for multiple briefings combined
+    "temperature": 0.7,            # Creativity level (0.0-1.0)
+    
+    # System prompt for generating openers
+    "system_prompt": """You are a friendly voice assistant generating a brief conversation opener.
+
+Given one or more briefings to share with the user, create a natural, concise spoken greeting that:
+- Sounds warm and conversational (not robotic)
+- Mentions the briefings naturally
+- Is brief (1-3 sentences max)
+- Ends by asking how you can help OR offering to handle/dismiss the items
+
+Do NOT:
+- Use bullet points or lists
+- Be overly formal
+- Repeat metadata verbatim (paraphrase naturally)
+- Say "I have X briefings to share" - just share them naturally
+
+Example input:
+Briefing: Your Amazon package was delivered at 2pm
+Instructions: mention casually
+
+Example output:
+Hey! Quick heads up - your Amazon package arrived this afternoon. Anything else I can help with?"""
 }
 
 

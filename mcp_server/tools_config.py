@@ -43,7 +43,8 @@ TOOL_CONFIG = {
         "allowed_users": ["morgan"],
     },
     "get_notifications": {
-        "auto_mark_read": False,
+        # Notifications are marked as read when retrieved (sent to the LLM as context)
+        "auto_mark_read": True,
         "max_notifications": 10,
     },
     "batch_light_control": {

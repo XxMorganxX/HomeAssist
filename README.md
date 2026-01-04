@@ -9,6 +9,7 @@ Key improvements:
 - **Clean state transitions** – A state machine ensures components don't conflict
 - **Persistent memory** – Remembers facts, preferences, and patterns about you across sessions
 - **Vector memory** – Semantic search of past conversations using 3072-dim embeddings
+- **Briefing announcements** – Proactive updates spoken on wake word (e.g., "Hey Honey, what's new?")
 
 ---
 
@@ -16,13 +17,26 @@ Key improvements:
 
 ### 1. Set up environment
 
-Create a `.env` file in the project root:
+Create a `.env` file in the project root (recommended: start from `env.example`):
 
 ```
-ASSEMBLYAI_API_KEY=your_key_here
 OPENAI_API_KEY=your_key_here
+OPENAI_KEY=your_key_here  # optional alias used by some scripts
+ASSEMBLYAI_API_KEY=your_key_here
+GEMINI_API_KEY=your_key_here
+
+# Supabase (required for vector memory, conversation recording, and notifications)
+SUPABASE_URL=https://your-project.supabase.co
+SUPABASE_KEY=your-supabase-service-role-key
+
+# Optional integrations
 SPOTIFY_CLIENT_ID=your_id_here
 SPOTIFY_CLIENT_SECRET=your_secret_here
+
+# Optional scheduled summaries
+NEWS_API_KEY_1=your-newsapi-key
+EMAIL_NOTIFICATION_RECIPIENT=Morgan
+NEWS_NOTIFICATION_RECIPIENT=Morgan
 ```
 
 ### 2. Install dependencies
@@ -41,7 +55,17 @@ PYTHONFAULTHANDLER=1 python3 -m assistant_framework.main_v2 continuous
 
 The `PYTHONFAULTHANDLER=1` flag helps diagnose any issues by printing a traceback on crashes.
 
-### 4. Using the assistant
+### 4. (Optional) Run the MCP server standalone
+
+The assistant will start MCP automatically for `single` / `continuous` modes, but you can also run it manually:
+
+```bash
+./mcp_server/run.sh
+```
+
+By default it starts on `127.0.0.1:3000` (override with `HOST`, `PORT`, `TRANSPORT`).
+
+### 5. Using the assistant
 
 1. Say the wake word (**"Hey Honey"**) to activate
 2. Speak your request
@@ -72,7 +96,9 @@ HomeAssistV2/
 │   │   ├── state_machine.py      # Manages audio component lifecycle
 │   │   ├── audio_manager.py      # Ensures only one component uses audio
 │   │   ├── barge_in.py           # Detects when user interrupts
-│   │   └── device_manager.py     # Audio device selection
+│   │   ├── device_manager.py     # Audio device selection
+│   │   ├── briefing_manager.py   # Fetches/updates briefing announcements
+│   │   └── briefing_processor.py # Pre-generates briefing openers via LLM
 │   │
 │   └── interfaces/               # Abstract base classes for providers
 │
@@ -113,7 +139,8 @@ All settings live in `assistant_framework/config.py`, organized into sections:
 | Transcription | AssemblyAI or OpenAI Whisper settings |
 | Response/LLM | OpenAI model, temperature, system prompt |
 | TTS | Voice selection, speed, pitch (4 providers) |
-| Wake Word | Detection threshold, cooldown timing |
+| Wake Word | Detection threshold, cooldown, multiple wake words |
+| Briefing Processor | Opener generation model, tokens, prompt |
 | Barge-In | Interrupt sensitivity and buffering |
 | Conversation Flow | Trigger phrases ("send it", "scratch that") |
 | Persistent Memory | Facts, preferences, and patterns extraction |
@@ -157,6 +184,26 @@ The assistant can control smart home devices and access services through MCP (Mo
 - **System Info** – Explain the assistant's own architecture and capabilities
 
 Tools can be enabled/disabled in `mcp_server/tools_config.py`.
+
+### Notifications (email + news)
+
+- **Storage**: Scheduled email/news pipelines write to Supabase `notification_sources`.
+- **Context policy**: The assistant only pulls the **most recent** email batch and/or news summary into context. Older rows remain as historical data.
+- **Read status**: When a notification is retrieved (sent to the LLM as context), its `read_status` is set to `read`.
+- **Seen messaging**: Each returned notification includes a `previously_seen` flag so the LLM can say whether you've already been told about it.
+
+### Briefing Announcements
+
+Proactive briefings are spoken to the user when they trigger a designated wake word:
+
+- **Storage**: Briefings are stored in Supabase `briefing_announcements` table.
+- **Pre-generated openers**: `BriefingProcessor` generates natural conversation openers via LLM ahead of time, so wake word activation only requires TTS (no LLM latency).
+- **Selective triggering**: Configure which wake words trigger briefings in `WAKEWORD_CONFIG`:
+  ```python
+  "model_names": ["hey_honey_v2", "hey_honey_whats_new"],
+  "briefing_wake_words": ["hey_honey_whats_new"],  # Only this triggers briefings
+  ```
+- Say "Hey Honey" for quick commands, or "Hey Honey, what's new?" to hear pending announcements first.
 
 ---
 

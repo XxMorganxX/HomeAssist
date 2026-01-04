@@ -78,21 +78,43 @@ Create a `.env` file in the project root with your API keys.
 
 #### Required Variables
 
-- `OPENAI_API_KEY` — OpenAI API key for GPT responses
-- `ASSEMBLYAI_API_KEY` — AssemblyAI key for transcription
+- `OPENAI_API_KEY` — OpenAI API key (LLM responses, some scheduled jobs)
+- `ASSEMBLYAI_API_KEY` — AssemblyAI key (real-time transcription)
+- `GEMINI_API_KEY` — Gemini API key (email summarization + optional conversation summarization)
+- `SUPABASE_URL` — Supabase project URL (vector memory, conversation recording, notifications)
+- `SUPABASE_KEY` — Supabase service role key (server-side access for writes)
 
 #### Optional — AI Services
 
-- `GEMINI_API_KEY` — Google Gemini (for summarization)
-- `GOOGLE_APPLICATION_CREDENTIALS` — Path to Google Cloud JSON
+- `OPENAI_KEY` — Optional alias used by some scripts (fallback to `OPENAI_API_KEY`)
+- `GEMINI_MODEL` — Gemini model name for summarizers (default: `gemini-2.5-flash`)
+- `BRIEFING_PROCESSOR_MODEL` — Model for briefing opener generation (default: `gpt-4o-mini`)
+- `GOOGLE_APPLICATION_CREDENTIALS` — Path to Google Cloud service account JSON (Google Cloud TTS, if enabled)
 
 #### Optional — Integrations
 
 - `SPOTIFY_CLIENT_ID` — Spotify OAuth client ID
 - `SPOTIFY_CLIENT_SECRET` — Spotify OAuth client secret
-- `SUPABASE_URL` — Supabase project URL
-- `SUPABASE_KEY` — Supabase service role key
 - `CONSOLE_TOKEN` — Dashboard log isolation token
+
+#### Optional — Notifications / Scheduled Summaries
+
+- `EMAIL_NOTIFICATION_RECIPIENT` — Target user for email notifications (default: `Morgan`)
+- `NEWS_NOTIFICATION_RECIPIENT` — Target user for news summaries (default: `Morgan`)
+- `NEWS_API_KEY_1` — NewsAPI.org key (used by the news summarizer; supports rotation with `_2`…`_5`)
+- `NEWS_API_KEY_2` — Additional NewsAPI key (optional)
+- `NEWS_API_KEY_3` — Additional NewsAPI key (optional)
+- `NEWS_API_KEY_4` — Additional NewsAPI key (optional)
+- `NEWS_API_KEY_5` — Additional NewsAPI key (optional)
+
+#### Optional — Gmail OAuth (Email Summarizer)
+
+- `GMAIL_CLIENT_ID` — Gmail OAuth client id (CI-friendly auth; no files needed)
+- `GMAIL_CLIENT_SECRET` — Gmail OAuth client secret
+- `GMAIL_REFRESH_TOKEN` — Gmail OAuth refresh token
+- `GOOGLE_CLIENT_ID` — Alias for `GMAIL_CLIENT_ID` (optional)
+- `GOOGLE_CLIENT_SECRET` — Alias for `GMAIL_CLIENT_SECRET` (optional)
+- `GOOGLE_REFRESH_TOKEN` — Alias for `GMAIL_REFRESH_TOKEN` (optional)
 
 > ⚠️ **Important:** Never commit your `.env` file to version control!
 
@@ -144,13 +166,27 @@ OPENAI_WHISPER_CONFIG = {
 
 ```python
 WAKEWORD_CONFIG = {
-    "model_name": "hey_honey",    # Trigger phrase model
-    "threshold": 0.2,             # Sensitivity (lower = more sensitive)
-    "cooldown_seconds": 2.0,      # Min time between activations
+    "model_name": "hey_honey_v2",         # Primary wake word (backward compat)
+    "model_names": ["hey_honey_v2"],      # Multiple wake words (add more here)
+    "briefing_wake_words": [],            # Wake words that trigger briefing announcements
+    "threshold": 0.2,                     # Sensitivity (lower = more sensitive)
+    "cooldown_seconds": 2.0,              # Min time between activations
 }
 ```
 
 > 💡 **Tip:** Custom wake word models (`.onnx`) go in `audio_data/wake_word_models/`
+
+**Multiple Wake Words Example:**
+
+```python
+WAKEWORD_CONFIG = {
+    "model_names": ["hey_honey_v2", "hey_honey_whats_new"],
+    "briefing_wake_words": ["hey_honey_whats_new"],  # Only this triggers briefings
+    # ...
+}
+```
+
+This lets you say "Hey Honey" for quick commands, or "Hey Honey, what's new?" to hear pending briefing announcements first.
 
 #### Conversation Flow
 
@@ -286,6 +322,106 @@ CREATE INDEX idx_notifications_batch ON notification_sources(batch_id);
 - `EMAIL_NOTIFICATION_RECIPIENT` — Target user for email notifications (default: primary user)
 - `NEWS_NOTIFICATION_RECIPIENT` — Target user for news summaries (default: primary user)
 
+💡 **Notification context policy**
+- The assistant only loads the **most recent** email batch and/or the **most recent** news summary into conversation context.
+- Older rows remain in Supabase as historical data but are not re-injected into context.
+
+💡 **Read semantics**
+- When a notification is retrieved (sent to the LLM as context), its `read_status` is updated to `read`.
+- Returned notifications include `previously_seen` so the LLM can say whether you've already been told about it.
+
+**Briefing Announcements Table (Wake-Word Briefings):**
+
+Briefing announcements are reported proactively to the user when they trigger the wake word. Briefings persist until explicitly dismissed.
+
+```sql
+CREATE TABLE briefing_announcements (
+    id TEXT PRIMARY KEY,
+    user_id TEXT NOT NULL,
+    content JSONB NOT NULL,            -- { message: str, llm_instructions?: str, meta?: {...} }
+    opener_text TEXT,                  -- Pre-generated conversation opener (via BriefingProcessor)
+    priority TEXT DEFAULT 'normal',    -- 'high', 'normal', 'low'
+    status TEXT DEFAULT 'pending',     -- 'pending', 'delivered', 'dismissed'
+    created_at TIMESTAMPTZ DEFAULT NOW(),
+    delivered_at TIMESTAMPTZ,
+    dismissed_at TIMESTAMPTZ
+);
+
+CREATE INDEX idx_briefings_user_status ON briefing_announcements(user_id, status);
+CREATE INDEX idx_briefings_created ON briefing_announcements(created_at DESC);
+
+-- To add opener_text to existing table:
+-- ALTER TABLE briefing_announcements ADD COLUMN opener_text TEXT;
+```
+
+Content structure:
+```json
+{
+  "message": "Your package was delivered at 2pm",
+  "llm_instructions": "Mention this casually at the start of conversation",
+  "meta": {
+    "timestamp": "2026-01-03T14:00:00Z",
+    "source": "delivery_tracker"
+  }
+}
+```
+
+💡 **Wake-word briefing behavior**
+- Briefings can be inserted via Supabase dashboard or programmatically by any input source.
+- The `BriefingProcessor` utility (`assistant_framework/utils/briefing_processor.py`) pre-generates `opener_text` via LLM.
+- On wake word, the assistant fetches briefings with `opener_text` and speaks via TTS only (no LLM latency).
+- If briefings don't have openers yet, falls back to LLM generation at wake time.
+- After speaking, briefings are marked `delivered` (remain until explicitly `dismissed`).
+
+💡 **Multiple Wake Words for Selective Briefings**
+
+You can configure different wake words to control whether briefings are announced:
+
+```python
+# In assistant_framework/config.py
+WAKEWORD_CONFIG = {
+    "model_names": ["hey_honey_v2", "hey_honey_whats_new"],  # Load both models
+    "briefing_wake_words": ["hey_honey_whats_new"],  # Only this triggers briefings
+    # ...
+}
+```
+
+| Wake Word | Briefings | Use Case |
+|-----------|-----------|----------|
+| `hey_honey_v2` | ❌ Skipped | Quick questions, commands |
+| `hey_honey_whats_new` | ✅ Announced | "What's new?" - get updates |
+
+💡 **BriefingProcessor Configuration**
+
+The opener generation is configured in `config.py`:
+
+```python
+BRIEFING_PROCESSOR_CONFIG = {
+    "model": "gpt-4o-mini",           # Fast, cheap model for opener generation
+    "max_tokens_single": 150,         # Max tokens for single briefing
+    "max_tokens_combined": 200,       # Max tokens for multiple briefings
+    "temperature": 0.7,               # Creativity level (0.0-1.0)
+    "system_prompt": "..."            # Customize the opener generation prompt
+}
+```
+
+- Override model via `BRIEFING_PROCESSOR_MODEL` environment variable
+- System prompt controls tone and style of generated openers
+
+💡 **Pre-generating openers (recommended)**
+
+Briefing sources should call `BriefingProcessor` after inserting briefings:
+```python
+from assistant_framework.utils.briefing_processor import BriefingProcessor
+from assistant_framework.utils.briefing_manager import BriefingManager
+
+processor = BriefingProcessor()
+manager = BriefingManager()
+
+# Process all pending briefings without openers
+await processor.process_pending_briefings(user="Morgan", briefing_manager=manager)
+```
+
 **Local Caching (Fast Search):**
 
 Vector memory includes an in-memory cache for fast local search:
@@ -326,6 +462,13 @@ VECTOR_MEMORY_CONFIG = {
 ### MCP Server
 
 The MCP (Model Context Protocol) server provides tool capabilities. Configuration is in `mcp_server/config.py`.
+
+💡 **Running the MCP server**
+- Use `./mcp_server/run.sh` to create/activate a venv and install `mcp_server/requirements.txt`.
+- Defaults can be overridden via environment variables:
+  - `HOST` — Bind host (default: `127.0.0.1`)
+  - `PORT` — Bind port (default: `3000`)
+  - `TRANSPORT` — Transport (`http` or `stdio`, default: `http`)
 
 #### System Info Tool
 

@@ -13,22 +13,28 @@ assistant_framework/
 │   ├── context.py           # Context management interface
 │   └── wake_word.py         # Wake word detection interface
 ├── providers/           # Concrete implementations
-│   ├── transcription/
-│   │   └── assemblyai.py    # AssemblyAI WebSocket streaming
+│   ├── transcription_v2/
+│   │   ├── assemblyai_async.py   # AssemblyAI streaming (async)
+│   │   └── openai_whisper.py     # OpenAI Whisper API (chunked)
 │   ├── response/
 │   │   └── openai_websocket.py  # OpenAI Realtime API + MCP
 │   ├── tts/
-│   │   └── google_tts.py    # Google Cloud TTS
+│   │   ├── piper_tts.py     # Piper local neural TTS
+│   │   ├── local_tts.py     # macOS 'say' / local playback
+│   │   ├── google_tts.py    # Google Cloud TTS
+│   │   └── chatterbox_tts.py # Chatterbox local TTS
 │   ├── context/
 │   │   └── unified_context.py   # Token-aware context manager
-│   └── wakeword/
-│       └── openwakeword_provider.py  # OpenWakeWord-based detection
+│   ├── wakeword_v2/
+│   │   └── isolated_openwakeword.py  # OpenWakeWord-based detection (isolated process)
+│   └── vector_store/
+│       └── supabase_pgvector.py  # Supabase/pgvector store for embeddings
 ├── models/              # Common data structures
 │   └── data_models.py       # TranscriptionResult, ResponseChunk, etc.
 ├── factory.py           # Provider instantiation
-├── orchestrator.py      # Main pipeline orchestrator
+├── orchestrator_v2.py   # Main pipeline orchestrator (v2)
 ├── config.py            # Static configuration
-└── example.py           # Usage examples
+└── main_v2.py           # CLI entrypoint
 ```
 
 ## Key Features
@@ -52,32 +58,12 @@ export OPENAI_API_KEY="your_openai_key"
 export GOOGLE_APPLICATION_CREDENTIALS="path/to/google/service/account.json"
 ```
 
-### 2. Basic Usage
-```python
-import asyncio
-from assistant_framework import create_orchestrator
-from assistant_framework.config import get_framework_config
+### 2. Run the CLI
 
-async def main():
-    # Get configuration
-    config = get_framework_config()
-    
-    # Create and initialize orchestrator
-    orchestrator = await create_orchestrator(config)
-    
-    # Run full pipeline (transcription → response → TTS)
-    await orchestrator.run_full_pipeline()
-    
-    # Or process a single message
-    result = await orchestrator.process_single_message(
-        "What's the weather like today?",
-        use_context=True,
-        generate_tts=True
-    )
-    
-    await orchestrator.cleanup()
+From the project root:
 
-asyncio.run(main())
+```bash
+python -m assistant_framework.main_v2 continuous
 ```
 
 ### 3. Individual Components
