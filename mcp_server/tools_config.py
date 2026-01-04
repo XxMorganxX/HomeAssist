@@ -27,6 +27,7 @@ ENABLED_TOOLS = {
     
     # macOS-only tools (conditionally enabled)
     "send_sms": platform.system() == "Darwin",  # Only enable on macOS
+    "cursor_composer": platform.system() == "Darwin",  # Only enable on macOS
 }
 
 # Tools that should NEVER be loaded (overrides ENABLED_TOOLS)
