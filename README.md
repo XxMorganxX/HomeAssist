@@ -1,43 +1,173 @@
-# HomeAssist V2
+# HomeAssist
 
-HomeAssist (codename **Sol**) is a fully local, always-listening voice assistant that brings your smart home to life. Just say the wake word and speak naturally—it transcribes your voice in real-time, thinks with GPT-4, and responds out loud. Control your lights, play music on Spotify, check your calendar, get the weather, and more, all hands-free. You can even interrupt it mid-sentence and it'll stop to listen. Version 2 was completely rebuilt to be rock-solid stable, fixing the crashes that plagued the original by using a smarter audio architecture that never fights with itself.
+A modular, always-listening voice assistant for smart home control and natural conversation. Say the wake word, speak naturally, and HomeAssist responds—controlling lights, playing music, checking your calendar, answering questions, and more.
 
-Key improvements:
-- **No more segfaults** – Audio resources are properly managed with explicit ownership
-- **Barge-in support** – Interrupt the assistant mid-response by speaking
-- **Process isolation** – Wake word detection runs in a separate process to prevent model corruption
-- **Clean state transitions** – A state machine ensures components don't conflict
-- **Persistent memory** – Remembers facts, preferences, and patterns about you across sessions
-- **Vector memory** – Semantic search of past conversations using 3072-dim embeddings
-- **Briefing announcements** – Proactive updates spoken on wake word (e.g., "Hey Honey, what's new?")
+---
+
+## What It Does
+
+HomeAssist is a hands-free voice interface that:
+
+- **Listens continuously** for a customizable wake word
+- **Transcribes speech** in real-time with streaming ASR
+- **Thinks with LLMs** to understand requests and generate responses
+- **Speaks responses** via neural text-to-speech
+- **Controls smart home devices** through an extensible tool system
+- **Remembers you** across sessions with persistent and semantic memory
+
+You can interrupt it mid-sentence (barge-in), ask multi-step questions, and have natural back-and-forth conversations.
+
+---
+
+## Capabilities
+
+### Voice Interaction
+| Feature | Description |
+|---------|-------------|
+| Wake word detection | Hands-free activation with custom trigger phrases |
+| Real-time transcription | Low-latency streaming speech-to-text |
+| Neural TTS | Natural-sounding responses (multiple voice options) |
+| Barge-in | Interrupt the assistant by speaking |
+| Send phrases | "Send it", "Sir" to submit your message |
+| Auto-send | Automatic submission after silence timeout |
+
+### Smart Home & Services
+| Tool | What It Controls |
+|------|------------------|
+| **Lighting** | Kasa smart lights—on/off, brightness, color, scenes |
+| **Spotify** | Music playback, search, queue management |
+| **Calendar** | Google Calendar—view events, create appointments |
+| **Weather** | Current conditions and forecasts |
+| **Web Search** | Google search with AI-summarized results |
+| **SMS** | Send text messages via macOS Messages |
+| **Notifications** | Email summaries, news digests, custom alerts |
+
+### Memory & Context
+| System | Purpose |
+|--------|---------|
+| **Conversation context** | Maintains history within a session |
+| **Persistent memory** | Remembers facts, preferences, and patterns about you |
+| **Vector memory** | Semantic search over past conversations |
+| **Briefing announcements** | Proactive updates spoken on wake word |
+
+### Tool Chaining
+Multi-step requests are handled automatically:
+
+> "Find that song we talked about and text me the link"
+
+The assistant recognizes this needs multiple tools (search → SMS), executes them in sequence, and confirms completion.
+
+---
+
+## Architecture
+
+### Design Philosophy
+
+1. **Modular providers** — Each component (transcription, TTS, wake word, LLM) is swappable via configuration
+2. **State machine coordination** — Audio components are orchestrated through explicit state transitions to prevent conflicts
+3. **Process isolation** — Wake word detection runs in a separate process to prevent model corruption
+4. **Tool abstraction** — Smart home control via MCP (Model Context Protocol) for clean separation
+
+### System Flow
+
+```
+┌─────────────────┐     Wake word      ┌─────────────────┐
+│  Microphone     │───────────────────►│  Transcription  │
+│  (always on)    │                    │  (streaming)    │
+└─────────────────┘                    └────────┬────────┘
+                                                │
+                                                ▼
+┌─────────────────┐     Response       ┌─────────────────┐
+│  TTS Speaker    │◄───────────────────│  LLM + Tools    │
+│  (neural voice) │                    │  (orchestrator) │
+└─────────────────┘                    └────────┬────────┘
+                                                │
+                                                ▼
+                                       ┌─────────────────┐
+                                       │  MCP Server     │
+                                       │  (tool actions) │
+                                       └─────────────────┘
+```
+
+### Component Overview
+
+| Component | Provider Options | Default |
+|-----------|------------------|---------|
+| Wake Word | OpenWakeWord | `hey_honey_v2` |
+| Transcription | AssemblyAI, OpenAI Whisper | AssemblyAI |
+| Response/LLM | OpenAI Realtime API | `gpt-4o-realtime-preview` |
+| TTS | Piper, macOS, Google Cloud, Chatterbox | Piper |
+| Tools | MCP Server | HTTP on `localhost:3000` |
+
+### LLM Strategy
+
+| Scenario | Model | Rationale |
+|----------|-------|-----------|
+| Direct conversation | `gpt-4o-realtime-preview` | Quality prose for thoughtful responses |
+| Tool decisions | `gpt-4o-realtime-preview` | Accurate intent classification |
+| Tool chaining | `gpt-4o-mini` | Cost-effective for "need more tools?" checks |
+| Final answer (after tools) | `gpt-4o-mini` | Just composing results, premium model unnecessary |
+
+---
+
+## Project Structure
+
+```
+HomeAssist/
+├── assistant_framework/       # Core voice assistant
+│   ├── orchestrator_v2.py     # Main coordination logic
+│   ├── config.py              # All configuration
+│   ├── providers/             # Pluggable implementations
+│   │   ├── transcription_v2/  # Speech-to-text
+│   │   ├── response/          # LLM responses
+│   │   ├── tts/               # Text-to-speech
+│   │   ├── wakeword_v2/       # Wake word detection
+│   │   └── context/           # Conversation history
+│   ├── utils/                 # Shared utilities
+│   │   ├── state_machine.py   # Audio lifecycle management
+│   │   ├── barge_in.py        # Interrupt detection
+│   │   ├── briefing_manager.py
+│   │   └── briefing_processor.py
+│   └── interfaces/            # Abstract base classes
+│
+├── mcp_server/                # Tool server
+│   ├── server.py              # MCP entry point
+│   ├── tools/                 # Tool implementations
+│   │   ├── kasa_lighting.py
+│   │   ├── spotify.py
+│   │   ├── calendar.py
+│   │   ├── weather.py
+│   │   └── ...
+│   └── tools_config.py        # Enable/disable tools
+│
+├── scripts/scheduled/         # Background jobs
+│   ├── email_summarizer/      # Email digest pipeline
+│   └── news_summarizer/       # News summary pipeline
+│
+├── audio_data/                # Model files
+│   ├── wake_word_models/
+│   └── piper_models/
+│
+└── state_management/          # Runtime state
+    ├── persistent_memory.json
+    └── conversation_summary.json
+```
 
 ---
 
 ## Quick Start
 
-### 1. Set up environment
+### 1. Configure environment
 
-Create a `.env` file in the project root (recommended: start from `env.example`):
-
+```bash
+cp env.example .env
+# Edit .env with your API keys
 ```
-OPENAI_API_KEY=your_key_here
-OPENAI_KEY=your_key_here  # optional alias used by some scripts
-ASSEMBLYAI_API_KEY=your_key_here
-GEMINI_API_KEY=your_key_here
 
-# Supabase (required for vector memory, conversation recording, and notifications)
-SUPABASE_URL=https://your-project.supabase.co
-SUPABASE_KEY=your-supabase-service-role-key
-
-# Optional integrations
-SPOTIFY_CLIENT_ID=your_id_here
-SPOTIFY_CLIENT_SECRET=your_secret_here
-
-# Optional scheduled summaries
-NEWS_API_KEY_1=your-newsapi-key
-EMAIL_NOTIFICATION_RECIPIENT=Morgan
-NEWS_NOTIFICATION_RECIPIENT=Morgan
-```
+Required keys:
+- `OPENAI_API_KEY` — LLM responses
+- `ASSEMBLYAI_API_KEY` — Transcription
+- `SUPABASE_URL` + `SUPABASE_KEY` — Memory storage
 
 ### 2. Install dependencies
 
@@ -47,235 +177,72 @@ source venv/bin/activate
 pip install -r requirements.txt
 ```
 
-### 3. Run the assistant
+### 3. Run
 
 ```bash
-PYTHONFAULTHANDLER=1 python3 -m assistant_framework.main_v2 continuous
+python3 -m assistant_framework.main_v2 continuous
 ```
 
-The `PYTHONFAULTHANDLER=1` flag helps diagnose any issues by printing a traceback on crashes.
+### 4. Interact
 
-### 4. (Optional) Run the MCP server standalone
-
-The assistant will start MCP automatically for `single` / `continuous` modes, but you can also run it manually:
-
-```bash
-./mcp_server/run.sh
-```
-
-By default it starts on `127.0.0.1:3000` (override with `HOST`, `PORT`, `TRANSPORT`).
-
-### 5. Using the assistant
-
-1. Say the wake word (**"Hey Honey"**) to activate
+1. Say **"Hey Honey"** (or your configured wake word)
 2. Speak your request
-3. Say **"sir"** or **"send it"** when you're done speaking
-4. The assistant will respond via text-to-speech
-5. You can interrupt the response by speaking (barge-in)
-
----
-
-## Project Structure
-
-```
-HomeAssistV2/
-│
-├── assistant_framework/          # Core assistant logic
-│   ├── main_v2.py                # Entry point
-│   ├── orchestrator_v2.py        # Coordinates all components
-│   ├── config.py                 # All configuration settings
-│   │
-│   ├── providers/                # Pluggable component implementations
-│   │   ├── transcription_v2/     # Speech-to-text (AssemblyAI or Whisper)
-│   │   ├── response/             # AI responses (OpenAI Realtime API)
-│   │   ├── tts/                  # Text-to-speech (Piper, Google, Chatterbox, local)
-│   │   ├── wakeword_v2/          # Wake word detection (OpenWakeWord)
-│   │   └── context/              # Conversation history management
-│   │
-│   ├── utils/                    # Shared utilities
-│   │   ├── state_machine.py      # Manages audio component lifecycle
-│   │   ├── audio_manager.py      # Ensures only one component uses audio
-│   │   ├── barge_in.py           # Detects when user interrupts
-│   │   ├── device_manager.py     # Audio device selection
-│   │   ├── briefing_manager.py   # Fetches/updates briefing announcements
-│   │   └── briefing_processor.py # Pre-generates briefing openers via LLM
-│   │
-│   └── interfaces/               # Abstract base classes for providers
-│
-├── mcp_server/                   # Tool server for smart home control
-│   ├── server.py                 # MCP server entry point
-│   ├── config.py                 # Tool settings (lights, users, etc.)
-│   ├── tools_config.py           # Enable/disable individual tools
-│   └── tools/                    # Tool implementations
-│       ├── kasa_lighting.py      # Smart light control
-│       ├── spotify.py            # Music playback
-│       ├── calendar.py           # Google Calendar
-│       ├── weather.py            # Weather forecasts
-│       ├── notifications.py      # Notification management
-│       ├── google_search.py      # Web search with AI summaries
-│       ├── sms.py                # Send text messages (macOS)
-│       ├── state_tool.py         # System state management
-│       └── system_info.py        # Assistant self-documentation
-│
-├── audio_data/                   # Model files
-│   ├── wake_word_models/         # Wake word detection models
-│   ├── piper_models/             # Piper TTS voice models
-│   └── chatterbox_models/        # Chatterbox TTS models
-│
-├── state_management/             # Runtime state files
-├── .env                          # API keys (not in repo)
-└── requirements.txt              # Python dependencies
-```
+3. Say **"send it"** or wait for auto-send
+4. Listen to the response (interrupt anytime by speaking)
 
 ---
 
 ## Configuration
 
-All settings live in `assistant_framework/config.py`, organized into sections:
+All settings are in `assistant_framework/config.py`. Key sections:
 
-| Section | What it controls |
-|---------|------------------|
-| Provider Selection | Which implementation to use for each component |
-| Transcription | AssemblyAI or OpenAI Whisper settings |
-| Response/LLM | OpenAI model, temperature, system prompt |
-| TTS | Voice selection, speed, pitch (4 providers) |
-| Wake Word | Detection threshold, cooldown, multiple wake words |
-| Briefing Processor | Opener generation model, tokens, prompt |
-| Barge-In | Interrupt sensitivity and buffering |
-| Conversation Flow | Trigger phrases ("send it", "scratch that") |
-| Persistent Memory | Facts, preferences, and patterns extraction |
-| Vector Memory | Semantic search of past conversations (Supabase + pgvector) |
-| Presets | Dev/prod/test configuration profiles |
+| Section | Controls |
+|---------|----------|
+| Provider Selection | Which implementation for each component |
+| Wake Word | Trigger phrases, sensitivity, multiple wake words |
+| Transcription | ASR provider settings |
+| Response/LLM | Model selection, temperature, system prompt |
+| TTS | Voice selection, speed, chunking |
+| Barge-In | Interrupt sensitivity |
+| Memory | Persistent facts, vector search settings |
+| Briefing Processor | Proactive announcement generation |
 
-### Changing the TTS provider
-
-In `config.py`, change:
-```python
-TTS_PROVIDER = "piper"       # Fast local neural TTS (default)
-# or
-TTS_PROVIDER = "local_tts"   # Uses macOS 'say' command
-# or
-TTS_PROVIDER = "google_tts"  # Google Cloud TTS (requires billing)
-# or
-TTS_PROVIDER = "chatterbox"  # Resemble AI's local neural TTS with voice cloning
-```
-
-### Adjusting wake word sensitivity
-
-In the `WAKEWORD_CONFIG` section:
-```python
-"threshold": 0.2,  # Lower = more sensitive, higher = fewer false positives
-```
+See [SETUP.md](SETUP.md) for detailed configuration reference.
 
 ---
 
-## MCP Tools
+## Extending
 
-The assistant can control smart home devices and access services through MCP (Model Context Protocol) tools:
+### Adding a new tool
 
-- **Lighting** – Turn lights on/off, adjust brightness, set scenes (Kasa devices)
-- **Spotify** – Play music, control playback, search tracks
-- **Calendar** – View and create Google Calendar events
-- **Weather** – Get current conditions and forecasts
-- **Notifications** – Read and manage notifications
-- **Google Search** – Search the web with AI summaries
-- **SMS** – Send text messages via macOS Messages (macOS only)
-- **State** – Manage system state (active user, lighting scenes, volume)
-- **System Info** – Explain the assistant's own architecture and capabilities
+1. Create `mcp_server/tools/your_tool.py` implementing the tool interface
+2. Register in `mcp_server/tools_config.py`
+3. The assistant automatically discovers and can use the tool
 
-Tools can be enabled/disabled in `mcp_server/tools_config.py`.
+### Adding a new provider
 
-### Notifications (email + news)
+1. Implement the appropriate interface in `assistant_framework/interfaces/`
+2. Create provider class in `assistant_framework/providers/`
+3. Register in `assistant_framework/factory.py`
+4. Select via config
 
-- **Storage**: Scheduled email/news pipelines write to Supabase `notification_sources`.
-- **Context policy**: The assistant only pulls the **most recent** email batch and/or news summary into context. Older rows remain as historical data.
-- **Read status**: When a notification is retrieved (sent to the LLM as context), its `read_status` is set to `read`.
-- **Seen messaging**: Each returned notification includes a `previously_seen` flag so the LLM can say whether you've already been told about it.
+### Custom wake word
 
-### Briefing Announcements
-
-Proactive briefings are spoken to the user when they trigger a designated wake word:
-
-- **Storage**: Briefings are stored in Supabase `briefing_announcements` table.
-- **Pre-generated openers**: `BriefingProcessor` generates natural conversation openers via LLM ahead of time, so wake word activation only requires TTS (no LLM latency).
-- **Selective triggering**: Configure which wake words trigger briefings in `WAKEWORD_CONFIG`:
-  ```python
-  "model_names": ["hey_honey_v2", "hey_honey_whats_new"],
-  "briefing_wake_words": ["hey_honey_whats_new"],  # Only this triggers briefings
-  ```
-- Say "Hey Honey" for quick commands, or "Hey Honey, what's new?" to hear pending announcements first.
+1. Train a model using [OpenWakeWord](https://github.com/dscripka/openWakeWord)
+2. Place `.onnx` file in `audio_data/wake_word_models/`
+3. Update `WAKEWORD_CONFIG` in config
 
 ---
 
-## Model Architecture
+## Requirements
 
-HomeAssist uses a two-model approach optimized for cost and quality:
-
-| Scenario | Model | Why |
-|----------|-------|-----|
-| **Direct conversation** | `gpt-4o-realtime-preview` | Higher quality prose for thoughtful responses |
-| **Initial tool decision** | `gpt-4o-realtime-preview` | Decides if tools are needed |
-| **Tool chaining** | `gpt-4o-mini` | Checks if additional tools are needed after each execution |
-| **Final answer (after tools)** | `gpt-4o-mini` | Composes response from tool results |
-
-When you ask a conversational question ("What do you think about X?"), you get the premium model directly. When tools are involved, the cheaper model handles composition since it's just reporting results.
+- Python 3.10+
+- macOS or Linux with audio support
+- Microphone and speakers
+- API keys for cloud services (OpenAI, AssemblyAI, etc.)
 
 ---
 
-## Tool Chaining
+## License
 
-Multi-step requests are handled automatically. When you say something like:
-
-> "Find me that song and text me the link"
-
-The assistant:
-1. Recognizes this requires **two tools** (search + SMS)
-2. Executes the first tool (Google search)
-3. Checks if the request is fully satisfied (it's not—no text sent yet)
-4. Calls the second tool (SMS) with the search result
-5. Composes a final response confirming both actions
-
-This loop continues until all parts of your request are fulfilled.
-
----
-
-## Memory Systems
-
-HomeAssist has two complementary memory systems:
-
-### Persistent Memory
-Extracts and stores structured information:
-- **User profile** – Name, location, preferences
-- **Known facts** – Explicit user information ("my sister is a dog whisperer")
-- **Patterns** – Behavioral observations with strength levels (weak → confirmed)
-
-Stored in `state_management/persistent_memory.json`.
-
-### Vector Memory
-Semantic search over past conversations:
-- **3072-dim embeddings** via OpenAI `text-embedding-3-large`
-- **K-fold partitioning** – Long conversations stored as overlapping windows
-- **Smart retrieval** – Returns top 1-2 results based on similarity gap
-- **Context injection** – Relevant past conversations added to each prompt
-
-Requires Supabase with pgvector extension. See SETUP.md for database setup.
-
----
-
-## Troubleshooting
-
-**Assistant doesn't respond to wake word**
-- Check that your microphone is working and selected as the default input
-- Try lowering the `threshold` value in wake word config
-
-**Audio cuts out or sounds choppy**
-- Increase `state_transition_delay` in `TURNAROUND_CONFIG`
-- Check for other applications using the microphone
-
-**"Missing API key" errors**
-- Ensure your `.env` file exists and contains valid keys
-- Keys should not have quotes around them
-
-**Segmentation fault (should be rare in v2)**
-- Run with `PYTHONFAULTHANDLER=1` to get a traceback
-- Check that no other Python processes are using the audio device
+MIT License — See LICENSE file for details.
