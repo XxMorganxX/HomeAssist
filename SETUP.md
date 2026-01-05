@@ -877,6 +877,7 @@ The workflow (`.github/workflows/scheduled_events_cron.yml`) runs daily and incl
 | **Email Summarizer** | Summarizes unread emails | `notification_sources` table |
 | **News Summarizer** | Curates daily news digest | `notification_sources` table |
 | **Calendar Briefing** | Creates reminder announcements | `briefing_announcements` table |
+| **Weather Briefing** | Alerts for unusual weather | `briefing_announcements` table |
 
 ### Required GitHub Secrets
 
@@ -919,12 +920,22 @@ cat google_creds/token_morgan.json | base64
 
 > 💡 **Note:** The calendar client auto-detects base64 vs raw JSON and decodes accordingly.
 
+### Weather Variables (Weather Briefing)
+
+| Variable | Description | Default |
+|----------|-------------|---------|
+| `WEATHER_ZIP_CODE` | US ZIP code for weather location | Auto-detected |
+| `WEATHER_USER_ID` | User to receive weather briefings | `Morgan` |
+
+> 💡 **Note:** Weather briefing auto-detects location from IP address if `WEATHER_ZIP_CODE` is not set. Only creates alerts when unusual weather is detected (rain, snow, extreme temps, high winds).
+
 ### Manual Trigger
 
 Run the workflow manually from GitHub Actions UI with options to skip specific jobs:
 - `skip_email` — Skip email summarizer
 - `skip_news` — Skip news summarizer  
 - `skip_calendar` — Skip calendar briefing
+- `skip_weather` — Skip weather briefing
 
 ### Calendar Briefing Details
 
@@ -939,6 +950,37 @@ The calendar briefing job (`scripts/scheduled/calendar_briefing/`):
 Configuration:
 - `REMINDER_LOOKAHEAD_DAYS` — Days ahead to look (default: 7)
 - `REMINDER_CALENDAR_USERS` — Comma-separated calendar users (default: `morgan_personal`)
+
+### Weather Briefing Details
+
+The weather briefing job (`scripts/scheduled/weather_briefing/`):
+
+1. **Auto-detects** location from IP (or uses cached/configured coordinates)
+2. **Fetches** 7-day forecast from Open-Meteo (no API key required)
+3. **Analyzes** full week to establish context (averages, patterns)
+4. **Alerts** only on TODAY (next 24 hours) for unusual conditions
+5. **Creates** briefing announcements only if alerts are detected
+6. **Stores** to `briefing_announcements` table in Supabase
+
+The system uses the broader forecast to detect anomalies - for example, if today is 15°F colder than the week average, it will alert even if it doesn't hit absolute thresholds.
+
+**Alert Types:**
+- 🌧️ **Rain** — Precipitation > 50% probability
+- ❄️ **Snow** — Any snow in forecast  
+- ⛈️ **Thunderstorms** — Especially with hail
+- 🥶 **Freezing precipitation** — Ice/freezing rain
+- 🔥 **Extreme heat** — Seasonally adjusted (95°F+ in summer)
+- 🧊 **Extreme cold** — Seasonally adjusted (20°F- in winter)
+- 💨 **High winds** — Gusts > 40 mph
+
+**Severity Levels:**
+- `severe` — Dangerous conditions, take action
+- `significant` — Notable weather, plan accordingly
+- `moderate` — Minor inconvenience, be aware
+
+Configuration:
+- `WEATHER_ZIP_CODE` — US ZIP code for location
+- `WEATHER_USER_ID` — Target user for briefings
 
 ---
 

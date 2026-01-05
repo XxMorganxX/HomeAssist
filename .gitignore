@@ -36,6 +36,10 @@ scripts/scheduled/*/ephemeral_data/*
 # Calendar briefing cache (tracks processed events)
 scripts/scheduled/calendar_briefing/event_cache.json
 
+# Weather briefing ephemeral data and location cache
+scripts/scheduled/weather_briefing/ephemeral_data/weather_alerts.json
+scripts/scheduled/weather_briefing/location_cache.json
+
 # State management files (user-specific runtime data)
 state_management/*.json
 !state_management/.gitkeep

@@ -1379,17 +1379,25 @@ class RefactoredOrchestrator:
                     self._context.reset()
                     print("🧠 Conversation context reset for new session")
 
-                # Proactively announce pending briefings IF triggered by a briefing wake word
-                # Check config for which wake words should trigger briefings
+                # Proactively announce pending briefings
+                # If briefing_wake_words is configured, only announce for those wake words
+                # If not configured (empty), always announce briefings
                 briefing_wake_words = self.config.get('wakeword', {}).get('config', {}).get('briefing_wake_words', [])
-                should_brief = wake_model in briefing_wake_words if briefing_wake_words else False
+                
+                if briefing_wake_words:
+                    # Selective mode: only announce for specific wake words
+                    should_brief = wake_model in briefing_wake_words
+                    if should_brief:
+                        print(f"📢 Briefing wake word detected: {wake_model}")
+                    else:
+                        print(f"💬 Standard wake word detected: {wake_model} (skipping briefings)")
+                else:
+                    # Default mode: always announce briefings
+                    should_brief = True
                 
                 if should_brief:
-                    print(f"📢 Briefing wake word detected: {wake_model}")
                     primary_user = self._get_primary_user()
                     await self._brief_pending_announcements(primary_user)
-                elif briefing_wake_words:
-                    print(f"💬 Standard wake word detected: {wake_model} (skipping briefings)")
 
                 # 2. Enter multi-turn conversation mode
                 print("💬 Conversation mode active (say termination phrase to exit)")

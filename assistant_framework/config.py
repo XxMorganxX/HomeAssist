@@ -527,10 +527,11 @@ WAKEWORD_CONFIG = {
     "model_dir": os.getenv("WAKEWORD_MODEL_DIR", "./audio_data/wake_word_models"),
     "model_name": "hey_honey_v2",  # Primary wake word (backward compat)
     # Multiple wake words with different behaviors:
-    # - "hey_honey_v2" → normal conversation (skip briefings)
-    # - "hey_honey_whats_new" → announce pending briefings first
+    # - If briefing_wake_words is empty: ALL wake words announce briefings (default)
+    # - If briefing_wake_words is configured: only those wake words announce briefings
+    # Example: ["hey_honey_whats_new"] → only "hey_honey_whats_new" triggers briefings
     "model_names": ["hey_honey_v2", "hey_jarvis"],  # Add second model name here when ready
-    "briefing_wake_words": [],  # Wake words that trigger briefing announcements (e.g., ["hey_honey_whats_new"])
+    "briefing_wake_words": ["hey_jarvis"],  # Empty = always announce briefings; set to specific wake words to be selective
     "sample_rate": 16000,
     "chunk": 1280,
     "threshold": 0.2,

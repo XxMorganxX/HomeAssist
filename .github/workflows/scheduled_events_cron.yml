@@ -1,7 +1,7 @@
 # ============================================
 # GitHub Actions Workflow for Scheduled Events
 # ============================================
-# Runs email summarizer, news summarizer, and calendar briefing on a cron schedule
+# Runs email summarizer, news summarizer, calendar briefing, and weather briefing
 # Results are stored in Supabase tables
 #
 # REQUIRED SECRETS (Settings → Secrets → Actions → Repository secrets):
@@ -24,14 +24,16 @@
 # OPTIONAL VARIABLES (Settings → Secrets → Actions → Variables):
 #   - EMAIL_NOTIFICATION_RECIPIENT : Target user (default: Morgan)
 #   - NEWS_NOTIFICATION_RECIPIENT  : Target user (default: Morgan)
+#   - WEATHER_ZIP_CODE             : ZIP code for weather (auto-detected from IP if not set)
+#   - WEATHER_USER_ID              : User for weather briefings (default: Morgan)
 #
 # SUPABASE TABLES REQUIRED:
 #   - notification_sources      : Email/news summaries
-#   - briefing_announcements    : Calendar reminders
+#   - briefing_announcements    : Calendar/weather briefings
 #   - calendar_event_cache      : Deduplication cache (run supabase_migration.sql)
 # ============================================
 
-name: Scheduled Events (Email, News & Calendar)
+name: Scheduled Events (Email, News, Calendar & Weather)
 
 on:
   # Run daily at 7:00 AM UTC (2:00 AM EST / 3:00 AM EDT)
@@ -53,6 +55,11 @@ on:
         type: boolean
       skip_calendar:
         description: 'Skip calendar briefing'
+        required: false
+        default: 'false'
+        type: boolean
+      skip_weather:
+        description: 'Skip weather briefing'
         required: false
         default: 'false'
         type: boolean
@@ -200,6 +207,32 @@ jobs:
           fi
       
       # ─────────────────────────────────────────────────────────────
+      # WEATHER BRIEFING
+      # ─────────────────────────────────────────────────────────────
+      - name: Run Weather Briefing
+        if: ${{ github.event.inputs.skip_weather != 'true' }}
+        working-directory: scripts/scheduled/weather_briefing
+        env:
+          SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
+          SUPABASE_KEY: ${{ secrets.SUPABASE_KEY }}
+          WEATHER_ZIP_CODE: ${{ vars.WEATHER_ZIP_CODE }}
+          WEATHER_USER_ID: ${{ vars.WEATHER_USER_ID || 'Morgan' }}
+        run: |
+          echo "🌤️ Running weather briefing..."
+          
+          # Create ephemeral data directory
+          mkdir -p ephemeral_data
+          
+          # Run weather briefing (auto-detects location, alerts on today only)
+          # Uses 7-day forecast for context, only alerts on next 24 hours
+          if [ -n "$WEATHER_ZIP_CODE" ]; then
+            python main.py --zip "$WEATHER_ZIP_CODE" --user "$WEATHER_USER_ID" || echo "⚠️ Weather briefing completed with warnings"
+          else
+            echo "📍 No WEATHER_ZIP_CODE set, will auto-detect from IP..."
+            python main.py --user "$WEATHER_USER_ID" || echo "⚠️ Weather briefing completed with warnings"
+          fi
+      
+      # ─────────────────────────────────────────────────────────────
       # SUMMARY
       # ─────────────────────────────────────────────────────────────
       - name: Print Summary
@@ -212,6 +245,6 @@ jobs:
           echo ""
           echo "Check Supabase tables for results:"
           echo "  - notification_sources: Email/news summaries"
-          echo "  - briefing_announcements: Calendar reminders"
+          echo "  - briefing_announcements: Calendar/weather briefings"
           echo "════════════════════════════════════════════════════════════"
 
