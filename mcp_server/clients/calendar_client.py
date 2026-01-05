@@ -167,10 +167,29 @@ class CalendarComponent:
         """Try to create credentials from environment variables (for CI/headless).
         
         Supports multiple formats:
-        1. GOOGLE_TOKEN_JSON + GOOGLE_CREDENTIALS_JSON (full JSON blobs)
+        1. GOOGLE_TOKEN_JSON + GOOGLE_CREDENTIALS_JSON (full JSON blobs, raw or base64-encoded)
         2. Individual secrets: GMAIL_CLIENT_ID, GMAIL_CLIENT_SECRET, GCAL_REFRESH_TOKEN_*
         """
         import json as json_module
+        import base64
+        
+        def decode_json_secret(value: str) -> dict:
+            """Decode a JSON secret that may be raw JSON or base64-encoded."""
+            value = value.strip()
+            if not value:
+                return {}
+            
+            # If it starts with '{', it's raw JSON
+            if value.startswith("{"):
+                return json_module.loads(value)
+            
+            # Otherwise, try base64 decoding
+            try:
+                decoded = base64.b64decode(value).decode("utf-8")
+                return json_module.loads(decoded)
+            except Exception:
+                # Last resort: try parsing as-is
+                return json_module.loads(value)
         
         scopes = getattr(
             config,
@@ -187,13 +206,13 @@ class CalendarComponent:
         
         if token_json and creds_json:
             try:
-                # Debug: show what we received (length only, not content)
+                # Debug: show what we received
                 if getattr(config, "DEBUG_MODE", False) or self._is_headless():
-                    print(f"📋 GOOGLE_TOKEN_JSON length: {len(token_json)}, starts with: {token_json[:20] if len(token_json) > 20 else token_json}...")
-                    print(f"📋 GOOGLE_CREDENTIALS_JSON length: {len(creds_json)}, starts with: {creds_json[:20] if len(creds_json) > 20 else creds_json}...")
+                    print(f"📋 GOOGLE_TOKEN_JSON length: {len(token_json)}, format: {'base64' if not token_json.startswith('{') else 'raw JSON'}")
+                    print(f"📋 GOOGLE_CREDENTIALS_JSON length: {len(creds_json)}, format: {'base64' if not creds_json.startswith('{') else 'raw JSON'}")
                 
-                token_data = json_module.loads(token_json)
-                creds_data = json_module.loads(creds_json)
+                token_data = decode_json_secret(token_json)
+                creds_data = decode_json_secret(creds_json)
                 
                 # Extract client info from credentials JSON (handles both formats)
                 if "installed" in creds_data:
@@ -227,10 +246,6 @@ class CalendarComponent:
             except Exception as e:
                 # Always print this error in CI to help debug
                 print(f"⚠️ Failed to parse GOOGLE_*_JSON: {e}")
-                if token_json and not token_json.startswith("{"):
-                    print(f"   GOOGLE_TOKEN_JSON doesn't look like JSON (starts with: {repr(token_json[:50])})")
-                if creds_json and not creds_json.startswith("{"):
-                    print(f"   GOOGLE_CREDENTIALS_JSON doesn't look like JSON (starts with: {repr(creds_json[:50])})")
         
         # Method 2: Individual secrets (GMAIL_CLIENT_ID, etc.)
         client_id = (
