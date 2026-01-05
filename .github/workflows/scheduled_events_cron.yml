@@ -180,6 +180,11 @@ jobs:
           # Create ephemeral data directory
           mkdir -p ephemeral_data
           
+          # Debug: check what secrets we have (show length only, not content)
+          echo "🔍 Checking credentials..."
+          [ -n "$GOOGLE_CREDENTIALS_JSON" ] && echo "   GOOGLE_CREDENTIALS_JSON: ${#GOOGLE_CREDENTIALS_JSON} chars" || echo "   GOOGLE_CREDENTIALS_JSON: NOT SET"
+          [ -n "$GOOGLE_TOKEN_JSON" ] && echo "   GOOGLE_TOKEN_JSON: ${#GOOGLE_TOKEN_JSON} chars" || echo "   GOOGLE_TOKEN_JSON: NOT SET"
+          
           # Check if Google credentials are configured
           if [ -n "$GOOGLE_CREDENTIALS_JSON" ] && [ -n "$GOOGLE_TOKEN_JSON" ]; then
             echo "✅ Google OAuth credentials found (GOOGLE_*_JSON)"

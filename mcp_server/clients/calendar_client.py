@@ -182,11 +182,16 @@ class CalendarComponent:
         )
         
         # Method 1: Full JSON blobs (GOOGLE_TOKEN_JSON + GOOGLE_CREDENTIALS_JSON)
-        token_json = os.getenv("GOOGLE_TOKEN_JSON")
-        creds_json = os.getenv("GOOGLE_CREDENTIALS_JSON")
+        token_json = os.getenv("GOOGLE_TOKEN_JSON", "").strip()
+        creds_json = os.getenv("GOOGLE_CREDENTIALS_JSON", "").strip()
         
         if token_json and creds_json:
             try:
+                # Debug: show what we received (length only, not content)
+                if getattr(config, "DEBUG_MODE", False) or self._is_headless():
+                    print(f"📋 GOOGLE_TOKEN_JSON length: {len(token_json)}, starts with: {token_json[:20] if len(token_json) > 20 else token_json}...")
+                    print(f"📋 GOOGLE_CREDENTIALS_JSON length: {len(creds_json)}, starts with: {creds_json[:20] if len(creds_json) > 20 else creds_json}...")
+                
                 token_data = json_module.loads(token_json)
                 creds_data = json_module.loads(creds_json)
                 
@@ -220,8 +225,12 @@ class CalendarComponent:
                     return True
                     
             except Exception as e:
-                if getattr(config, "DEBUG_MODE", False):
-                    print(f"⚠️ Failed to parse GOOGLE_*_JSON: {e}")
+                # Always print this error in CI to help debug
+                print(f"⚠️ Failed to parse GOOGLE_*_JSON: {e}")
+                if token_json and not token_json.startswith("{"):
+                    print(f"   GOOGLE_TOKEN_JSON doesn't look like JSON (starts with: {repr(token_json[:50])})")
+                if creds_json and not creds_json.startswith("{"):
+                    print(f"   GOOGLE_CREDENTIALS_JSON doesn't look like JSON (starts with: {repr(creds_json[:50])})")
         
         # Method 2: Individual secrets (GMAIL_CLIENT_ID, etc.)
         client_id = (
