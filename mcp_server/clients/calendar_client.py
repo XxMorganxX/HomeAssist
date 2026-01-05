@@ -143,9 +143,147 @@ class CalendarComponent:
         users_cfg = getattr(config, 'CALENDAR_USERS', {})
         return users_cfg[self._user]
     
-    def _initialize_credentials(self) -> bool:
-        """Initialize Google credentials for the user."""
+    def _is_headless(self) -> bool:
+        """Check if running in a headless/CI environment."""
+        return os.getenv("CI") == "true" or os.getenv("GITHUB_ACTIONS") == "true"
+    
+    def _get_env_refresh_token(self) -> Optional[str]:
+        """Get the refresh token for this user from environment variables.
+        
+        Checks for user-specific token first, then falls back to generic.
+        Supports: GCAL_REFRESH_TOKEN_MORGAN, GCAL_REFRESH_TOKEN_SPENCER, etc.
+        Falls back to: GCAL_REFRESH_TOKEN, GOOGLE_REFRESH_TOKEN
+        """
+        # User-specific token (e.g., GCAL_REFRESH_TOKEN_MORGAN)
+        user_upper = self._user.upper().replace("_PERSONAL", "").replace("_SCHOOL", "")
+        user_token = os.getenv(f"GCAL_REFRESH_TOKEN_{user_upper}")
+        if user_token:
+            return user_token
+        
+        # Generic fallback
+        return os.getenv("GCAL_REFRESH_TOKEN") or os.getenv("GOOGLE_REFRESH_TOKEN")
+    
+    def _try_env_credentials(self) -> bool:
+        """Try to create credentials from environment variables (for CI/headless).
+        
+        Supports multiple formats:
+        1. GOOGLE_TOKEN_JSON + GOOGLE_CREDENTIALS_JSON (full JSON blobs)
+        2. Individual secrets: GMAIL_CLIENT_ID, GMAIL_CLIENT_SECRET, GCAL_REFRESH_TOKEN_*
+        """
+        import json as json_module
+        
+        scopes = getattr(
+            config,
+            "CALENDAR_SCOPES",
+            [
+                "https://www.googleapis.com/auth/calendar.readonly",
+                "https://www.googleapis.com/auth/calendar.events",
+            ],
+        )
+        
+        # Method 1: Full JSON blobs (GOOGLE_TOKEN_JSON + GOOGLE_CREDENTIALS_JSON)
+        token_json = os.getenv("GOOGLE_TOKEN_JSON")
+        creds_json = os.getenv("GOOGLE_CREDENTIALS_JSON")
+        
+        if token_json and creds_json:
+            try:
+                token_data = json_module.loads(token_json)
+                creds_data = json_module.loads(creds_json)
+                
+                # Extract client info from credentials JSON (handles both formats)
+                if "installed" in creds_data:
+                    client_info = creds_data["installed"]
+                elif "web" in creds_data:
+                    client_info = creds_data["web"]
+                else:
+                    client_info = creds_data
+                
+                client_id = client_info.get("client_id")
+                client_secret = client_info.get("client_secret")
+                refresh_token = token_data.get("refresh_token")
+                
+                if client_id and client_secret and refresh_token:
+                    self.creds = Credentials(
+                        token_data.get("token"),
+                        refresh_token=refresh_token,
+                        token_uri="https://oauth2.googleapis.com/token",
+                        client_id=client_id,
+                        client_secret=client_secret,
+                        scopes=scopes,
+                    )
+                    
+                    # Refresh if needed
+                    if not self.creds.valid:
+                        self.creds.refresh(Request())
+                    
+                    print(f"✅ Calendar credentials loaded from GOOGLE_*_JSON for {self.user}")
+                    return True
+                    
+            except Exception as e:
+                if getattr(config, "DEBUG_MODE", False):
+                    print(f"⚠️ Failed to parse GOOGLE_*_JSON: {e}")
+        
+        # Method 2: Individual secrets (GMAIL_CLIENT_ID, etc.)
+        client_id = (
+            os.getenv("GCAL_CLIENT_ID") or 
+            os.getenv("GMAIL_CLIENT_ID") or 
+            os.getenv("GOOGLE_CLIENT_ID")
+        )
+        client_secret = (
+            os.getenv("GCAL_CLIENT_SECRET") or 
+            os.getenv("GMAIL_CLIENT_SECRET") or 
+            os.getenv("GOOGLE_CLIENT_SECRET")
+        )
+        refresh_token = self._get_env_refresh_token()
+        
+        if not (client_id and client_secret and refresh_token):
+            return False
+        
         try:
+            self.creds = Credentials(
+                None,
+                refresh_token=refresh_token,
+                token_uri="https://oauth2.googleapis.com/token",
+                client_id=client_id,
+                client_secret=client_secret,
+                scopes=scopes,
+            )
+            
+            # Refresh to get a valid access token
+            self.creds.refresh(Request())
+            
+            print(f"✅ Calendar credentials loaded from environment for {self.user}")
+            return True
+            
+        except Exception as e:
+            if getattr(config, "DEBUG_MODE", False):
+                print(f"⚠️ Env-based calendar OAuth failed for {self.user}: {e}")
+            return False
+    
+    def _initialize_credentials(self) -> bool:
+        """Initialize Google credentials for the user.
+        
+        Order of precedence:
+        1. Environment variables (for CI/GitHub Actions)
+        2. Token file (for local development)
+        3. OAuth flow (interactive, local only)
+        """
+        try:
+            scopes = getattr(
+                config,
+                "CALENDAR_SCOPES",
+                [
+                    "https://www.googleapis.com/auth/calendar.readonly",
+                    "https://www.googleapis.com/auth/calendar.events",
+                ],
+            )
+            
+            # 1. Try environment-based credentials first (best for CI)
+            if self._try_env_credentials():
+                self.service = build('calendar', 'v3', credentials=self.creds, cache_discovery=False)
+                return True
+            
+            # 2. Fall back to file-based credentials
             user_config = self._get_user_config()
             token_path = user_config["token"]
             client_secret_path = user_config["client_secret"]
@@ -156,14 +294,6 @@ class CalendarComponent:
             # Load existing token if available
             if os.path.exists(token_path):
                 try:
-                    scopes = getattr(
-                        config,
-                        "CALENDAR_SCOPES",
-                        [
-                            "https://www.googleapis.com/auth/calendar.readonly",
-                            "https://www.googleapis.com/auth/calendar.events",
-                        ],
-                    )
                     self.creds = Credentials.from_authorized_user_file(token_path, scopes)
                     if getattr(config, "DEBUG_MODE", False):
                         print(f"📅 Loaded existing calendar credentials for {self.user}")
@@ -171,6 +301,8 @@ class CalendarComponent:
                     # If the existing token does not contain a refresh token, proactively
                     # upgrade to offline access so we can refresh automatically.
                     if self.creds and not getattr(self.creds, "refresh_token", None):
+                        if self._is_headless():
+                            raise RuntimeError("Headless mode: missing refresh token. Run reauth locally.")
                         if getattr(config, "DEBUG_MODE", False):
                             print(f"♻️  Upgrading {self.user} credentials to offline access (refresh token)...")
                         flow = InstalledAppFlow.from_client_secrets_file(client_secret_path, scopes)
@@ -206,20 +338,19 @@ class CalendarComponent:
                 
                 # If still no valid credentials, need to reauthorize
                 if not self.creds or not self.creds.valid:
+                    if self._is_headless():
+                        raise RuntimeError(
+                            f"Headless mode: No valid credentials for {self.user}. "
+                            f"Set GCAL_REFRESH_TOKEN_{self._user.upper().replace('_PERSONAL', '').replace('_SCHOOL', '')} "
+                            "or run OAuth flow locally first."
+                        )
+                    
                     if not os.path.exists(client_secret_path):
                         raise FileNotFoundError(f"Client secret file not found: {client_secret_path}")
                     
                     if getattr(config, "DEBUG_MODE", False):
                         print(f"🔐 Starting OAuth flow for {self.user}...")
                     
-                    scopes = getattr(
-                        config,
-                        "CALENDAR_SCOPES",
-                        [
-                            "https://www.googleapis.com/auth/calendar.readonly",
-                            "https://www.googleapis.com/auth/calendar.events",
-                        ],
-                    )
                     flow = InstalledAppFlow.from_client_secrets_file(client_secret_path, scopes)
                     self.creds = flow.run_local_server(
                         port=0, 

@@ -79,14 +79,6 @@ CALENDAR_USERS = {
     "morgan_personal": {
         "client_secret": "google_creds/google_creds_morgan.json",
         "token": "google_creds/token_morgan.json"
-    },
-    "morgan_school": {
-        "client_secret": "google_creds/google_creds_morgan.json",
-        "token": "google_creds/token_morgan.json"
-    },
-    "spencer": {
-        "client_secret": "google_creds/google_creds_spencer.json",
-        "token": "google_creds/token_spencer.json"
     }
 }
 

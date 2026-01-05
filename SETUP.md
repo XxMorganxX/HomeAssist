@@ -106,6 +106,8 @@ Create a `.env` file in the project root with your API keys.
 - `NEWS_API_KEY_3` — Additional NewsAPI key (optional)
 - `NEWS_API_KEY_4` — Additional NewsAPI key (optional)
 - `NEWS_API_KEY_5` — Additional NewsAPI key (optional)
+- `REMINDER_LOOKAHEAD_DAYS` — Days ahead to analyze calendar events for reminders (default: `7`)
+- `REMINDER_CALENDAR_USERS` — Comma-separated list of calendar users to analyze (default: `morgan_personal`)
 
 #### Optional — Gmail OAuth (Email Summarizer)
 

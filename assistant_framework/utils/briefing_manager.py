@@ -25,11 +25,15 @@ Content structure:
 {
     "message": "Your package was delivered at 2pm",        # Required
     "llm_instructions": "Mention this casually",           # Optional
+    "active_from": "2026-01-05",                           # Optional - ISO date (YYYY-MM-DD) when briefing becomes active
     "meta": {                                              # Optional
         "timestamp": "2026-01-03T14:00:00Z",
         "source": "delivery_tracker"
     }
 }
+
+The `active_from` field allows scheduling briefings to become active on a future date.
+If set, the briefing will NOT be included in openers until the current date >= active_from date.
 
 Workflow:
 1. Briefing is inserted (by scheduled script, MCP tool, etc.) with content but no opener_text
@@ -54,6 +58,46 @@ except ImportError:
 from dotenv import load_dotenv
 
 load_dotenv()
+
+
+def _is_briefing_active(briefing: Dict[str, Any]) -> bool:
+    """
+    Check if a briefing is active based on its active_from datetime.
+    
+    Args:
+        briefing: The briefing record (with 'content' field)
+        
+    Returns:
+        True if the briefing is active (should be included in openers),
+        False if it has a future active_from datetime
+    """
+    content = briefing.get("content", {})
+    
+    # Handle content as string
+    if isinstance(content, str):
+        try:
+            content = json.loads(content)
+        except (json.JSONDecodeError, TypeError):
+            return True  # No active_from, so it's active
+    
+    active_from = content.get("active_from")
+    if not active_from:
+        return True  # No active_from means it's always active
+    
+    now = datetime.now(timezone.utc)
+    
+    try:
+        # Try parsing as full ISO datetime first (e.g., "2026-01-06T14:00:00-05:00")
+        if "T" in active_from:
+            active_dt = datetime.fromisoformat(active_from.replace("Z", "+00:00"))
+            return now >= active_dt
+        else:
+            # Fall back to date-only format (YYYY-MM-DD) - active from start of that day
+            active_date = datetime.strptime(active_from, "%Y-%m-%d").date()
+            return now.date() >= active_date
+    except (ValueError, TypeError):
+        # If parsing fails, treat as active
+        return True
 
 
 class BriefingManager:
@@ -124,19 +168,22 @@ class BriefingManager:
                 .eq("status", "pending")
                 .order("priority", desc=False)
                 .order("created_at", desc=False)
-                .limit(limit)
+                .limit(limit * 2)  # Fetch extra to account for filtered inactive ones
                 .execute()
             )
             
             if not response.data:
                 return []
             
+            # Filter out briefings that aren't active yet (future active_from date)
+            active_briefings = [b for b in response.data if _is_briefing_active(b)]
+            
             # Re-sort by priority properly (high > normal > low)
             priority_order = {"high": 0, "normal": 1, "low": 2}
             briefings = sorted(
-                response.data,
+                active_briefings,
                 key=lambda b: (priority_order.get(b.get("priority", "normal"), 1), b.get("created_at", ""))
-            )
+            )[:limit]
             
             print(f"📋 BriefingManager: Found {len(briefings)} pending briefing(s) for {user}")
             return briefings
@@ -154,9 +201,12 @@ class BriefingManager:
             with open(self.LOCAL_FALLBACK_PATH, 'r') as f:
                 data = json.load(f)
             
+            # Filter by user, status, and active_from date
             user_briefings = [
                 b for b in data.get("briefings", [])
-                if b.get("user_id") == user and b.get("status") == "pending"
+                if b.get("user_id") == user 
+                and b.get("status") == "pending"
+                and _is_briefing_active(b)
             ]
             
             priority_order = {"high": 0, "normal": 1, "low": 2}
@@ -365,6 +415,8 @@ class BriefingManager:
         """
         Get pending briefings that have a pre-generated opener (ready for TTS).
         
+        Only returns briefings that are currently active (active_from date <= today).
+        
         Args:
             user: User ID
             limit: Max briefings to return
@@ -382,18 +434,21 @@ class BriefingManager:
                     .not_.is_("opener_text", "null")
                     .order("priority", desc=False)
                     .order("created_at", desc=False)
-                    .limit(limit)
+                    .limit(limit * 2)  # Fetch extra to account for filtered inactive ones
                     .execute()
                 )
                 
                 if not response.data:
                     return []
                 
+                # Filter out briefings that aren't active yet (future active_from date)
+                active_briefings = [b for b in response.data if _is_briefing_active(b)]
+                
                 priority_order = {"high": 0, "normal": 1, "low": 2}
                 briefings = sorted(
-                    response.data,
+                    active_briefings,
                     key=lambda b: (priority_order.get(b.get("priority", "normal"), 1), b.get("created_at", ""))
-                )
+                )[:limit]
                 
                 if briefings:
                     print(f"📋 BriefingManager: Found {len(briefings)} briefing(s) with opener for {user}")
@@ -409,11 +464,13 @@ class BriefingManager:
                 with open(self.LOCAL_FALLBACK_PATH, 'r') as f:
                     data = json.load(f)
                 
+                # Filter by user, status, opener_text, and active_from date
                 briefings = [
                     b for b in data.get("briefings", [])
                     if b.get("user_id") == user 
                     and b.get("status") == "pending"
                     and b.get("opener_text")
+                    and _is_briefing_active(b)
                 ]
                 
                 priority_order = {"high": 0, "normal": 1, "low": 2}

@@ -1,11 +1,11 @@
 # ============================================
 # GitHub Actions Workflow for Scheduled Events
 # ============================================
-# Runs email and news summarizers on a cron schedule
-# Results are stored in Supabase notification_sources table
+# Runs email summarizer, news summarizer, and calendar briefing on a cron schedule
+# Results are stored in Supabase tables
 #
 # REQUIRED SECRETS (Settings → Secrets → Actions → Repository secrets):
-#   - GEMINI_API_KEY        : Google Gemini API key (email summarization)
+#   - GEMINI_API_KEY        : Google Gemini API key (email/calendar)
 #   - OPENAI_API_KEY        : OpenAI API key (news analysis)
 #   - SUPABASE_URL          : Supabase project URL
 #   - SUPABASE_KEY          : Supabase service role key
@@ -17,12 +17,21 @@
 #   - GMAIL_REFRESH_TOKEN   : From your token.json (get via reauth_gmail.py locally)
 #   - NEWS_API_KEY_2 to _5  : Additional NewsAPI keys for quota rotation
 #
+# OPTIONAL SECRETS (for calendar briefing - you likely already have these):
+#   - GOOGLE_CREDENTIALS_JSON : Full OAuth client credentials JSON
+#   - GOOGLE_TOKEN_JSON       : Full OAuth token JSON (with refresh_token)
+#
 # OPTIONAL VARIABLES (Settings → Secrets → Actions → Variables):
 #   - EMAIL_NOTIFICATION_RECIPIENT : Target user (default: Morgan)
 #   - NEWS_NOTIFICATION_RECIPIENT  : Target user (default: Morgan)
+#
+# SUPABASE TABLES REQUIRED:
+#   - notification_sources      : Email/news summaries
+#   - briefing_announcements    : Calendar reminders
+#   - calendar_event_cache      : Deduplication cache (run supabase_migration.sql)
 # ============================================
 
-name: Scheduled Events (Email & News)
+name: Scheduled Events (Email, News & Calendar)
 
 on:
   # Run daily at 7:00 AM UTC (2:00 AM EST / 3:00 AM EDT)
@@ -39,6 +48,11 @@ on:
         type: boolean
       skip_news:
         description: 'Skip news summarizer'
+        required: false
+        default: 'false'
+        type: boolean
+      skip_calendar:
+        description: 'Skip calendar briefing'
         required: false
         default: 'false'
         type: boolean
@@ -146,6 +160,36 @@ jobs:
           python news_main.py --clean || echo "⚠️ News summarizer completed with warnings"
       
       # ─────────────────────────────────────────────────────────────
+      # CALENDAR BRIEFING
+      # ─────────────────────────────────────────────────────────────
+      - name: Run Calendar Briefing
+        if: ${{ github.event.inputs.skip_calendar != 'true' }}
+        working-directory: scripts/scheduled/calendar_briefing
+        env:
+          GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
+          SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
+          SUPABASE_KEY: ${{ secrets.SUPABASE_KEY }}
+          # Google Calendar OAuth - uses full JSON secrets (same as other Google services)
+          GOOGLE_CREDENTIALS_JSON: ${{ secrets.GOOGLE_CREDENTIALS_JSON }}
+          GOOGLE_TOKEN_JSON: ${{ secrets.GOOGLE_TOKEN_JSON }}
+          # Mark as headless/CI environment
+          CI: 'true'
+        run: |
+          echo "📅 Running calendar briefing..."
+          
+          # Create ephemeral data directory
+          mkdir -p ephemeral_data
+          
+          # Check if Google credentials are configured
+          if [ -n "$GOOGLE_CREDENTIALS_JSON" ] && [ -n "$GOOGLE_TOKEN_JSON" ]; then
+            echo "✅ Google OAuth credentials found (GOOGLE_*_JSON)"
+            python main.py --days 7 || echo "⚠️ Calendar briefing completed with warnings"
+          else
+            echo "⏭️ Skipping calendar briefing (credentials not configured)"
+            echo "   Required: GOOGLE_CREDENTIALS_JSON, GOOGLE_TOKEN_JSON"
+          fi
+      
+      # ─────────────────────────────────────────────────────────────
       # SUMMARY
       # ─────────────────────────────────────────────────────────────
       - name: Print Summary
@@ -156,6 +200,8 @@ jobs:
           echo "════════════════════════════════════════════════════════════"
           echo "Time: $(date -u '+%Y-%m-%d %H:%M:%S UTC')"
           echo ""
-          echo "Check Supabase notification_sources table for results."
+          echo "Check Supabase tables for results:"
+          echo "  - notification_sources: Email/news summaries"
+          echo "  - briefing_announcements: Calendar reminders"
           echo "════════════════════════════════════════════════════════════"
 

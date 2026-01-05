@@ -21,6 +21,8 @@ email_summaries.json.env
 
 .spotify_cache
 
+.cursor/
+
 # Legacy MCP state file (now uses state_management/app_state.json)
 .mcp_state.json
 
@@ -30,6 +32,9 @@ venv/
 # Ephemeral data from scheduled scripts (keep folders, ignore contents except .gitkeep)
 scripts/scheduled/*/ephemeral_data/*
 !scripts/scheduled/*/ephemeral_data/.gitkeep
+
+# Calendar briefing cache (tracks processed events)
+scripts/scheduled/calendar_briefing/event_cache.json
 
 # State management files (user-specific runtime data)
 state_management/*.json

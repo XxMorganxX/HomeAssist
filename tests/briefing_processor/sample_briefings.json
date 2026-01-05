@@ -58,6 +58,20 @@
         "message": "Your Spotify Wrapped is ready to view"
       },
       "priority": "low"
+    },
+    {
+      "id": "test-006",
+      "user_id": "Morgan",
+      "content": {
+        "message": "Don't forget: Your Vegas trip starts tomorrow!",
+        "llm_instructions": "Mention excitedly as a reminder",
+        "active_from": "2026-01-06",
+        "meta": {
+          "source": "calendar_reminder"
+        }
+      },
+      "priority": "high",
+      "_comment": "This briefing will only appear in openers on/after 2026-01-06"
     }
   ]
 }

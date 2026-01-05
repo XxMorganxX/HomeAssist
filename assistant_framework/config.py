@@ -529,7 +529,7 @@ WAKEWORD_CONFIG = {
     # Multiple wake words with different behaviors:
     # - "hey_honey_v2" → normal conversation (skip briefings)
     # - "hey_honey_whats_new" → announce pending briefings first
-    "model_names": ["hey_honey_v2"],  # Add second model name here when ready
+    "model_names": ["hey_honey_v2", "hey_jarvis"],  # Add second model name here when ready
     "briefing_wake_words": [],  # Wake words that trigger briefing announcements (e.g., ["hey_honey_whats_new"])
     "sample_rate": 16000,
     "chunk": 1280,

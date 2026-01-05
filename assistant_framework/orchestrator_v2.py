@@ -1270,6 +1270,9 @@ class RefactoredOrchestrator:
             if opener:
                 print(f"📢 Speaking pre-generated opener for {len(briefings_with_opener)} briefing(s)")
                 await self.run_tts(opener, transition_to_idle=False, enable_barge_in=True)
+                # Add opener to conversation context so follow-up responses have context
+                if self._context:
+                    self._context.add_message("assistant", opener)
                 ids = [b.get("id") for b in briefings_with_opener if b.get("id")]
                 try:
                     await self._briefing_manager.mark_delivered(ids)
