@@ -169,8 +169,9 @@ jobs:
           GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
           SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
           SUPABASE_KEY: ${{ secrets.SUPABASE_KEY }}
-          # Google Calendar OAuth - uses full JSON secrets (same as other Google services)
+          # Google Calendar OAuth - uses full JSON secrets
           GOOGLE_CREDENTIALS_JSON: ${{ secrets.GOOGLE_CREDENTIALS_JSON }}
+          GOOGLE_CALENDAR_TOKEN_JSON: ${{ secrets.GOOGLE_CALENDAR_TOKEN_JSON }}
           GOOGLE_TOKEN_JSON: ${{ secrets.GOOGLE_TOKEN_JSON }}
           # Mark as headless/CI environment
           CI: 'true'
@@ -183,15 +184,19 @@ jobs:
           # Debug: check what secrets we have (show length only, not content)
           echo "🔍 Checking credentials..."
           [ -n "$GOOGLE_CREDENTIALS_JSON" ] && echo "   GOOGLE_CREDENTIALS_JSON: ${#GOOGLE_CREDENTIALS_JSON} chars" || echo "   GOOGLE_CREDENTIALS_JSON: NOT SET"
-          [ -n "$GOOGLE_TOKEN_JSON" ] && echo "   GOOGLE_TOKEN_JSON: ${#GOOGLE_TOKEN_JSON} chars" || echo "   GOOGLE_TOKEN_JSON: NOT SET"
+          [ -n "$GOOGLE_CALENDAR_TOKEN_JSON" ] && echo "   GOOGLE_CALENDAR_TOKEN_JSON: ${#GOOGLE_CALENDAR_TOKEN_JSON} chars" || echo "   GOOGLE_CALENDAR_TOKEN_JSON: NOT SET"
+          [ -n "$GOOGLE_TOKEN_JSON" ] && echo "   GOOGLE_TOKEN_JSON: ${#GOOGLE_TOKEN_JSON} chars (fallback)" || echo "   GOOGLE_TOKEN_JSON: NOT SET"
           
-          # Check if Google credentials are configured
-          if [ -n "$GOOGLE_CREDENTIALS_JSON" ] && [ -n "$GOOGLE_TOKEN_JSON" ]; then
-            echo "✅ Google OAuth credentials found (GOOGLE_*_JSON)"
+          # Check if Google credentials are configured (prefer calendar-specific token)
+          if [ -n "$GOOGLE_CREDENTIALS_JSON" ] && [ -n "$GOOGLE_CALENDAR_TOKEN_JSON" ]; then
+            echo "✅ Google Calendar OAuth credentials found"
+            python main.py --days 7 || echo "⚠️ Calendar briefing completed with warnings"
+          elif [ -n "$GOOGLE_CREDENTIALS_JSON" ] && [ -n "$GOOGLE_TOKEN_JSON" ]; then
+            echo "⚠️ Using generic GOOGLE_TOKEN_JSON (may not have calendar scopes)"
             python main.py --days 7 || echo "⚠️ Calendar briefing completed with warnings"
           else
             echo "⏭️ Skipping calendar briefing (credentials not configured)"
-            echo "   Required: GOOGLE_CREDENTIALS_JSON, GOOGLE_TOKEN_JSON"
+            echo "   Required: GOOGLE_CREDENTIALS_JSON + GOOGLE_CALENDAR_TOKEN_JSON"
           fi
       
       # ─────────────────────────────────────────────────────────────

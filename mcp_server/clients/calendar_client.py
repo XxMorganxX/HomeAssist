@@ -200,9 +200,16 @@ class CalendarComponent:
             ],
         )
         
-        # Method 1: Full JSON blobs (GOOGLE_TOKEN_JSON + GOOGLE_CREDENTIALS_JSON)
-        token_json = os.getenv("GOOGLE_TOKEN_JSON", "").strip()
+        # Method 1: Full JSON blobs (prefer calendar-specific token, fall back to generic)
+        token_json = os.getenv("GOOGLE_CALENDAR_TOKEN_JSON", "").strip() or os.getenv("GOOGLE_TOKEN_JSON", "").strip()
         creds_json = os.getenv("GOOGLE_CREDENTIALS_JSON", "").strip()
+        
+        # Debug which token source we're using
+        if self._is_headless():
+            if os.getenv("GOOGLE_CALENDAR_TOKEN_JSON", "").strip():
+                print("📋 Using GOOGLE_CALENDAR_TOKEN_JSON (calendar-specific)")
+            elif os.getenv("GOOGLE_TOKEN_JSON", "").strip():
+                print("📋 Using GOOGLE_TOKEN_JSON (generic)")
         
         if token_json and creds_json:
             try:
