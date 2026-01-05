@@ -109,6 +109,16 @@ Create a `.env` file in the project root with your API keys.
 - `REMINDER_LOOKAHEAD_DAYS` — Days ahead to analyze calendar events for reminders (default: `7`)
 - `REMINDER_CALENDAR_USERS` — Comma-separated list of calendar users to analyze (default: `morgan_personal`)
 
+#### Optional — Google Calendar (CI/GitHub Actions)
+
+For running calendar briefing in CI environments, credentials can be provided via environment variables:
+
+- `GOOGLE_CREDENTIALS_JSON` — Base64-encoded OAuth client credentials JSON
+- `GOOGLE_CALENDAR_TOKEN_JSON` — Base64-encoded OAuth token JSON (with calendar scopes)
+- `GOOGLE_TOKEN_JSON` — Fallback token (may have Gmail scopes only)
+
+> 💡 **Tip:** The calendar client auto-detects base64-encoded vs raw JSON secrets.
+
 #### Optional — Gmail OAuth (Email Summarizer)
 
 - `GMAIL_CLIENT_ID` — Gmail OAuth client id (CI-friendly auth; no files needed)
@@ -423,6 +433,24 @@ manager = BriefingManager()
 # Process all pending briefings without openers
 await processor.process_pending_briefings(user="Morgan", briefing_manager=manager)
 ```
+
+**Calendar Event Cache Table (Deduplication):**
+
+The calendar briefing system tracks processed events to avoid duplicate announcements:
+
+```sql
+CREATE TABLE IF NOT EXISTS calendar_event_cache (
+    event_id TEXT PRIMARY KEY,
+    first_seen TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+
+CREATE INDEX IF NOT EXISTS idx_calendar_event_cache_first_seen 
+ON calendar_event_cache(first_seen);
+```
+
+- Events are cached for 30 days, then auto-pruned
+- Cache uses Supabase when available, falls back to local file
+- Prevents re-announcing the same calendar events on each run
 
 **Local Caching (Fast Search):**
 
@@ -833,6 +861,84 @@ TURNAROUND_CONFIG = {
 - `state_management/app_state.json` — Runtime state
 - `state_management/conversation_summary.json` — Current session summary
 - `state_management/persistent_memory.json` — Long-term user memory
+
+---
+
+## ⏰ Scheduled Jobs (GitHub Actions)
+
+HomeAssist includes scheduled background jobs that run via GitHub Actions cron. These create briefing announcements and notifications that the assistant delivers on wake word.
+
+### Workflow Overview
+
+The workflow (`.github/workflows/scheduled_events_cron.yml`) runs daily and includes:
+
+| Job | Description | Output |
+|-----|-------------|--------|
+| **Email Summarizer** | Summarizes unread emails | `notification_sources` table |
+| **News Summarizer** | Curates daily news digest | `notification_sources` table |
+| **Calendar Briefing** | Creates reminder announcements | `briefing_announcements` table |
+
+### Required GitHub Secrets
+
+| Secret | Used By | Description |
+|--------|---------|-------------|
+| `GEMINI_API_KEY` | Email, Calendar | Google Gemini API key |
+| `OPENAI_API_KEY` | News | OpenAI API key |
+| `SUPABASE_URL` | All | Supabase project URL |
+| `SUPABASE_KEY` | All | Supabase service role key |
+| `NEWS_API_KEY_1` | News | NewsAPI.org key |
+
+### Gmail Secrets (Email Summarizer)
+
+| Secret | Description |
+|--------|-------------|
+| `GMAIL_CLIENT_ID` | OAuth client ID from Google Cloud Console |
+| `GMAIL_CLIENT_SECRET` | OAuth client secret |
+| `GMAIL_REFRESH_TOKEN` | Refresh token (get via `reauth_gmail.py`) |
+
+### Calendar Secrets (Calendar Briefing)
+
+| Secret | Description |
+|--------|-------------|
+| `GOOGLE_CREDENTIALS_JSON` | Base64-encoded OAuth client credentials |
+| `GOOGLE_CALENDAR_TOKEN_JSON` | Base64-encoded token with calendar scopes |
+
+**Creating Calendar Token:**
+
+1. Run locally to trigger OAuth (if needed):
+```bash
+python -c "from mcp_server.clients.calendar_client import CalendarComponent; c = CalendarComponent(user='morgan_personal')"
+```
+
+2. Base64 encode your token:
+```bash
+cat google_creds/token_morgan.json | base64
+```
+
+3. Add as GitHub secret: `GOOGLE_CALENDAR_TOKEN_JSON`
+
+> 💡 **Note:** The calendar client auto-detects base64 vs raw JSON and decodes accordingly.
+
+### Manual Trigger
+
+Run the workflow manually from GitHub Actions UI with options to skip specific jobs:
+- `skip_email` — Skip email summarizer
+- `skip_news` — Skip news summarizer  
+- `skip_calendar` — Skip calendar briefing
+
+### Calendar Briefing Details
+
+The calendar briefing job (`scripts/scheduled/calendar_briefing/`):
+
+1. **Fetches** upcoming calendar events (7 days ahead by default)
+2. **Filters** out already-processed events (via `calendar_event_cache` table)
+3. **Analyzes** events with AI to determine optimal reminder timing
+4. **Creates** briefing announcements with pre-generated opener text
+5. **Stores** to `briefing_announcements` table in Supabase
+
+Configuration:
+- `REMINDER_LOOKAHEAD_DAYS` — Days ahead to look (default: 7)
+- `REMINDER_CALENDAR_USERS` — Comma-separated calendar users (default: `morgan_personal`)
 
 ---
 

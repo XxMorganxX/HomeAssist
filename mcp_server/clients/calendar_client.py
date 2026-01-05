@@ -204,20 +204,9 @@ class CalendarComponent:
         token_json = os.getenv("GOOGLE_CALENDAR_TOKEN_JSON", "").strip() or os.getenv("GOOGLE_TOKEN_JSON", "").strip()
         creds_json = os.getenv("GOOGLE_CREDENTIALS_JSON", "").strip()
         
-        # Debug which token source we're using
-        if self._is_headless():
-            if os.getenv("GOOGLE_CALENDAR_TOKEN_JSON", "").strip():
-                print("📋 Using GOOGLE_CALENDAR_TOKEN_JSON (calendar-specific)")
-            elif os.getenv("GOOGLE_TOKEN_JSON", "").strip():
-                print("📋 Using GOOGLE_TOKEN_JSON (generic)")
         
         if token_json and creds_json:
             try:
-                # Debug: show what we received
-                if getattr(config, "DEBUG_MODE", False) or self._is_headless():
-                    print(f"📋 GOOGLE_TOKEN_JSON length: {len(token_json)}, format: {'base64' if not token_json.startswith('{') else 'raw JSON'}")
-                    print(f"📋 GOOGLE_CREDENTIALS_JSON length: {len(creds_json)}, format: {'base64' if not creds_json.startswith('{') else 'raw JSON'}")
-                
                 token_data = decode_json_secret(token_json)
                 creds_data = decode_json_secret(creds_json)
                 

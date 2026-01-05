@@ -142,7 +142,8 @@ HomeAssist/
 │
 ├── scripts/scheduled/         # Background jobs
 │   ├── email_summarizer/      # Email digest pipeline
-│   └── news_summarizer/       # News summary pipeline
+│   ├── news_summary/          # News summary pipeline
+│   └── calendar_briefing/     # Calendar reminder announcements
 │
 ├── audio_data/                # Model files
 │   ├── wake_word_models/
