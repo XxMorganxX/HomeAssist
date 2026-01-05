@@ -25,7 +25,22 @@ if str(PROJECT_ROOT) not in sys.path:
 
 from dotenv import load_dotenv
 
-load_dotenv()
+# Debug: Check env vars BEFORE load_dotenv (in CI, these come from GitHub secrets)
+if os.getenv("CI") == "true":
+    _creds = os.getenv("GOOGLE_CREDENTIALS_JSON", "")
+    _token = os.getenv("GOOGLE_TOKEN_JSON", "")
+    print(f"🔍 [PRE-DOTENV] GOOGLE_CREDENTIALS_JSON: {len(_creds)} chars, starts with: {repr(_creds[:30]) if _creds else 'EMPTY'}")
+    print(f"🔍 [PRE-DOTENV] GOOGLE_TOKEN_JSON: {len(_token)} chars, starts with: {repr(_token[:30]) if _token else 'EMPTY'}")
+
+# Load .env file (won't override existing env vars by default)
+load_dotenv(override=False)
+
+# Debug: Check env vars AFTER load_dotenv
+if os.getenv("CI") == "true":
+    _creds = os.getenv("GOOGLE_CREDENTIALS_JSON", "")
+    _token = os.getenv("GOOGLE_TOKEN_JSON", "")
+    print(f"🔍 [POST-DOTENV] GOOGLE_CREDENTIALS_JSON: {len(_creds)} chars, starts with: {repr(_creds[:30]) if _creds else 'EMPTY'}")
+    print(f"🔍 [POST-DOTENV] GOOGLE_TOKEN_JSON: {len(_token)} chars, starts with: {repr(_token[:30]) if _token else 'EMPTY'}")
 
 # Import after path setup
 from analyzer import ReminderAnalyzer
