@@ -173,9 +173,59 @@ def create_briefing_from_alerts(
     }
 
 
+def cancel_existing_weather_briefings(client, user_id: str) -> int:
+    """
+    Cancel any existing pending weather briefings for a user.
+    
+    Called before inserting a new weather briefing to prevent duplicates.
+    
+    Args:
+        client: Supabase client
+        user_id: User ID to cancel briefings for
+        
+    Returns:
+        Number of briefings cancelled
+    """
+    try:
+        # Find pending weather briefings for this user
+        # Weather briefings have IDs starting with "weather_" and source "weather_briefing"
+        response = (
+            client.table("briefing_announcements")
+            .select("id, content")
+            .eq("user_id", user_id)
+            .eq("status", "pending")
+            .like("id", "weather_%")
+            .execute()
+        )
+        
+        if not response.data:
+            return 0
+        
+        # Cancel each pending weather briefing
+        cancelled = 0
+        for briefing in response.data:
+            try:
+                client.table("briefing_announcements").update({
+                    "status": "cancelled"
+                }).eq("id", briefing["id"]).execute()
+                cancelled += 1
+                print(f"   🚫 Cancelled old weather briefing: {briefing['id']}")
+            except Exception as e:
+                print(f"   ⚠️  Failed to cancel {briefing['id']}: {e}")
+        
+        return cancelled
+        
+    except Exception as e:
+        print(f"   ⚠️  Error checking for existing briefings: {e}")
+        return 0
+
+
 def store_briefing_to_supabase(briefing: Dict[str, Any]) -> bool:
     """
     Store a briefing to the Supabase briefing_announcements table.
+    
+    Automatically cancels any existing pending weather briefings for the user
+    before inserting the new one.
     
     Args:
         briefing: Briefing dict to store
@@ -194,6 +244,12 @@ def store_briefing_to_supabase(briefing: Dict[str, Any]) -> bool:
         from supabase import create_client
         client = create_client(supabase_url, supabase_key)
         
+        # First, cancel any existing pending weather briefings for this user
+        user_id = briefing["user_id"]
+        cancelled = cancel_existing_weather_briefings(client, user_id)
+        if cancelled > 0:
+            print(f"   📋 Cancelled {cancelled} existing weather briefing(s)")
+        
         # Prepare record for Supabase
         record = {
             "id": briefing["id"],
@@ -203,7 +259,7 @@ def store_briefing_to_supabase(briefing: Dict[str, Any]) -> bool:
             "status": briefing["status"],
         }
         
-        # Upsert to avoid duplicates
+        # Insert the new briefing
         client.table("briefing_announcements").upsert(record).execute()
         print(f"   ✅ Stored briefing to Supabase: {briefing['id']}")
         return True

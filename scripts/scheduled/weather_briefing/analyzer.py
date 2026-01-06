@@ -100,26 +100,40 @@ def _save_location_to_cache(location: GeoLocation) -> None:
 
 def get_location_from_ip() -> Optional[GeoLocation]:
     """
-    Get location from IP address using multiple geolocation services.
-    
-    Uses coordinates (lat/lon) as primary data since they're more reliable
-    than ZIP codes from IP geolocation.
+    Get location from IP address using ipinfo.io (primary) with fallbacks.
     
     Returns:
         GeoLocation object, or None on failure
     """
-    # Services ordered by reliability for coordinates
-    services = [
-        {
-            "name": "ipwho.is",
-            "url": "https://ipwho.is/",
-            "lat_key": "latitude",
-            "lon_key": "longitude",
-            "city_key": "city",
-            "region_key": "region",
-            "country_key": "country",
-            "zip_key": "postal",
-        },
+    # Primary: ipinfo.io - reliable and returns loc as "lat,lon"
+    try:
+        response = requests.get("https://ipinfo.io/json", timeout=5)
+        if response.status_code == 200:
+            data = response.json()
+            
+            # ipinfo.io returns loc as "lat,lon" string
+            loc = data.get("loc", "")
+            if loc and "," in loc:
+                lat_str, lon_str = loc.split(",")
+                lat = float(lat_str)
+                lon = float(lon_str)
+                
+                # Validate coordinates
+                if -90 <= lat <= 90 and -180 <= lon <= 180:
+                    return GeoLocation(
+                        lat=lat,
+                        lon=lon,
+                        city=data.get("city", "") or "",
+                        region=data.get("region", "") or "",
+                        country=data.get("country", "") or "",
+                        zip_code=data.get("postal", "") or "",
+                        source="ipinfo.io",
+                    )
+    except Exception:
+        pass  # Fall through to backup services
+    
+    # Fallback services if ipinfo.io fails
+    fallback_services = [
         {
             "name": "ip-api.com",
             "url": "http://ip-api.com/json/?fields=lat,lon,city,regionName,country,zip,status",
@@ -142,7 +156,7 @@ def get_location_from_ip() -> Optional[GeoLocation]:
         },
     ]
     
-    for service in services:
+    for service in fallback_services:
         try:
             response = requests.get(service["url"], timeout=5)
             if response.status_code == 200:
