@@ -2,14 +2,13 @@
 """
 Weather Briefing - Main Entry Point
 
-Fetches weather forecasts and creates briefing announcements only when
-unusual weather conditions are detected in the next 2 days.
+Fetches weather forecasts for multiple locations and creates briefing 
+announcements when unusual weather conditions are detected.
 
 Usage:
-    python main.py [--zip ZIP_CODE] [--days DAYS_TO_CHECK] [--dry-run]
+    python main.py [--days DAYS_TO_CHECK] [--dry-run]
 
 Environment Variables:
-    WEATHER_ZIP_CODE: Default ZIP code (default: 10001)
     SUPABASE_URL: Supabase project URL
     SUPABASE_KEY: Supabase service role key
 """
@@ -37,6 +36,17 @@ except ImportError:
 
 # Load environment variables
 load_dotenv()
+
+
+# ============================================================================
+# CONFIGURED LOCATIONS
+# Weather briefings will be generated for each of these ZIP codes
+# ============================================================================
+BRIEFING_LOCATIONS = [
+    {"zip": "14850", "name": "Ithaca"},
+    {"zip": "11205", "name": "Brooklyn"},
+    {"zip": "11932", "name": "East Hampton"},
+]
 
 
 def print_banner():
@@ -150,9 +160,9 @@ def create_briefing_from_alerts(
     # Get alert types for metadata
     alert_types = list(set(a.alert_type.value for a in alerts))
     
-    # Create briefing ID based on date and type
-    today = datetime.now().strftime("%Y%m%d")
-    briefing_id = f"weather_{today}_{uuid.uuid4().hex[:8]}"
+    # Create briefing ID with standard format: {source}_{date}_{uuid}
+    today = datetime.now().strftime("%Y-%m-%d")
+    briefing_id = f"weather_{today}_{uuid.uuid4()}"
     
     return {
         "id": briefing_id,
@@ -173,7 +183,79 @@ def create_briefing_from_alerts(
     }
 
 
-def cancel_existing_weather_briefings(client, user_id: str) -> int:
+def create_location_briefing(
+    location_name: str,
+    alerts: List[WeatherAlert],
+    user_id: str,
+    analyzer: WeatherAnalyzer
+) -> Optional[Dict[str, Any]]:
+    """
+    Create a briefing announcement for a single location.
+    
+    Args:
+        location_name: Name of the location (e.g., "Ithaca")
+        alerts: List of WeatherAlert objects for this location
+        user_id: Target user ID
+        analyzer: WeatherAnalyzer instance for formatting
+        
+    Returns:
+        Briefing dict ready for Supabase, or None if no alerts
+    """
+    if not alerts:
+        return None
+    
+    # Prioritize and format alerts
+    sorted_alerts = analyzer.prioritize_alerts(alerts)
+    
+    # Build location-prefixed message
+    formatted_messages = []
+    for alert in sorted_alerts:
+        msg = alert.message
+        # Replace "Today:" with location name
+        if msg.startswith("Today:"):
+            msg = msg.replace("Today:", f"{location_name}:", 1)
+        elif msg.startswith("Tomorrow:"):
+            msg = msg.replace("Tomorrow:", f"{location_name} tomorrow:", 1)
+        else:
+            msg = f"{location_name}: {msg}"
+        formatted_messages.append(msg)
+    
+    message = " ".join(formatted_messages)
+    
+    # Determine priority
+    has_severe = any(a.severity == "severe" for a in alerts)
+    has_significant = any(a.severity == "significant" for a in alerts)
+    priority = "high" if has_severe else ("normal" if has_significant else "low")
+    
+    # Get alert types for metadata
+    alert_types = list(set(a.alert_type.value for a in alerts))
+    
+    # Create briefing ID with location slug: weather_{location}_{date}_{uuid}
+    location_slug = location_name.lower().replace(" ", "_")
+    today = datetime.now().strftime("%Y-%m-%d")
+    briefing_id = f"weather_{location_slug}_{today}_{uuid.uuid4()}"
+    
+    return {
+        "id": briefing_id,
+        "user_id": user_id,
+        "content": {
+            "message": message,
+            "llm_instructions": f"Present this {location_name} weather update naturally and briefly. Focus on actionable advice.",
+            "meta": {
+                "source": "weather_briefing",
+                "location": location_name,
+                "alert_types": alert_types,
+                "alert_count": len(alerts),
+                "severities": list(set(a.severity for a in alerts)),
+                "generated_at": datetime.now(timezone.utc).isoformat(),
+            }
+        },
+        "priority": priority,
+        "status": "pending",
+    }
+
+
+def cancel_existing_weather_briefings(client, user_id: str, location_slug: Optional[str] = None) -> int:
     """
     Cancel any existing pending weather briefings for a user.
     
@@ -182,19 +264,28 @@ def cancel_existing_weather_briefings(client, user_id: str) -> int:
     Args:
         client: Supabase client
         user_id: User ID to cancel briefings for
+        location_slug: If provided, only cancel briefings for this location
+                      (format: weather_{location_slug}_{date}_{uuid})
         
     Returns:
         Number of briefings cancelled
     """
     try:
         # Find pending weather briefings for this user
-        # Weather briefings have IDs starting with "weather_" and source "weather_briefing"
+        # Format: weather_{location}_{date}_{uuid} or legacy weather_{date}_{uuid}
+        if location_slug:
+            # Only cancel briefings for this specific location
+            pattern = f"weather_{location_slug}_%"
+        else:
+            # Cancel all weather briefings (legacy behavior)
+            pattern = "weather_%"
+        
         response = (
             client.table("briefing_announcements")
-            .select("id, content")
+            .select("id")
             .eq("user_id", user_id)
             .eq("status", "pending")
-            .like("id", "weather_%")
+            .like("id", pattern)
             .execute()
         )
         
@@ -224,8 +315,8 @@ def store_briefing_to_supabase(briefing: Dict[str, Any]) -> bool:
     """
     Store a briefing to the Supabase briefing_announcements table.
     
-    Automatically cancels any existing pending weather briefings for the user
-    before inserting the new one.
+    Automatically cancels any existing pending weather briefings for the same
+    location before inserting the new one.
     
     Args:
         briefing: Briefing dict to store
@@ -244,11 +335,23 @@ def store_briefing_to_supabase(briefing: Dict[str, Any]) -> bool:
         from supabase import create_client
         client = create_client(supabase_url, supabase_key)
         
-        # First, cancel any existing pending weather briefings for this user
+        # Extract location slug from briefing ID if present
+        # Format: weather_{location}_{date}_{uuid}
         user_id = briefing["user_id"]
-        cancelled = cancel_existing_weather_briefings(client, user_id)
+        briefing_id = briefing["id"]
+        location_slug = None
+        
+        # Parse location from ID: weather_ithaca_2026-01-06_uuid
+        parts = briefing_id.split("_")
+        if len(parts) >= 4 and parts[0] == "weather":
+            # Check if second part looks like a location (not a date)
+            if not parts[1].startswith("20"):  # Not a year
+                location_slug = parts[1]
+        
+        # Cancel existing briefings for this location only
+        cancelled = cancel_existing_weather_briefings(client, user_id, location_slug)
         if cancelled > 0:
-            print(f"   📋 Cancelled {cancelled} existing weather briefing(s)")
+            print(f"   📋 Cancelled {cancelled} existing briefing(s) for {location_slug or 'weather'}")
         
         # Prepare record for Supabase
         record = {
@@ -302,151 +405,151 @@ def save_alerts_locally(alerts: List[WeatherAlert], output_dir: Path) -> None:
 def main():
     """Main entry point."""
     parser = argparse.ArgumentParser(description="Weather Briefing Generator")
-    parser.add_argument("--zip", type=str, help="ZIP code (fallback if coords not available)")
-    parser.add_argument("--lat", type=float, help="Latitude (more accurate than ZIP)")
-    parser.add_argument("--lon", type=float, help="Longitude (more accurate than ZIP)")
     parser.add_argument("--days", type=int, default=1, help="Days ahead to alert on (default: 1 = today only)")
     parser.add_argument("--user", type=str, default="Morgan", help="User ID for briefing")
     parser.add_argument("--dry-run", action="store_true", help="Don't store to Supabase")
-    parser.add_argument("--no-cache", action="store_true", help="Don't use cached location")
-    parser.add_argument("--set-location", action="store_true", help="Set home location from --lat/--lon and exit")
     args = parser.parse_args()
     
     print_banner()
-    
-    # Handle --set-location command
-    if args.set_location:
-        if args.lat is None or args.lon is None:
-            print("❌ --set-location requires both --lat and --lon")
-            print("   Example: python main.py --set-location --lat 40.8351 --lon -73.6265")
-            return 1
-        set_home_location(args.lat, args.lon)
-        return 0
-    
-    # Location resolution priority:
-    # 1. Command line --lat/--lon (most accurate)
-    # 2. Cached location (from previous run or manual set)
-    # 3. Auto-detect from IP geolocation
-    # 4. WEATHER_ZIP_CODE environment variable
-    # 5. Command line --zip
-    # 6. Default fallback (NYC)
-    
-    location: Optional[GeoLocation] = None
-    zip_code: Optional[str] = None
-    
-    # Check for explicit coordinates
-    if args.lat is not None and args.lon is not None:
-        location = GeoLocation(lat=args.lat, lon=args.lon, source="command_line")
-        print(f"📍 Using provided coordinates: ({args.lat}, {args.lon})")
-    else:
-        # Try auto-detection (includes cache check)
-        location = auto_detect_location(use_cache=not args.no_cache)
-    
-    # Fallback to ZIP code if no coordinates
-    if not location:
-        zip_code = args.zip or os.getenv("WEATHER_ZIP_CODE")
-        if zip_code:
-            print(f"📍 Using ZIP code: {zip_code}")
-        else:
-            zip_code = "10001"  # NYC default
-            print(f"⚠️  No location found, using default ZIP: {zip_code}")
     
     days_to_check = args.days
     user_id = args.user
     
     print(f"\nConfiguration:")
-    if location:
-        print(f"   Location: {location.display_name()}")
-        print(f"   Coordinates: ({location.lat:.4f}, {location.lon:.4f})")
-    else:
-        print(f"   ZIP Code: {zip_code}")
+    print(f"   Locations: {len(BRIEFING_LOCATIONS)}")
+    for loc in BRIEFING_LOCATIONS:
+        print(f"      • {loc['name']} (ZIP: {loc['zip']})")
     print(f"   Days to check: {days_to_check}")
     print(f"   User: {user_id}")
     print(f"   Dry run: {args.dry_run}")
     print()
     
-    # Initialize analyzer
-    analyzer = WeatherAnalyzer(zip_code=zip_code or "00000")
+    # Initialize analyzer (season-based thresholds)
+    analyzer = WeatherAnalyzer(zip_code="00000")
     print(f"🌡️  Current season: {analyzer._current_season}")
     print(f"   Temperature thresholds: {analyzer._get_temp_thresholds()}")
     print()
     
-    # Fetch weather data - prefer coordinates over ZIP
-    if location:
-        forecast = fetch_weather_by_coords(location.lat, location.lon, days=7)
-    else:
+    # Fetch and analyze weather for all locations
+    location_alerts: Dict[str, List[WeatherAlert]] = {}
+    all_forecasts: Dict[str, Dict[str, Any]] = {}
+    
+    for loc in BRIEFING_LOCATIONS:
+        zip_code = loc["zip"]
+        location_name = loc["name"]
+        
+        print(f"\n{'='*60}")
+        print(f"📍 {location_name} (ZIP: {zip_code})")
+        print("="*60)
+        
+        # Fetch weather data
         forecast = fetch_weather_data(zip_code, days=7)
+        
+        if not forecast:
+            print(f"   ❌ Failed to fetch weather data for {location_name}")
+            location_alerts[location_name] = []
+            continue
+        
+        all_forecasts[location_name] = forecast
+        
+        # Display forecast for this location
+        daily = forecast.get("daily", {})
+        dates = daily.get("time", [])
+        print(f"\n📅 7-day forecast:")
+        for i, date in enumerate(dates):
+            temp_high = daily.get("temperature_2m_max", [])[i] if i < len(daily.get("temperature_2m_max", [])) else "?"
+            temp_low = daily.get("temperature_2m_min", [])[i] if i < len(daily.get("temperature_2m_min", [])) else "?"
+            precip = daily.get("precipitation_sum", [])[i] if i < len(daily.get("precipitation_sum", [])) else 0
+            precip_prob = daily.get("precipitation_probability_max", [])[i] if i < len(daily.get("precipitation_probability_max", [])) else 0
+            code = daily.get("weathercode", [])[i] if i < len(daily.get("weathercode", [])) else 0
+            day_name = analyzer._get_day_name(date)
+            marker = "→ " if i < days_to_check else "  "
+            print(f"   {marker}{day_name} ({date}): {temp_low}°F - {temp_high}°F, precip: {precip}\" ({precip_prob}%), code: {code}")
+        
+        # Analyze for unusual conditions
+        print(f"\n🔍 Analyzing {location_name} for unusual weather...")
+        alerts = analyzer.analyze_forecast(forecast, days_to_check=days_to_check)
+        location_alerts[location_name] = alerts
+        
+        if not alerts:
+            print(f"   ✅ No unusual weather detected in {location_name}")
+        else:
+            print(f"   ⚠️  Found {len(alerts)} weather alert(s):")
+            for alert in alerts:
+                severity_emoji = {"severe": "🔴", "significant": "🟠", "moderate": "🟡"}
+                emoji = severity_emoji.get(alert.severity, "⚪")
+                print(f"      {emoji} [{alert.severity.upper()}] {alert.message}")
     
-    if not forecast:
-        print("❌ Failed to fetch weather data")
-        return 1
+    # Summarize all alerts
+    print(f"\n{'='*60}")
+    print("📋 SUMMARY")
+    print("="*60)
     
-    # Display full week forecast for context
-    daily = forecast.get("daily", {})
-    dates = daily.get("time", [])
-    print(f"\n📅 7-day forecast (for context):")
-    for i, date in enumerate(dates):
-        temp_high = daily.get("temperature_2m_max", [])[i] if i < len(daily.get("temperature_2m_max", [])) else "?"
-        temp_low = daily.get("temperature_2m_min", [])[i] if i < len(daily.get("temperature_2m_min", [])) else "?"
-        precip = daily.get("precipitation_sum", [])[i] if i < len(daily.get("precipitation_sum", [])) else 0
-        precip_prob = daily.get("precipitation_probability_max", [])[i] if i < len(daily.get("precipitation_probability_max", [])) else 0
-        code = daily.get("weathercode", [])[i] if i < len(daily.get("weathercode", [])) else 0
-        day_name = analyzer._get_day_name(date)
-        marker = "→ " if i < days_to_check else "  "  # Mark days we'll alert on
-        print(f"   {marker}{day_name} ({date}): {temp_low}°F - {temp_high}°F, precip: {precip}\" ({precip_prob}%), code: {code}")
-    print(f"\n🎯 Alerting on: next {days_to_check} day(s) only (today)")
+    total_alerts = sum(len(alerts) for alerts in location_alerts.values())
     
-    # Analyze for unusual conditions
-    print("🔍 Analyzing for unusual weather...")
-    alerts = analyzer.analyze_forecast(forecast, days_to_check=days_to_check)
-    
-    if not alerts:
-        print("   ✅ No unusual weather detected - no briefing needed")
+    if total_alerts == 0:
+        print("   ✅ No unusual weather detected at any location - no briefing needed")
         print("\n" + "=" * 60)
         print("✅ COMPLETE - No action required")
         print("=" * 60)
         return 0
     
-    # Display alerts
-    print(f"   ⚠️  Found {len(alerts)} weather alert(s):")
-    for alert in alerts:
-        severity_emoji = {"severe": "🔴", "significant": "🟠", "moderate": "🟡"}
-        emoji = severity_emoji.get(alert.severity, "⚪")
-        print(f"      {emoji} [{alert.severity.upper()}] {alert.message}")
+    print(f"   Total alerts: {total_alerts}")
+    for location_name, alerts in location_alerts.items():
+        if alerts:
+            print(f"   • {location_name}: {len(alerts)} alert(s)")
     print()
     
-    # Save locally for debugging
+    # Save all alerts locally for debugging
     ephemeral_dir = Path(__file__).parent / "ephemeral_data"
-    save_alerts_locally(alerts, ephemeral_dir)
+    all_alerts_flat = []
+    for location_name, alerts in location_alerts.items():
+        for alert in alerts:
+            all_alerts_flat.append(WeatherAlert(
+                alert_type=alert.alert_type,
+                date=alert.date,
+                day_name=alert.day_name,
+                severity=alert.severity,
+                message=f"[{location_name}] {alert.message}",
+                details={**alert.details, "location": location_name},
+            ))
+    save_alerts_locally(all_alerts_flat, ephemeral_dir)
     
-    # Create briefing
-    print("📝 Creating briefing announcement...")
-    briefing = create_briefing_from_alerts(alerts, user_id, analyzer)
+    # Create separate briefings for each location with alerts
+    briefings_created = []
     
-    if not briefing:
-        print("   ⚠️  Failed to create briefing")
-        return 1
-    
-    print(f"   Briefing ID: {briefing['id']}")
-    print(f"   Priority: {briefing['priority']}")
-    print(f"   Message: {briefing['content']['message']}")
-    print()
-    
-    # Store to Supabase
-    if args.dry_run:
-        print("🏃 Dry run - skipping Supabase storage")
-        print(f"   Would store: {json.dumps(briefing, indent=2)}")
-    else:
-        print("💾 Storing to Supabase...")
-        if store_briefing_to_supabase(briefing):
-            print("   ✅ Briefing stored successfully")
+    for location_name, alerts in location_alerts.items():
+        if not alerts:
+            continue
+        
+        print(f"\n📝 Creating briefing for {location_name}...")
+        briefing = create_location_briefing(location_name, alerts, user_id, analyzer)
+        
+        if not briefing:
+            print(f"   ⚠️  Failed to create briefing for {location_name}")
+            continue
+        
+        print(f"   Briefing ID: {briefing['id']}")
+        print(f"   Priority: {briefing['priority']}")
+        print(f"   Message: {briefing['content']['message']}")
+        
+        # Store to Supabase
+        if args.dry_run:
+            print(f"   🏃 Dry run - would store: {briefing['id']}")
         else:
-            print("   ⚠️  Failed to store briefing (check logs)")
+            print(f"   💾 Storing to Supabase...")
+            if store_briefing_to_supabase(briefing):
+                print(f"   ✅ Briefing stored successfully")
+                briefings_created.append(briefing['id'])
+            else:
+                print(f"   ⚠️  Failed to store briefing (check logs)")
     
     print("\n" + "=" * 60)
     print("✅ WEATHER BRIEFING COMPLETE")
-    print(f"   Alerts generated: {len(alerts)}")
-    print(f"   Briefing created: {briefing['id']}")
+    print(f"   Locations checked: {len(BRIEFING_LOCATIONS)}")
+    print(f"   Locations with alerts: {sum(1 for a in location_alerts.values() if a)}")
+    print(f"   Total alerts: {total_alerts}")
+    print(f"   Briefings created: {len(briefings_created)}")
     print("=" * 60)
     
     return 0

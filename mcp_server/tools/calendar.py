@@ -36,33 +36,36 @@ class CalendarTool(BaseTool):
     """Enhanced tool for accessing and managing Google Calendar events with comprehensive command support."""
     
     name = "calendar_data"
-    version = "1.0.2"
+    version = "1.1.0"
+    
+    def __init__(self):
+        """Initialize the calendar tool."""
+        # Initialize instance variables BEFORE calling super().__init__()
+        # (which accesses self.description which needs _available_calendars)
+        self.calendar_instances: Dict[str, CalendarComponent] = {}
+        self._available_calendars = None
+        self.available_actions = ["read", "create_event"]
+        self.available_read_types = ["next_events", "day_summary", "week_summary", "specific_date"]
+        
+        super().__init__()
     
     @property
     def description(self) -> str:
         """Dynamic description using configured default user."""
-        default_user = get_default_calendar_user()
-        return f"Access Google Calendar for reading and creating events across multiple users and calendars. Supports viewing upcoming events, daily summaries, and event creation. DEFAULTS: User defaults to '{default_user}', action defaults to 'read' (only use 'write'/'create_event' when user explicitly asks to add/create/schedule a new event). CRITICAL RESTRICTION: Only query ONE user per request - never multiple users simultaneously. For day summaries, user MUST explicitly say 'today' in their request."
+        calendars = self.available_calendars
+        return f"Google Calendar access. ONE tool call per request. Calendars: {calendars}. READ: auto-reads from all. WRITE: 'calendars' array adds same event to multiple calendars in one call. IMPORTANT: For create_event, NEVER invent times - if user didn't specify start_time/end_time, OMIT those fields and the tool will tell you to ask the user."
     
-    def __init__(self):
-        """Initialize the calendar tool."""
-        super().__init__()
-        
-        # Cache calendar instances for each user
-        self.calendar_instances: Dict[str, CalendarComponent] = {}
-        
-        # Available users from config (dynamically loaded)
-        self._available_users = None
-        self.available_actions = ["read", "write", "create_event"]
-        self.available_read_types = ["next_events", "day_summary", "week_summary", "specific_date"]
-        self.available_calendar_names = ["primary", "personal", "work", "school", "class", "default", "homeassist", "assistant"]
+    @property
+    def available_calendars(self) -> List[str]:
+        """Dynamically get available calendars from config."""
+        if self._available_calendars is None:
+            self._available_calendars = get_calendar_users()
+        return self._available_calendars
     
     @property
     def available_users(self) -> List[str]:
-        """Dynamically get available users from config."""
-        if self._available_users is None:
-            self._available_users = get_calendar_users()
-        return self._available_users
+        """Alias for available_calendars for backward compatibility."""
+        return self.available_calendars
     
     def get_schema(self) -> Dict[str, Any]:
         """
@@ -71,102 +74,81 @@ class CalendarTool(BaseTool):
         Returns:
             Detailed JSON schema dictionary
         """
+        # Build calendar options: individual calendars + "all" for reading
+        calendar_options = self.available_calendars + ["all"]
+        
         return {
             "type": "object",
             "properties": {
                 "commands": {
                     "type": "array",
-                    "description": f"List of calendar commands to execute. DEFAULTS: user='{get_default_calendar_user()}', read_or_write='read'. CRITICAL: Only ONE user per request. Available users: {self.available_users}. For 'What's my next meeting?' use [{{'read_type': 'next_events', 'limit': 3}}] (defaults to primary user + read).",
+                    "description": "Exactly ONE command per tool call. Never call this tool multiple times for the same user request.",
+                    "minItems": 1,
+                    "maxItems": 1,
                     "items": {
                         "type": "object",
                         "properties": {
                             "read_or_write": {
                                 "type": "string",
-                                "description": "Operation type. Defaults to 'read'. 'read' retrieves existing events and information, 'write' or 'create_event' adds new events to the calendar. Use 'read' for questions about schedules, upcoming events, or daily summaries. Only use 'write'/'create_event' when user EXPLICITLY asks to add, create, or schedule a new event.",
-                                "enum": ["read", "write", "create_event"],
+                                "description": "'read' (default) for viewing events. 'create_event' only when user explicitly asks to add/create/schedule.",
+                                "enum": ["read", "create_event"],
                                 "default": "read"
                             },
-                            "user": {
+                            "calendar": {
                                 "type": "string",
-                                "description": f"Which user's calendar to access. Defaults to '{get_default_calendar_user()}'. Each user has different permissions and calendar access. NEVER query multiple users in a single request.",
-                                "enum": self.available_users,
-                                "default": get_default_calendar_user()
+                                "description": f"READ: defaults to 'all'. WRITE: ignored (use 'calendars').",
+                                "enum": calendar_options
+                            },
+                            "calendars": {
+                                "type": "array",
+                                "items": {"type": "string", "enum": self.available_calendars},
+                                "description": f"WRITE only: calendars to add event to. Defaults to ['morgan_personal']. Use array to add same event to multiple calendars: ['morgan_personal', 'homeassist']"
                             },
                             "read_type": {
                                 "type": "string",
-                                "description": "Type of read operation when read_or_write is 'read'. 'next_events' gets upcoming events in chronological order, 'day_summary' gets all events for a specific day (requires user to explicitly say 'today'), 'week_summary' gets events for the current week, 'specific_date' gets events for a particular date (requires date parameter).",
-                                "enum": self.available_read_types
-                            },
-                            "calendar_name": {
-                                "type": "string",
-                                "description": "Specific calendar to access within the user's account. For READ operations, defaults to 'primary' which reads from ALL calendars. For WRITE/CREATE operations, defaults to 'homeassist' (the dedicated assistant calendar). Options: 'primary'/'default' (all calendars for reads), 'homeassist'/'assistant' (for assistant-created events), 'personal', 'work', 'school'/'class'. You usually don't need to specify this - it auto-selects based on read vs write.",
-                                "enum": self.available_calendar_names,
-                                "default": "primary"
+                                "description": "For read: 'next_events' (default), 'day_summary', 'week_summary', 'specific_date'.",
+                                "enum": self.available_read_types,
+                                "default": "next_events"
                             },
                             "limit": {
                                 "type": "integer",
                                 "minimum": 1,
                                 "maximum": 50,
-                                "description": "Maximum number of events to return for 'next_events' read_type. Use 1-3 for quick checks ('next meeting'), 5-10 for daily planning, 20+ for comprehensive reviews. Default is 10.",
+                                "description": "Max events to return. Default 10.",
                                 "default": 10
                             },
                             "date": {
                                 "type": "string",
-                                "description": "Specific date in YYYY-MM-DD format when read_type is 'specific_date' or for event creation. IMPORTANT: Always use the current year (check CURRENT CONTEXT in system prompt) unless user explicitly mentions a different year. For 'today' queries, use current date. For relative dates like 'next Tuesday' or 'January 15th', use the current or upcoming year, not past years. Required for specific_date read_type and event creation."
+                                "description": "YYYY-MM-DD format. Required for 'specific_date' read and event creation. For create_event: ONLY provide if user specified a date. If user says 'today'/'tomorrow'/etc, convert to YYYY-MM-DD. If no date mentioned, OMIT this field."
                             },
                             "event_title": {
                                 "type": "string",
-                                "description": "Title/summary of the event when creating new events (read_or_write is 'write' or 'create_event'). Be descriptive and clear, e.g., 'Team Meeting with Marketing', 'Doctor Appointment', 'CS 101 Lecture'."
+                                "description": "Event title. Required for create_event."
                             },
                             "event_description": {
                                 "type": "string",
-                                "description": "Detailed description of the event when creating events. Include agenda, location details, preparation notes, or other relevant information."
+                                "description": "Event description. Optional."
                             },
                             "start_time": {
                                 "type": "string",
-                                "description": "Start time for event creation. Accepts 12-hour (e.g., '11pm', '11:30AM') or 24-hour HH:MM (e.g., '23:00'). The tool will normalize to 24-hour internally. Required for event creation."
+                                "description": "Start time (HH:MM or '3pm'). Required for create_event. CRITICAL: DO NOT provide this field unless the user explicitly stated a time. If user did not specify a time, OMIT this field entirely - the tool will return an error prompting you to ask the user."
                             },
                             "end_time": {
                                 "type": "string",
-                                "description": "End time for event creation. Accepts 12-hour (e.g., '11:30pm') or 24-hour HH:MM (e.g., '23:30'). Must be after start_time."
+                                "description": "End time (HH:MM or '4pm'). Required for create_event. CRITICAL: DO NOT provide this field unless the user explicitly stated an end time. If not specified, OMIT this field - the tool will prompt you to ask the user."
                             },
                             "location": {
                                 "type": "string",
-                                "description": "Event location when creating events. Can be physical address, room number, or virtual meeting link. e.g., 'Conference Room A', '123 Main St', 'https://zoom.us/j/123456789'."
+                                "description": "Event location. Optional."
                             },
                             "attendees": {
                                 "type": "array",
                                 "items": {"type": "string"},
-                                "description": "List of attendee email addresses when creating events. Include all participants who should receive calendar invitations."
-                            },
-                            "include_past_events": {
-                                "type": "boolean",
-                                "description": "Whether to include past events in the results. Normally false to focus on upcoming events, but set to true when user asks about historical events or 'what did I have earlier today'.",
-                                "default": False
-                            },
-                            "time_zone": {
-                                "type": "string",
-                                "description": "Time zone for event times. Uses system default if not specified. Format like 'America/New_York', 'Europe/London', etc."
+                                "description": "Attendee emails. Optional."
                             }
                         },
-                        "required": [],  # user defaults to primary user, read_or_write defaults to read
-                        "if": {
-                            "properties": {"read_or_write": {"const": "read"}}
-                        },
-                        "then": {
-                            "required": ["read_type"]
-                        },
-                        "else": {
-                            "if": {
-                                "properties": {"read_or_write": {"enum": ["write", "create_event"]}}
-                            },
-                            "then": {
-                                "required": ["event_title", "date", "start_time", "end_time"]
-                            }
-                        }
-                    },
-                    "minItems": 1,
-                    "maxItems": 5
+                        "required": []
+                    }
                 }
             },
             "required": ["commands"]
@@ -187,29 +169,48 @@ class CalendarTool(BaseTool):
                 return {
                     "success": False,
                     "error": "No commands provided. At least one command is required.",
-                    "available_users": self.available_users,
+                    "available_calendars": self.available_calendars,
                     "available_actions": self.available_actions
+                }
+            
+            # Enforce: ONE command per tool call
+            if len(commands) > 1:
+                return {
+                    "success": False,
+                    "error": "Only ONE command per tool call. Do not make multiple calendar tool calls for the same request.",
+                    "available_calendars": self.available_calendars
                 }
             
             if LOG_TOOLS:
                 self.logger.info("Executing Tool: Calendar -- %s", params)
             
-            users_in_request = set(cmd.get("user") for cmd in commands if cmd.get("user"))
-            if len(users_in_request) > 1:
+            # Limit: Only ONE write command per call (to prevent duplicate events)
+            write_commands = [c for c in commands if c.get("read_or_write") == "create_event"]
+            if len(write_commands) > 1:
                 return {
                     "success": False,
-                    "error": f"CRITICAL VIOLATION: Only ONE user per request allowed. Found users: {list(users_in_request)}",
-                    "available_users": self.available_users,
-                    "restriction": "Single user per request only"
+                    "error": "Only ONE write/create_event command allowed per call. To add an event to multiple calendars, use the 'calendars' array parameter instead of multiple commands.",
+                    "available_calendars": self.available_calendars
                 }
             
             validation_errors = self._validate_commands(commands)
             if validation_errors:
+                # Check if errors are about missing info - provide actionable guidance
+                missing_info_errors = [e for e in validation_errors if "MISSING_INFO:" in e]
+                if missing_info_errors:
+                    # Extract the user-friendly message
+                    guidance = missing_info_errors[0].replace("Command 1: MISSING_INFO: ", "")
+                    return {
+                        "success": False,
+                        "error": "Cannot create event - missing required information",
+                        "action_required": guidance,
+                        "hint": "Ask the user to provide this information before trying again."
+                    }
                 return {
                     "success": False,
                     "error": "Command validation failed",
                     "validation_errors": validation_errors,
-                    "available_users": self.available_users,
+                    "available_calendars": self.available_calendars,
                     "available_actions": self.available_actions
                 }
             
@@ -229,13 +230,20 @@ class CalendarTool(BaseTool):
             successful_commands = [r for r in results if r.get("success")]
             failed_commands = [r for r in results if not r.get("success")]
             
+            # Determine calendars used
+            calendars_used = set()
+            for cmd in commands:
+                cal = cmd.get("calendar") or cmd.get("user")
+                if cal:
+                    calendars_used.add(cal)
+            
             return {
                 "success": len(failed_commands) == 0,
                 "total_commands": len(commands),
                 "successful_commands": len(successful_commands),
                 "failed_commands": len(failed_commands),
                 "results": results,
-                "user": list(users_in_request)[0] if users_in_request else "unknown",
+                "calendars": list(calendars_used),
                 "timestamp": self._get_current_timestamp()
             }
         except Exception as e:
@@ -252,6 +260,9 @@ class CalendarTool(BaseTool):
         """Validate all commands before execution."""
         errors = []
         
+        # Valid calendar options include "all" for read operations
+        valid_calendars = self.available_calendars + ["all"]
+        
         for i, cmd in enumerate(commands):
             cmd_errors = []
             
@@ -261,10 +272,15 @@ class CalendarTool(BaseTool):
             elif cmd["read_or_write"] not in self.available_actions:
                 cmd_errors.append(f"Invalid read_or_write '{cmd['read_or_write']}'. Must be one of: {self.available_actions}")
             
-            if "user" not in cmd:
-                cmd_errors.append("Missing required 'user' parameter")
-            elif cmd["user"] not in self.available_users:
-                cmd_errors.append(f"Invalid user '{cmd['user']}'. Must be one of: {self.available_users}")
+            # Get calendar value (from 'calendar' or 'user' param)
+            calendar = cmd.get("calendar") or cmd.get("user")
+            
+            if not calendar:
+                cmd_errors.append("Missing required 'calendar' parameter")
+            elif calendar not in valid_calendars:
+                cmd_errors.append(f"Invalid calendar '{calendar}'. Must be one of: {valid_calendars}")
+            elif calendar == "all" and cmd.get("read_or_write") in ["write", "create_event"]:
+                cmd_errors.append("Cannot use 'all' for write operations. Specify a specific calendar to write to.")
             
             # Validate read operations
             if cmd.get("read_or_write") == "read":
@@ -283,22 +299,36 @@ class CalendarTool(BaseTool):
                     cmd_errors.append("read_type 'specific_date' requires 'date' parameter")
             
             # Validate write operations
-            elif cmd.get("read_or_write") in ["write", "create_event"]:
-                required_fields = ["event_title", "date", "start_time", "end_time"]
-                for field in required_fields:
-                    if field not in cmd:
-                        cmd_errors.append(f"Event creation requires '{field}' parameter")
+            elif cmd.get("read_or_write") == "create_event":
+                # Check for missing required fields with user-friendly prompts
+                missing_fields = []
+                if "event_title" not in cmd or not cmd["event_title"]:
+                    missing_fields.append("event title/name")
+                if "date" not in cmd or not cmd["date"]:
+                    missing_fields.append("date")
+                if "start_time" not in cmd or not cmd["start_time"]:
+                    missing_fields.append("start time")
+                if "end_time" not in cmd or not cmd["end_time"]:
+                    missing_fields.append("end time")
                 
-                # Validate time format
-                if "start_time" in cmd and not self._is_valid_time_format(cmd["start_time"]):
-                    cmd_errors.append("start_time must be in HH:MM format (24-hour)")
-                
-                if "end_time" in cmd and not self._is_valid_time_format(cmd["end_time"]):
-                    cmd_errors.append("end_time must be in HH:MM format (24-hour)")
-                
-                # Validate date format
-                if "date" in cmd and not self._is_valid_date_format(cmd["date"]):
-                    cmd_errors.append("date must be in YYYY-MM-DD format")
+                if missing_fields:
+                    # Create user-friendly prompt to ask for missing info
+                    if len(missing_fields) == 1:
+                        cmd_errors.append(f"MISSING_INFO: Please ask the user for the {missing_fields[0]} of the event.")
+                    else:
+                        fields_str = ", ".join(missing_fields[:-1]) + f" and {missing_fields[-1]}"
+                        cmd_errors.append(f"MISSING_INFO: Please ask the user for the {fields_str} of the event.")
+                else:
+                    # Validate time format only if times are provided
+                    if not self._is_valid_time_format(cmd["start_time"]):
+                        cmd_errors.append("INVALID_FORMAT: start_time must be in HH:MM format (e.g., '14:00' or '2pm')")
+                    
+                    if not self._is_valid_time_format(cmd["end_time"]):
+                        cmd_errors.append("INVALID_FORMAT: end_time must be in HH:MM format (e.g., '15:00' or '3pm')")
+                    
+                    # Validate date format
+                    if not self._is_valid_date_format(cmd["date"]):
+                        cmd_errors.append("INVALID_FORMAT: date must be in YYYY-MM-DD format")
             
             # Add command-specific errors
             if cmd_errors:
@@ -309,24 +339,30 @@ class CalendarTool(BaseTool):
     def _execute_single_command(self, cmd: Dict[str, Any], cmd_index: int) -> Dict[str, Any]:
         """Execute a single calendar command."""
         try:
-            user = cmd["user"]
+            calendar = cmd.get("calendar") or cmd.get("user")
             action = cmd["read_or_write"]
             
-            # Get calendar instance
-            calendar_instance = self._get_calendar_instance(user)
+            # Write commands handle their own calendar instances (supports multiple calendars)
+            if action in ["write", "create_event"]:
+                return self._handle_write_command(cmd, cmd_index)
+            
+            # Handle "all" calendars for read operations
+            if calendar == "all" and action == "read":
+                return self._handle_read_all_calendars(cmd, cmd_index)
+            
+            # Get calendar instance for specific calendar (read operations)
+            calendar_instance = self._get_calendar_instance(calendar)
             if not calendar_instance:
                 return {
                     "success": False,
                     "command_index": cmd_index,
-                    "error": f"Failed to initialize calendar for user: {user}",
+                    "error": f"Failed to initialize calendar: {calendar}",
                     "command": cmd
                 }
             
-            # Execute based on action type
+            # Execute read operation
             if action == "read":
                 return self._handle_read_command(calendar_instance, cmd, cmd_index)
-            elif action in ["write", "create_event"]:
-                return self._handle_write_command(calendar_instance, cmd, cmd_index)
             else:
                 return {
                     "success": False,
@@ -343,17 +379,129 @@ class CalendarTool(BaseTool):
                 "error": str(e)
             }
     
-    def _handle_read_command(self, calendar_instance: CalendarComponent, cmd: Dict[str, Any], cmd_index: int) -> Dict[str, Any]:
-        """Handle calendar read operations."""
-        read_type = cmd["read_type"]
-        calendar_name = cmd.get("calendar_name", "primary")
+    def _handle_read_all_calendars(self, cmd: Dict[str, Any], cmd_index: int) -> Dict[str, Any]:
+        """Handle read operations that span all configured calendars."""
+        read_type = cmd.get("read_type", "next_events")
         limit = cmd.get("limit", 10)
         include_past = cmd.get("include_past_events", False)
+        
+        all_events = []
+        calendars_read = []
+        errors = []
+        
+        # Get calendar IDs from config
+        try:
+            from mcp_server.config import CALENDAR_USERS
+        except ImportError:
+            CALENDAR_USERS = {}
+        
+        # Read from each configured calendar
+        for cal_name in self.available_calendars:
+            try:
+                calendar_instance = self._get_calendar_instance(cal_name)
+                if not calendar_instance:
+                    errors.append(f"Failed to initialize {cal_name}")
+                    continue
+                
+                calendars_read.append(cal_name)
+                
+                # Get the specific calendar_id for this calendar from config
+                # Service accounts need the actual calendar ID, not "primary"
+                cal_config = CALENDAR_USERS.get(cal_name, {})
+                calendar_id = cal_config.get("calendar_id", "primary")
+                
+                if read_type == "next_events":
+                    events = calendar_instance.get_upcoming_events(
+                        calendar_name=calendar_id,
+                        max_results=limit,
+                        include_past=include_past
+                    )
+                elif read_type == "day_summary":
+                    target_date = cmd.get("date", datetime.now().strftime("%Y-%m-%d"))
+                    events = calendar_instance.get_day_events(
+                        date=target_date,
+                        calendar_name=calendar_id,
+                        include_past=include_past
+                    )
+                elif read_type == "week_summary":
+                    events = calendar_instance.get_week_events(
+                        calendar_name=calendar_id,
+                        include_past=include_past
+                    )
+                elif read_type == "specific_date":
+                    target_date = cmd["date"]
+                    events = calendar_instance.get_day_events(
+                        date=target_date,
+                        calendar_name=calendar_id,
+                        include_past=include_past
+                    )
+                else:
+                    events = []
+                
+                # Add source calendar info to each event
+                for event in events:
+                    if isinstance(event, dict):
+                        event["source_calendar"] = cal_name
+                
+                all_events.extend(events)
+                
+            except Exception as e:
+                errors.append(f"{cal_name}: {str(e)}")
+        
+        # Sort all events by start time
+        def get_event_sort_key(event):
+            if isinstance(event, dict):
+                # Try to get start time from various formats
+                start = event.get("start_time") or event.get("start") or ""
+                if isinstance(start, dict):
+                    start = start.get("dateTime") or start.get("date") or ""
+                return str(start)
+            return str(event)
+        
+        all_events.sort(key=get_event_sort_key)
+        
+        # Limit total results
+        limited_events = all_events[:limit]
+        
+        result = {
+            "success": True,
+            "command_index": cmd_index,
+            "command": cmd,
+            "read_type": read_type,
+            "events": limited_events,
+            "event_count": len(limited_events),
+            "total_events_found": len(all_events),
+            "calendars_read": calendars_read,
+            "calendar": "all"
+        }
+        
+        if errors:
+            result["warnings"] = errors
+        
+        if read_type in ["day_summary", "specific_date"]:
+            result["date"] = cmd.get("date", datetime.now().strftime("%Y-%m-%d"))
+        
+        return result
+    
+    def _handle_read_command(self, calendar_instance: CalendarComponent, cmd: Dict[str, Any], cmd_index: int) -> Dict[str, Any]:
+        """Handle calendar read operations for a single calendar."""
+        read_type = cmd["read_type"]
+        calendar = cmd.get("calendar") or cmd.get("user")
+        limit = cmd.get("limit", 10)
+        include_past = cmd.get("include_past_events", False)
+        
+        # Get the specific calendar_id from config (service accounts need this)
+        try:
+            from mcp_server.config import CALENDAR_USERS
+            cal_config = CALENDAR_USERS.get(calendar, {})
+            calendar_id = cal_config.get("calendar_id", "primary")
+        except ImportError:
+            calendar_id = "primary"
         
         try:
             if read_type == "next_events":
                 events = calendar_instance.get_upcoming_events(
-                    calendar_name=calendar_name,
+                    calendar_name=calendar_id,
                     max_results=limit,
                     include_past=include_past
                 )
@@ -365,8 +513,7 @@ class CalendarTool(BaseTool):
                     "read_type": read_type,
                     "events": events,
                     "event_count": len(events),
-                    "calendar": calendar_name,
-                    "user": cmd["user"]
+                    "calendar": calendar
                 }
             
             elif read_type == "day_summary":
@@ -374,7 +521,7 @@ class CalendarTool(BaseTool):
                 target_date = cmd.get("date", datetime.now().strftime("%Y-%m-%d"))
                 events = calendar_instance.get_day_events(
                     date=target_date,
-                    calendar_name=calendar_name,
+                    calendar_name=calendar_id,
                     include_past=include_past
                 )
                 
@@ -386,13 +533,12 @@ class CalendarTool(BaseTool):
                     "date": target_date,
                     "events": events,
                     "event_count": len(events),
-                    "calendar": calendar_name,
-                    "user": cmd["user"]
+                    "calendar": calendar
                 }
             
             elif read_type == "week_summary":
                 events = calendar_instance.get_week_events(
-                    calendar_name=calendar_name,
+                    calendar_name=calendar_id,
                     include_past=include_past
                 )
                 
@@ -403,15 +549,14 @@ class CalendarTool(BaseTool):
                     "read_type": read_type,
                     "events": events,
                     "event_count": len(events),
-                    "calendar": calendar_name,
-                    "user": cmd["user"]
+                    "calendar": calendar
                 }
             
             elif read_type == "specific_date":
                 target_date = cmd["date"]
                 events = calendar_instance.get_day_events(
                     date=target_date,
-                    calendar_name=calendar_name,
+                    calendar_name=calendar_id,
                     include_past=include_past
                 )
                 
@@ -423,8 +568,7 @@ class CalendarTool(BaseTool):
                     "date": target_date,
                     "events": events,
                     "event_count": len(events),
-                    "calendar": calendar_name,
-                    "user": cmd["user"]
+                    "calendar": calendar
                 }
             
             else:
@@ -443,44 +587,98 @@ class CalendarTool(BaseTool):
                 "command": cmd
             }
     
-    def _handle_write_command(self, calendar_instance: CalendarComponent, cmd: Dict[str, Any], cmd_index: int) -> Dict[str, Any]:
-        """Handle calendar write operations."""
+    def _handle_write_command(self, cmd: Dict[str, Any], cmd_index: int) -> Dict[str, Any]:
+        """Handle calendar write operations. Supports adding ONE event to MULTIPLE calendars."""
         try:
-            event_data = {
-                "title": cmd["event_title"],
-                "description": cmd.get("event_description", ""),
-                "date": cmd["date"],
-                "start_time": cmd["start_time"],
-                "end_time": cmd["end_time"],
-                "location": cmd.get("location", ""),
-                "attendees": cmd.get("attendees", []),
-                "calendar_name": cmd.get("calendar_name", "primary"),
-                "time_zone": cmd.get("time_zone")
-            }
-            created_event = calendar_instance.create_event(event_data)
-            return {
-                "success": True,
-                "command_index": cmd_index,
-                "command": cmd,
-                "operation": "create_event",
-                "created_event": created_event,
-                "event_title": cmd["event_title"],
-                "event_date": cmd["date"],
-                "event_time": f"{cmd['start_time']} - {cmd['end_time']}",
-                "calendar": cmd.get("calendar_name", "primary"),
-                "user": cmd["user"]
-            }
-        except Exception as e:
+            from mcp_server.config import CALENDAR_USERS
+        except ImportError:
+            CALENDAR_USERS = {}
+        
+        # Get target calendars - prefer 'calendars' array, fallback to 'calendar' string
+        target_calendars = cmd.get("calendars")
+        if not target_calendars:
+            single_cal = cmd.get("calendar") or cmd.get("user") or "morgan_personal"
+            target_calendars = [single_cal]
+        
+        # Validate all calendars exist
+        for cal in target_calendars:
+            if cal not in CALENDAR_USERS:
+                return {
+                    "success": False,
+                    "command_index": cmd_index,
+                    "error": f"Unknown calendar: {cal}. Available: {list(CALENDAR_USERS.keys())}",
+                    "command": cmd
+                }
+        
+        # Create event on each target calendar
+        created_events = []
+        errors = []
+        
+        for cal_name in target_calendars:
+            try:
+                # Get calendar instance for this calendar
+                cal_instance = self._get_calendar_instance(cal_name)
+                if not cal_instance:
+                    errors.append(f"Failed to initialize {cal_name}")
+                    continue
+                
+                # Get the calendar_id from config
+                cal_config = CALENDAR_USERS.get(cal_name, {})
+                calendar_id = cal_config.get("calendar_id", "primary")
+                
+                event_data = {
+                    "title": cmd["event_title"],
+                    "description": cmd.get("event_description", ""),
+                    "date": cmd["date"],
+                    "start_time": cmd["start_time"],
+                    "end_time": cmd["end_time"],
+                    "location": cmd.get("location", ""),
+                    "attendees": cmd.get("attendees", []),
+                    "calendar_name": calendar_id,
+                    "time_zone": cmd.get("time_zone")
+                }
+                
+                created = cal_instance.create_event(event_data)
+                created_events.append({
+                    "calendar": cal_name,
+                    "event_id": created.get("id"),
+                    "link": created.get("htmlLink")
+                })
+                
+            except Exception as e:
+                errors.append(f"{cal_name}: {str(e)}")
+        
+        if not created_events:
             return {
                 "success": False,
                 "command_index": cmd_index,
-                "error": f"Event creation failed: {str(e)}",
+                "error": f"Failed to create event on any calendar: {errors}",
                 "command": cmd
             }
+        
+        result = {
+            "success": True,
+            "command_index": cmd_index,
+            "command": cmd,
+            "operation": "create_event",
+            "event_title": cmd["event_title"],
+            "event_date": cmd["date"],
+            "event_time": f"{cmd['start_time']} - {cmd['end_time']}",
+            "created_on_calendars": created_events,
+            "calendars_count": len(created_events)
+        }
+        
+        if errors:
+            result["warnings"] = errors
+        
+        return result
 
     def _normalize_command(self, cmd: Dict[str, Any]) -> Dict[str, Any]:
         """Normalize inputs for calendar commands.
-        - Default user to primary user unless otherwise specified
+        - Handle 'calendar' param (new) and 'user' param (legacy) - prefer 'calendar'
+        - Default calendar based on operation:
+          - READ: defaults to "all" (read from all calendars)
+          - WRITE: defaults to "morgan_personal"
         - Default read_or_write to 'read' unless explicitly creating an event
         - Accept 'write_type': 'create_event' alias by mapping to read_or_write
         - Accept ISO datetimes in start_time/end_time and derive date/HH:MM
@@ -490,9 +688,13 @@ class CalendarTool(BaseTool):
         try:
             normalized = dict(cmd)
             
-            # Default user to primary user unless otherwise specified
-            if not normalized.get("user"):
-                normalized["user"] = get_default_calendar_user()
+            # Handle 'calendar' and 'user' params - prefer 'calendar', fallback to 'user'
+            # NOTE: Default calendar is set LATER based on read vs write operation
+            if normalized.get("calendar"):
+                normalized["user"] = normalized["calendar"]
+            elif normalized.get("user"):
+                normalized["calendar"] = normalized["user"]
+            # else: calendar default will be set after determining read/write
             
             # Map common title synonyms to event_title
             if not normalized.get("event_title"):
@@ -510,26 +712,72 @@ class CalendarTool(BaseTool):
                             break
                     # Also extract other event fields from nested object
                     # Handle both 'start_time'/'end_time' and 'start'/'end' variants
-                    if "start_time" in event_obj:
-                        normalized["start_time"] = event_obj["start_time"]
-                    elif "start" in event_obj:
-                        normalized["start_time"] = event_obj["start"]
-                    if "end_time" in event_obj:
-                        normalized["end_time"] = event_obj["end_time"]
-                    elif "end" in event_obj:
-                        normalized["end_time"] = event_obj["end"]
-                    if "date" in event_obj:
-                        normalized["date"] = event_obj["date"]
+                    # Note: These might be strings OR dicts like:
+                    #   {"dateTime": "2026-01-07T16:30:00"} 
+                    #   {"date": "2026-01-07", "time": "16:30"}
+                    for key in ("start_time", "start"):
+                        if key in event_obj:
+                            val = event_obj[key]
+                            if isinstance(val, dict):
+                                # Extract time from {"date": "...", "time": "..."} format
+                                if "time" in val:
+                                    normalized["start_time"] = val["time"]
+                                    if "date" in val and not normalized.get("date"):
+                                        normalized["date"] = val["date"]
+                                    break
+                                val = val.get("dateTime") or val.get("date") or ""
+                            if isinstance(val, str) and val:
+                                normalized["start_time"] = val
+                                break
+                    for key in ("end_time", "end"):
+                        if key in event_obj:
+                            val = event_obj[key]
+                            if isinstance(val, dict):
+                                # Extract time from {"date": "...", "time": "..."} format
+                                if "time" in val:
+                                    normalized["end_time"] = val["time"]
+                                    break
+                                val = val.get("dateTime") or val.get("date") or ""
+                            if isinstance(val, str) and val:
+                                normalized["end_time"] = val
+                                break
+                    if "date" in event_obj and not normalized.get("date"):
+                        val = event_obj["date"]
+                        if isinstance(val, dict):
+                            val = val.get("dateTime") or val.get("date") or ""
+                        if isinstance(val, str):
+                            normalized["date"] = val
                     if "description" in event_obj:
                         normalized["event_description"] = event_obj["description"]
                     if "location" in event_obj:
                         normalized["location"] = event_obj["location"]
             
             # Also handle top-level 'start'/'end' fields as aliases
+            # Note: These might be strings OR dicts like:
+            #   {"dateTime": "2026-01-07T16:30:00"}
+            #   {"date": "2026-01-07", "time": "16:30"}
             if not normalized.get("start_time") and normalized.get("start"):
-                normalized["start_time"] = normalized.pop("start")
+                val = normalized.pop("start")
+                if isinstance(val, dict):
+                    if "time" in val:
+                        normalized["start_time"] = val["time"]
+                        if "date" in val and not normalized.get("date"):
+                            normalized["date"] = val["date"]
+                        val = None  # Already handled
+                    else:
+                        val = val.get("dateTime") or val.get("date") or ""
+                if isinstance(val, str) and val:
+                    normalized["start_time"] = val
             if not normalized.get("end_time") and normalized.get("end"):
-                normalized["end_time"] = normalized.pop("end")
+                val = normalized.pop("end")
+                if isinstance(val, dict):
+                    if "time" in val:
+                        normalized["end_time"] = val["time"]
+                        val = None  # Already handled
+                    else:
+                        val = val.get("dateTime") or val.get("date") or ""
+                if isinstance(val, str) and val:
+                    normalized["end_time"] = val
             
             # Handle "action" field as alias for read_or_write
             if normalized.get("action") and not normalized.get("read_or_write"):
@@ -541,7 +789,11 @@ class CalendarTool(BaseTool):
             
             wt = normalized.get("write_type")
             if wt and not normalized.get("read_or_write"):
-                normalized["read_or_write"] = "create_event" if wt == "create_event" else "write"
+                normalized["read_or_write"] = "create_event"
+            
+            # Normalize "write" to "create_event" (write is deprecated alias)
+            if normalized.get("read_or_write") == "write":
+                normalized["read_or_write"] = "create_event"
             
             # Default to 'read' unless explicitly creating an event (has event_title or write action)
             if not normalized.get("read_or_write"):
@@ -551,6 +803,17 @@ class CalendarTool(BaseTool):
                     normalized["read_or_write"] = "create_event"
                 else:
                     normalized["read_or_write"] = "read"
+            
+            # NOW set default calendar based on operation type (if not already specified)
+            # - READ: defaults to "all" (read from all calendars combined)
+            # - WRITE: defaults to "morgan_personal"
+            if not normalized.get("calendar") and not normalized.get("user"):
+                if normalized.get("read_or_write") in ["write", "create_event"]:
+                    normalized["calendar"] = "morgan_personal"
+                    normalized["user"] = "morgan_personal"
+                else:
+                    normalized["calendar"] = "all"
+                    normalized["user"] = "all"
             
             # Default read_type to 'next_events' for read operations without a read_type
             if normalized.get("read_or_write") == "read" and not normalized.get("read_type"):
@@ -566,6 +829,11 @@ class CalendarTool(BaseTool):
                     if parsed.get("time"):
                         normalized[key] = parsed["time"]
             dval = normalized.get("date")
+            # Handle case where date is a dict like {"dateTime": "..."} or {"date": "..."}
+            if isinstance(dval, dict):
+                dval = dval.get("dateTime") or dval.get("date") or ""
+                if isinstance(dval, str):
+                    normalized["date"] = dval
             if isinstance(dval, str) and "T" in dval:
                 try:
                     iso = dval.replace("Z", "+00:00")
@@ -645,6 +913,8 @@ class CalendarTool(BaseTool):
     
     def _is_valid_time_format(self, time_str: str) -> bool:
         """Validate HH:MM time format."""
+        if not isinstance(time_str, str):
+            return False
         try:
             datetime.strptime(time_str, "%H:%M")
             return True
@@ -653,6 +923,8 @@ class CalendarTool(BaseTool):
     
     def _is_valid_date_format(self, date_str: str) -> bool:
         """Validate YYYY-MM-DD date format."""
+        if not isinstance(date_str, str):
+            return False
         try:
             datetime.strptime(date_str, "%Y-%m-%d")
             return True

@@ -899,6 +899,41 @@ The workflow (`.github/workflows/scheduled_events_cron.yml`) runs daily and incl
 
 ### Calendar Secrets (Calendar Briefing)
 
+**Option 1: Service Account (Recommended for CI - No User Interaction)**
+
+| Secret | Description |
+|--------|-------------|
+| `GOOGLE_SERVICE_ACCOUNT_JSON` | Base64-encoded service account JSON key |
+
+**Setting up a Service Account:**
+
+1. Go to [Google Cloud Console](https://console.cloud.google.com/)
+2. Create or select a project
+3. Navigate to **IAM & Admin** → **Service Accounts**
+4. Click **Create Service Account**
+   - Name: `calendar-briefing`
+   - Role: None needed (calendar access is per-calendar)
+5. Click on the new service account → **Keys** → **Add Key** → **JSON**
+6. Download the JSON key file
+7. **Share your calendar** with the service account email:
+   - Open Google Calendar
+   - Click the gear icon on your calendar → **Settings and sharing**
+   - Under "Share with specific people", add the service account email
+   - Permission: "See all event details" or "Make changes to events"
+8. Base64 encode and add to GitHub secrets:
+
+```bash
+cat service-account-key.json | base64
+```
+
+9. Add as GitHub secret: `GOOGLE_SERVICE_ACCOUNT_JSON`
+
+> ✅ **Advantages:** Never expires, no user interaction, works perfectly in CI/CD
+
+---
+
+**Option 2: OAuth (Requires Initial User Interaction)**
+
 | Secret | Description |
 |--------|-------------|
 | `GOOGLE_CREDENTIALS_JSON` | Base64-encoded OAuth client credentials |
@@ -918,7 +953,7 @@ cat google_creds/token_morgan.json | base64
 
 3. Add as GitHub secret: `GOOGLE_CALENDAR_TOKEN_JSON`
 
-> 💡 **Note:** The calendar client auto-detects base64 vs raw JSON and decodes accordingly.
+> ⚠️ **Note:** OAuth tokens can expire if unused for 6+ months. Service accounts are more reliable for CI.
 
 ### Weather Variables (Weather Briefing)
 
@@ -946,6 +981,16 @@ The calendar briefing job (`scripts/scheduled/calendar_briefing/`):
 3. **Analyzes** events with AI to determine optimal reminder timing
 4. **Creates** briefing announcements with pre-generated opener text
 5. **Stores** to `briefing_announcements` table in Supabase
+
+**Dynamic Time Calculation:**
+
+Calendar briefings use `{{TIME_UNTIL_EVENT}}` placeholder that gets replaced with the actual time remaining when delivered:
+
+- Pre-generated opener: `"Your meeting is in {{TIME_UNTIL_EVENT}}."`
+- At delivery (e.g., 45 min before): `"Your meeting is in about 45 minutes."`
+- At delivery (e.g., 2 hours before): `"Your meeting is in about 2 hours."`
+
+This ensures accurate timing regardless of when the briefing window opens.
 
 Configuration:
 - `REMINDER_LOOKAHEAD_DAYS` — Days ahead to look (default: 7)

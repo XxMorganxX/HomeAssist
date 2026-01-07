@@ -17,7 +17,11 @@
 #   - GMAIL_REFRESH_TOKEN   : From your token.json (get via reauth_gmail.py locally)
 #   - NEWS_API_KEY_2 to _5  : Additional NewsAPI keys for quota rotation
 #
-# OPTIONAL SECRETS (for calendar briefing - you likely already have these):
+# OPTIONAL SECRETS (for calendar briefing):
+#   Option 1 - Service Account (RECOMMENDED - never expires, no user interaction):
+#   - GOOGLE_SERVICE_ACCOUNT_JSON : Service account JSON key (base64-encoded)
+#
+#   Option 2 - OAuth (requires initial user authorization):
 #   - GOOGLE_CREDENTIALS_JSON : Full OAuth client credentials JSON
 #   - GOOGLE_TOKEN_JSON       : Full OAuth token JSON (with refresh_token)
 #
@@ -176,7 +180,9 @@ jobs:
           GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
           SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
           SUPABASE_KEY: ${{ secrets.SUPABASE_KEY }}
-          # Google Calendar OAuth - uses full JSON secrets
+          # Google Calendar - Service Account (recommended, never expires)
+          GOOGLE_SERVICE_ACCOUNT_JSON: ${{ secrets.GOOGLE_SERVICE_ACCOUNT_JSON }}
+          # Google Calendar - OAuth (fallback, can expire)
           GOOGLE_CREDENTIALS_JSON: ${{ secrets.GOOGLE_CREDENTIALS_JSON }}
           GOOGLE_CALENDAR_TOKEN_JSON: ${{ secrets.GOOGLE_CALENDAR_TOKEN_JSON }}
           GOOGLE_TOKEN_JSON: ${{ secrets.GOOGLE_TOKEN_JSON }}
@@ -190,20 +196,24 @@ jobs:
           
           # Debug: check what secrets we have (show length only, not content)
           echo "🔍 Checking credentials..."
-          [ -n "$GOOGLE_CREDENTIALS_JSON" ] && echo "   GOOGLE_CREDENTIALS_JSON: ${#GOOGLE_CREDENTIALS_JSON} chars" || echo "   GOOGLE_CREDENTIALS_JSON: NOT SET"
-          [ -n "$GOOGLE_CALENDAR_TOKEN_JSON" ] && echo "   GOOGLE_CALENDAR_TOKEN_JSON: ${#GOOGLE_CALENDAR_TOKEN_JSON} chars" || echo "   GOOGLE_CALENDAR_TOKEN_JSON: NOT SET"
-          [ -n "$GOOGLE_TOKEN_JSON" ] && echo "   GOOGLE_TOKEN_JSON: ${#GOOGLE_TOKEN_JSON} chars (fallback)" || echo "   GOOGLE_TOKEN_JSON: NOT SET"
+          [ -n "$GOOGLE_SERVICE_ACCOUNT_JSON" ] && echo "   ✅ GOOGLE_SERVICE_ACCOUNT_JSON: ${#GOOGLE_SERVICE_ACCOUNT_JSON} chars (Service Account)" || echo "   ⚪ GOOGLE_SERVICE_ACCOUNT_JSON: NOT SET"
+          [ -n "$GOOGLE_CREDENTIALS_JSON" ] && echo "   ⚪ GOOGLE_CREDENTIALS_JSON: ${#GOOGLE_CREDENTIALS_JSON} chars (OAuth)" || echo "   ⚪ GOOGLE_CREDENTIALS_JSON: NOT SET"
+          [ -n "$GOOGLE_CALENDAR_TOKEN_JSON" ] && echo "   ⚪ GOOGLE_CALENDAR_TOKEN_JSON: ${#GOOGLE_CALENDAR_TOKEN_JSON} chars" || echo "   ⚪ GOOGLE_CALENDAR_TOKEN_JSON: NOT SET"
           
-          # Check if Google credentials are configured (prefer calendar-specific token)
-          if [ -n "$GOOGLE_CREDENTIALS_JSON" ] && [ -n "$GOOGLE_CALENDAR_TOKEN_JSON" ]; then
-            echo "✅ Google Calendar OAuth credentials found"
+          # Check if any credentials are configured
+          if [ -n "$GOOGLE_SERVICE_ACCOUNT_JSON" ]; then
+            echo "✅ Using Service Account credentials (recommended)"
+            python main.py --days 7 || echo "⚠️ Calendar briefing completed with warnings"
+          elif [ -n "$GOOGLE_CREDENTIALS_JSON" ] && [ -n "$GOOGLE_CALENDAR_TOKEN_JSON" ]; then
+            echo "⚠️ Using OAuth credentials (may expire)"
             python main.py --days 7 || echo "⚠️ Calendar briefing completed with warnings"
           elif [ -n "$GOOGLE_CREDENTIALS_JSON" ] && [ -n "$GOOGLE_TOKEN_JSON" ]; then
-            echo "⚠️ Using generic GOOGLE_TOKEN_JSON (may not have calendar scopes)"
+            echo "⚠️ Using generic OAuth token (may not have calendar scopes)"
             python main.py --days 7 || echo "⚠️ Calendar briefing completed with warnings"
           else
             echo "⏭️ Skipping calendar briefing (credentials not configured)"
-            echo "   Required: GOOGLE_CREDENTIALS_JSON + GOOGLE_CALENDAR_TOKEN_JSON"
+            echo "   Recommended: GOOGLE_SERVICE_ACCOUNT_JSON (Service Account)"
+            echo "   Alternative: GOOGLE_CREDENTIALS_JSON + GOOGLE_CALENDAR_TOKEN_JSON (OAuth)"
           fi
       
       # ─────────────────────────────────────────────────────────────

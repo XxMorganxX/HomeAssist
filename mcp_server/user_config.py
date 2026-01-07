@@ -184,28 +184,35 @@ class UserConfig:
         Get the default calendar user identifier.
         
         Returns:
-            Calendar user ID (e.g., "user_personal"), using primary_user.
+            First calendar from CALENDAR_USERS config, or fallback to primary_personal.
         """
+        try:
+            from mcp_server.config import CALENDAR_USERS
+            if CALENDAR_USERS:
+                return list(CALENDAR_USERS.keys())[0]
+        except ImportError:
+            pass
         return f"{self.primary_user_lower}_personal"
     
     def get_calendar_users(self) -> List[str]:
         """
         Get list of configured calendar user identifiers.
         
+        Reads from CALENDAR_USERS in mcp_server/config.py.
+        
         Returns:
             List of calendar user IDs.
         """
+        try:
+            from mcp_server.config import CALENDAR_USERS
+            if CALENDAR_USERS:
+                return list(CALENDAR_USERS.keys())
+        except ImportError:
+            pass
+        
+        # Fallback to generated names
         base_user = self.primary_user_lower
-        users = [
-            f"{base_user}_personal",
-            f"{base_user}_school",
-        ]
-        
-        # Add household members
-        for member in UserConfig._state.get("user_state", {}).get("household_members", []):
-            users.append(member.lower())
-        
-        return users
+        return [f"{base_user}_personal", f"{base_user}_school"]
     
     # =========================================================================
     # Notifications-specific helpers

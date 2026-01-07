@@ -108,20 +108,26 @@ def fetch_events_for_user(user: str, days_ahead: int = 7) -> list:
     """
     try:
         from mcp_server.clients.calendar_client import CalendarComponent
+        from mcp_server.config import CALENDAR_USERS
         
         print(f"📆 Fetching events for {user}...")
         
         calendar = CalendarComponent(user=user)
         
+        # Get the specific calendar_id from config
+        user_config = CALENDAR_USERS.get(user, {})
+        calendar_id = user_config.get("calendar_id", "primary")
+        
         # Calculate time range
         now = datetime.now(timezone.utc)
         end_time = now + timedelta(days=days_ahead)
         
-        # Get events
+        # Get events from the specific calendar
         events = calendar.get_events(
             num_events=50,
             time_min=now.isoformat(),
             time_max=end_time.isoformat(),
+            calendar_id=calendar_id,  # Use the specific calendar ID
         )
         
         # Format events

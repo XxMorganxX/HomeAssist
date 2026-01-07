@@ -1,9 +1,11 @@
 {
-  "last_run": "2026-01-05T07:33:16.406849+00:00",
+  "last_run": "2026-01-06T03:15:08.826116+00:00",
   "events_analyzed": 0,
   "users_processed": [
-    "morgan_personal"
+    "morgan_personal",
+    "morgan_school",
+    "homeassist"
   ],
   "briefings_created": 0,
-  "events_skipped_cached": 2
+  "events_skipped_cached": 3
 }

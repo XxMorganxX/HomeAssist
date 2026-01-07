@@ -4,13 +4,17 @@ Organized into discrete feature sections.
 """
 
 import os
+from pathlib import Path
+
+# Project root (parent of mcp_server/)
+_PROJECT_ROOT = Path(__file__).parent.parent
 
 
 # =============================================================================
 # SECTION 1: DEBUG & LOGGING
 # =============================================================================
 
-DEBUG_MODE = True
+DEBUG_MODE = False  # Set to True for verbose calendar/tool output
 LOG_TOOLS = os.environ.get("LOG_TOOLS", "true").lower() in ("true", "1", "yes")
 
 
@@ -75,11 +79,38 @@ SPOTIFY_USERS = {
 # SECTION 5: GOOGLE CALENDAR
 # =============================================================================
 
+# Service Account credentials (recommended - never expires, no user interaction)
+# The same service account can access multiple calendars if each is shared with it
+_DEFAULT_SA_FILE = str(_PROJECT_ROOT / "google_creds" / "homeassist-google-service.json")
+GOOGLE_SERVICE_ACCOUNT_FILE = os.environ.get("GOOGLE_SERVICE_ACCOUNT_FILE", _DEFAULT_SA_FILE)
+
+# Calendar scopes
+CALENDAR_SCOPES = [
+    "https://www.googleapis.com/auth/calendar.readonly",
+    "https://www.googleapis.com/auth/calendar.events",
+]
+
+# User calendar configurations
+# All calendars use the same service account - just share each calendar with:
+#   calendar-homeassist@homeassist-465018.iam.gserviceaccount.com
+#
+# The "calendar_id" is the email address of the calendar owner (for main calendars)
+# or the calendar ID from Settings > Integrate calendar (for secondary calendars)
 CALENDAR_USERS = {
+    # Calendar 1: Morgan's personal Gmail calendar
     "morgan_personal": {
-        "client_secret": "google_creds/google_creds_morgan.json",
-        "token": "google_creds/token_morgan.json"
-    }
+        "calendar_id": "morgannstuart@gmail.com",
+    },
+    
+    # Calendar 2: Morgan's Cornell calendar
+    "morgan_school": {
+        "calendar_id": "mns66@cornell.edu",
+    },
+    
+    # Calendar 3: HomeAssist calendar (secondary calendar under morgannstuart@gmail.com)
+    "homeassist": {
+        "calendar_id": "bd7409eb309d624908ee53c2adf02cfc3d087e50dd1139909df8d13e2b8bb8e4@group.calendar.google.com",
+    },
 }
 
 

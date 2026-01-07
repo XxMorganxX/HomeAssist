@@ -4,6 +4,7 @@ from pathlib import Path
 import sys
 from typing import Optional, Dict, List, Any
 from google.oauth2.credentials import Credentials
+from google.oauth2 import service_account
 from google_auth_oauthlib.flow import InstalledAppFlow
 from google.auth.transport.requests import Request
 from googleapiclient.discovery import build
@@ -163,6 +164,103 @@ class CalendarComponent:
         # Generic fallback
         return os.getenv("GCAL_REFRESH_TOKEN") or os.getenv("GOOGLE_REFRESH_TOKEN")
     
+    def _try_service_account(self) -> bool:
+        """Try to authenticate using a Google Service Account (best for headless/CI).
+        
+        Service accounts don't require user interaction and never expire.
+        
+        Requirements:
+        1. Create a service account in Google Cloud Console
+        2. Download the JSON key file
+        3. Share your calendar with the service account email (as editor or viewer)
+        4. Set GOOGLE_SERVICE_ACCOUNT_JSON env var (raw JSON or base64-encoded)
+        
+        Environment variables:
+        - GOOGLE_SERVICE_ACCOUNT_JSON: Full service account JSON key (raw or base64)
+        - GOOGLE_SERVICE_ACCOUNT_FILE: Path to service account JSON file (fallback)
+        """
+        import json as json_module
+        import base64
+        
+        scopes = getattr(
+            config,
+            "CALENDAR_SCOPES",
+            [
+                "https://www.googleapis.com/auth/calendar.readonly",
+                "https://www.googleapis.com/auth/calendar.events",
+            ],
+        )
+        
+        sa_json = os.getenv("GOOGLE_SERVICE_ACCOUNT_JSON", "").strip()
+        sa_file = os.getenv("GOOGLE_SERVICE_ACCOUNT_FILE", "").strip()
+        
+        # Method 1: Service account JSON from environment variable
+        if sa_json:
+            try:
+                # Decode if base64-encoded
+                if sa_json.startswith("{"):
+                    sa_data = json_module.loads(sa_json)
+                else:
+                    try:
+                        decoded = base64.b64decode(sa_json).decode("utf-8")
+                        sa_data = json_module.loads(decoded)
+                    except Exception:
+                        sa_data = json_module.loads(sa_json)
+                
+                # Create service account credentials
+                self.creds = service_account.Credentials.from_service_account_info(
+                    sa_data,
+                    scopes=scopes
+                )
+                
+                if getattr(config, "DEBUG_MODE", False):
+                    print(f"✅ Calendar credentials loaded via Service Account for {self.user}")
+                return True
+                
+            except Exception as e:
+                print(f"⚠️ Failed to load service account from env: {e}")
+        
+        # Method 2: Service account from file path (env var)
+        if sa_file and os.path.exists(sa_file):
+            try:
+                self.creds = service_account.Credentials.from_service_account_file(
+                    sa_file,
+                    scopes=scopes
+                )
+                
+                if getattr(config, "DEBUG_MODE", False):
+                    print(f"✅ Calendar credentials loaded via Service Account file for {self.user}")
+                return True
+                
+            except Exception as e:
+                print(f"⚠️ Failed to load service account from file: {e}")
+        
+        # Method 3: Service account from config file path
+        config_sa_file = getattr(config, "GOOGLE_SERVICE_ACCOUNT_FILE", None)
+        if config_sa_file:
+            # Resolve relative paths against project root
+            original_path = config_sa_file
+            if not os.path.isabs(config_sa_file):
+                config_sa_file = str(project_root / config_sa_file)
+            
+            if os.path.exists(config_sa_file):
+                try:
+                    self.creds = service_account.Credentials.from_service_account_file(
+                        config_sa_file,
+                        scopes=scopes
+                    )
+                    
+                    # Always print success for service account (it's the preferred method)
+                    print(f"✅ Calendar credentials loaded via Service Account for {self.user}")
+                    return True
+                    
+                except Exception as e:
+                    print(f"⚠️ Failed to load service account from config: {e}")
+            else:
+                print(f"⚠️ Service account file not found: {config_sa_file}")
+        
+        return False
+    
     def _try_env_credentials(self) -> bool:
         """Try to create credentials from environment variables (for CI/headless).
         
@@ -236,7 +334,8 @@ class CalendarComponent:
                     if not self.creds.valid:
                         self.creds.refresh(Request())
                     
-                    print(f"✅ Calendar credentials loaded from GOOGLE_*_JSON for {self.user}")
+                    if getattr(config, "DEBUG_MODE", False):
+                        print(f"✅ Calendar credentials loaded from GOOGLE_*_JSON for {self.user}")
                     return True
                     
             except Exception as e:
@@ -272,7 +371,8 @@ class CalendarComponent:
             # Refresh to get a valid access token
             self.creds.refresh(Request())
             
-            print(f"✅ Calendar credentials loaded from environment for {self.user}")
+            if getattr(config, "DEBUG_MODE", False):
+                print(f"✅ Calendar credentials loaded from environment for {self.user}")
             return True
             
         except Exception as e:
@@ -284,9 +384,10 @@ class CalendarComponent:
         """Initialize Google credentials for the user.
         
         Order of precedence:
-        1. Environment variables (for CI/GitHub Actions)
-        2. Token file (for local development)
-        3. OAuth flow (interactive, local only)
+        1. Service Account (best for CI - no user interaction, never expires)
+        2. OAuth environment variables (for CI/GitHub Actions)
+        3. Token file (for local development)
+        4. OAuth flow (interactive, local only)
         """
         try:
             scopes = getattr(
@@ -298,7 +399,12 @@ class CalendarComponent:
                 ],
             )
             
-            # 1. Try environment-based credentials first (best for CI)
+            # 1. Try service account first (best for CI - no expiration, no user interaction)
+            if self._try_service_account():
+                self.service = build('calendar', 'v3', credentials=self.creds, cache_discovery=False)
+                return True
+            
+            # 2. Try OAuth environment-based credentials (for CI with refresh tokens)
             if self._try_env_credentials():
                 self.service = build('calendar', 'v3', credentials=self.creds, cache_discovery=False)
                 return True
@@ -870,25 +976,31 @@ class CalendarComponent:
             if event_data.get('attendees'):
                 event_body['attendees'] = [{'email': email} for email in event_data['attendees']]
             
-            # Get calendar ID - try to resolve name to ID
+            # Get calendar ID - use directly if it looks like an ID/email, otherwise resolve
             requested_calendar = event_data.get('calendar_name', 'primary')
-            calendar_id = 'primary'  # Default fallback
             
-            if requested_calendar != 'primary':
-                # Map calendar name to ID if possible
+            # If it looks like an email or calendar ID, use it directly
+            # (e.g., "user@gmail.com" or "abc123@group.calendar.google.com")
+            if '@' in requested_calendar:
+                calendar_id = requested_calendar
+            elif requested_calendar == 'primary':
+                # For service accounts, get the calendar_id from config if available
+                try:
+                    from mcp_server.config import CALENDAR_USERS
+                    user_config = CALENDAR_USERS.get(self._user, {})
+                    calendar_id = user_config.get("calendar_id", "primary")
+                except ImportError:
+                    calendar_id = 'primary'
+            else:
+                # Try to resolve name to ID
+                calendar_id = requested_calendar
                 try:
                     resolved = self.calendar_name_to_id(requested_calendar)
-                    # Verify the calendar exists by checking if we found an actual ID
-                    _, name_to_id = self.get_calendar_mappings()
-                    # Check if resolved ID exists in our known calendars
                     id_to_name, _ = self.get_calendar_mappings()
-                    if resolved in id_to_name or resolved in name_to_id.values():
+                    if resolved in id_to_name:
                         calendar_id = resolved
-                    else:
-                        # Calendar doesn't exist, fallback to primary
-                        print(f"⚠️ Calendar '{requested_calendar}' not found, using primary")
                 except Exception:
-                    pass  # Stick with primary fallback
+                    pass
             
             # Create the event
             created_event = self.service.events().insert(

@@ -449,6 +449,9 @@ class OpenAIWebSocketResponseProvider(ResponseInterface):
                             
                             # Handle function calls if any
                             if function_calls:
+                                # Filter: only ONE calendar_data write per request to prevent duplicate events
+                                function_calls = self._filter_duplicate_calendar_writes(function_calls)
+                                
                                 # Execute all tool calls in parallel for better performance
                                 async def execute_one(fc):
                                     try:
@@ -874,6 +877,61 @@ class OpenAIWebSocketResponseProvider(ResponseInterface):
         args_str = json.dumps(arguments, sort_keys=True) if arguments else "{}"
         return hashlib.md5(f"{name}:{args_str}".encode()).hexdigest()
     
+    def _filter_duplicate_calendar_writes(self, function_calls: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
+        """
+        Filter out duplicate calendar_data write operations.
+        Only ONE calendar_data create_event call is allowed per user request to prevent
+        duplicate events being created on the calendar.
+        
+        Args:
+            function_calls: List of function calls with 'name' and 'arguments' keys
+            
+        Returns:
+            Filtered list with only ONE calendar write operation allowed
+        """
+        filtered = []
+        calendar_write_seen = False
+        
+        for fc in function_calls:
+            name = fc.get("name", "")
+            
+            if name == "calendar_data":
+                # Parse arguments to check if it's a write operation
+                try:
+                    args = json.loads(fc.get("arguments", "{}")) if isinstance(fc.get("arguments"), str) else fc.get("arguments", {})
+                except json.JSONDecodeError:
+                    args = {}
+                
+                commands = args.get("commands", [])
+                is_write = any(
+                    cmd.get("read_or_write") in ("write", "create_event") or
+                    cmd.get("action") in ("write", "create_event") or
+                    cmd.get("write_type") == "create_event"
+                    for cmd in commands
+                )
+                
+                if is_write:
+                    if calendar_write_seen:
+                        print(f"🚫 Blocking duplicate calendar write operation to prevent event duplication")
+                        continue
+                    calendar_write_seen = True
+            
+            filtered.append(fc)
+        
+        return filtered
+    
+    def _has_calendar_write(self, tool_calls: List[ToolCall]) -> bool:
+        """Check if any of the tool calls include a calendar write/create_event operation."""
+        for tc in tool_calls:
+            if tc and tc.name == "calendar_data":
+                args = tc.arguments or {}
+                commands = args.get("commands", [])
+                for cmd in commands:
+                    if cmd.get("read_or_write") in ("write", "create_event") or \
+                       cmd.get("action") in ("write", "create_event"):
+                        return True
+        return False
+    
     async def _check_for_additional_tools(
         self,
         user_message: str,
@@ -933,8 +991,9 @@ class OpenAIWebSocketResponseProvider(ResponseInterface):
                 "1. Check if ALL parts of the user's request are fulfilled. Multi-step requests (e.g., 'find X AND send it to Y') require MULTIPLE tools.\n"
                 "2. If the user asked to do multiple things (find something AND text/email it, search AND save, etc.), make sure EACH step is done.\n"
                 "3. Do NOT call the same tool with the same arguments twice - duplicates are forbidden.\n"
-                "4. If ALL parts of the user's request are fulfilled, respond with: DONE\n"
-                "5. If there are unfulfilled parts, call the appropriate tool(s) to complete them.\n"
+                "4. CALENDAR: Only ONE calendar_data call per request. If calendar_data was already called to create an event, do NOT call it again - the event is already created.\n"
+                "5. If ALL parts of the user's request are fulfilled, respond with: DONE\n"
+                "6. If there are unfulfilled parts, call the appropriate tool(s) to complete them.\n"
                 f"{success_note}\n\n"
                 f"Tools already executed:\n{tools_summary}"
             )
@@ -985,6 +1044,10 @@ class OpenAIWebSocketResponseProvider(ResponseInterface):
             # Check if the AI wants to call more tools
             if choice.message.tool_calls:
                 additional_tools = []
+                
+                # Check if a calendar write was already executed - block any further calendar writes
+                calendar_write_already_done = self._has_calendar_write(tool_calls_so_far)
+                
                 for tc in choice.message.tool_calls:
                     try:
                         args = json.loads(tc.function.arguments) if tc.function.arguments else {}
@@ -996,6 +1059,18 @@ class OpenAIWebSocketResponseProvider(ResponseInterface):
                     if sig in executed_signatures:
                         print(f"🚫 Skipping duplicate tool call: {tc.function.name}")
                         continue
+                    
+                    # Block additional calendar writes if one was already executed
+                    if tc.function.name == "calendar_data" and calendar_write_already_done:
+                        commands = args.get("commands", [])
+                        is_write = any(
+                            cmd.get("read_or_write") in ("write", "create_event") or
+                            cmd.get("action") in ("write", "create_event")
+                            for cmd in commands
+                        )
+                        if is_write:
+                            print(f"🚫 Blocking calendar write - event already created in this request")
+                            continue
                     
                     additional_tools.append({
                         "name": tc.function.name,

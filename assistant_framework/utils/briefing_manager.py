@@ -43,7 +43,8 @@ Workflow:
 
 import json
 import os
-from datetime import datetime, timezone
+import re
+from datetime import datetime, timezone, timedelta
 from pathlib import Path
 from typing import List, Dict, Any, Optional
 
@@ -58,6 +59,117 @@ except ImportError:
 from dotenv import load_dotenv
 
 load_dotenv()
+
+
+def _format_time_until(event_datetime: datetime) -> str:
+    """
+    Calculate and format the exact time remaining until an event.
+    
+    Args:
+        event_datetime: The event's datetime (timezone-aware)
+        
+    Returns:
+        Human-readable exact time string like "15 minutes", "1 hour and 23 minutes", "2 days"
+    """
+    now = datetime.now(timezone.utc)
+    
+    # Ensure event_datetime is timezone-aware
+    if event_datetime.tzinfo is None:
+        event_datetime = event_datetime.replace(tzinfo=timezone.utc)
+    else:
+        event_datetime = event_datetime.astimezone(timezone.utc)
+    
+    delta = event_datetime - now
+    total_seconds = delta.total_seconds()
+    
+    if total_seconds <= 0:
+        return "right now"
+    
+    total_minutes = int(total_seconds / 60)
+    
+    # Less than 1 minute
+    if total_minutes < 1:
+        return "less than a minute"
+    
+    # Less than 60 minutes - show exact minutes
+    if total_minutes < 60:
+        if total_minutes == 1:
+            return "1 minute"
+        return f"{total_minutes} minutes"
+    
+    # Less than 24 hours - show hours and minutes
+    hours = total_minutes // 60
+    remaining_minutes = total_minutes % 60
+    
+    if total_minutes < 1440:  # Less than 24 hours
+        if hours == 1:
+            hour_str = "1 hour"
+        else:
+            hour_str = f"{hours} hours"
+        
+        if remaining_minutes == 0:
+            return hour_str
+        elif remaining_minutes == 1:
+            return f"{hour_str} and 1 minute"
+        else:
+            return f"{hour_str} and {remaining_minutes} minutes"
+    
+    # 24 hours or more - show days and hours
+    days = total_minutes // 1440
+    remaining_hours = (total_minutes % 1440) // 60
+    
+    if days == 1:
+        day_str = "1 day"
+    else:
+        day_str = f"{days} days"
+    
+    if remaining_hours == 0:
+        return day_str
+    elif remaining_hours == 1:
+        return f"{day_str} and 1 hour"
+    else:
+        return f"{day_str} and {remaining_hours} hours"
+
+
+def _substitute_time_placeholder(opener: str, briefing: Dict[str, Any]) -> str:
+    """
+    Replace {{TIME_UNTIL_EVENT}} placeholder with actual calculated time.
+    
+    Args:
+        opener: The opener text with potential placeholder
+        briefing: The briefing dict containing event metadata
+        
+    Returns:
+        Opener with placeholder substituted
+    """
+    if "{{TIME_UNTIL_EVENT}}" not in opener:
+        return opener
+    
+    # Get event datetime from briefing metadata
+    content = briefing.get("content", {})
+    if isinstance(content, str):
+        try:
+            content = json.loads(content)
+        except (json.JSONDecodeError, TypeError):
+            return opener.replace("{{TIME_UNTIL_EVENT}}", "soon")
+    
+    meta = content.get("meta", {})
+    event_datetime_iso = meta.get("event_datetime_iso")
+    
+    if not event_datetime_iso:
+        # Try alternative fields
+        event_datetime_iso = content.get("event_datetime_iso") or meta.get("reminder_at_iso")
+    
+    if not event_datetime_iso:
+        return opener.replace("{{TIME_UNTIL_EVENT}}", "soon")
+    
+    try:
+        # Parse the event datetime
+        event_dt = datetime.fromisoformat(event_datetime_iso.replace("Z", "+00:00"))
+        time_until = _format_time_until(event_dt)
+        return opener.replace("{{TIME_UNTIL_EVENT}}", time_until)
+    except (ValueError, TypeError):
+        return opener.replace("{{TIME_UNTIL_EVENT}}", "soon")
 
 
 def _is_briefing_active(briefing: Dict[str, Any]) -> bool:
@@ -528,20 +640,31 @@ class BriefingManager:
         """
         Get a combined opener from multiple briefings.
         
+        Automatically substitutes {{TIME_UNTIL_EVENT}} placeholders with
+        the actual calculated time remaining until each event.
+        
         Args:
             briefings: List of briefings with opener_text
             
         Returns:
-            Combined opener string, or None if no openers
+            Combined opener string with time placeholders resolved, or None if no openers
         """
-        openers = [b.get("opener_text") for b in briefings if b.get("opener_text")]
-        if not openers:
+        processed_openers = []
+        
+        for briefing in briefings:
+            opener = briefing.get("opener_text")
+            if opener:
+                # Substitute time placeholder with real-time calculation
+                opener = _substitute_time_placeholder(opener, briefing)
+                processed_openers.append(opener)
+        
+        if not processed_openers:
             return None
         
-        if len(openers) == 1:
-            return openers[0]
+        if len(processed_openers) == 1:
+            return processed_openers[0]
         
-        return " ".join(openers)
+        return " ".join(processed_openers)
 
 
 def build_briefing_prompt(briefings: List[Dict[str, Any]]) -> str:

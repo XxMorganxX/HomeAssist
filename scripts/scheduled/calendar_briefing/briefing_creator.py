@@ -7,6 +7,7 @@ and stores them in Supabase for the assistant to deliver.
 
 import os
 import json
+import uuid
 from datetime import datetime, timezone, timedelta
 from typing import List, Dict, Any, Optional, Set
 from pathlib import Path
@@ -386,10 +387,12 @@ class BriefingCreator:
     # System prompt for generating opener text
     OPENER_SYSTEM_PROMPT = """Generate a friendly 1-2 sentence spoken reminder for a voice assistant. Be warm, natural, and helpful. Don't be robotic.
 
+IMPORTANT: If the input contains {{TIME_UNTIL_EVENT}}, you MUST preserve this exact placeholder in your output. It will be replaced with the actual time remaining when spoken.
+
 Examples:
-- Input: "Doctor Appointment in 1 hour" → Output: "Just a heads up - your doctor appointment is in about an hour. Need anything before you head out?"
-- Input: "Team Meeting in 15 minutes" → Output: "Quick reminder, your team meeting starts in 15 minutes!"
-- Input: "Vegas Trip tomorrow" → Output: "Hey! Just wanted to remind you about your Vegas trip tomorrow. Have you started packing yet?"
+- Input: "Doctor Appointment starts in {{TIME_UNTIL_EVENT}}" → Output: "Just a heads up - your doctor appointment is in {{TIME_UNTIL_EVENT}}. Need anything before you head out?"
+- Input: "Team Meeting at 2pm. It starts in {{TIME_UNTIL_EVENT}}" → Output: "Quick reminder, your team meeting starts in {{TIME_UNTIL_EVENT}}!"
+- Input: "Vegas Trip tomorrow at 8am. It starts in {{TIME_UNTIL_EVENT}}" → Output: "Hey! Your Vegas trip is coming up in {{TIME_UNTIL_EVENT}}. Have you started packing yet?"
 """
     
     def __init__(self, timezone_str: str = DEFAULT_TIMEZONE, generate_openers: bool = True):
@@ -640,11 +643,13 @@ Output ONLY the reminder text (1-2 complete sentences that end properly), nothin
             if reminder_at.astimezone(timezone.utc) < now:
                 continue
             
-            # Generate unique ID for this specific reminder
-            reminder_id = f"cal_reminder_{event_id}_{reminder['minutes_before']}m"
+            # Generate unique ID with standard format: {source}_{date}_{uuid}
+            # Include event context for deduplication
+            event_date_str = event_date.replace("/", "-").replace(" ", "")
+            reminder_id = f"calendar_{event_date_str}_{event_id[:8]}_{reminder['minutes_before']}m_{uuid.uuid4()}"
             
-            # Format the briefing message
-            time_until = self.calculator.format_time_until(reminder["minutes_before"])
+            # Format the briefing message with placeholder for real-time calculation
+            # {{TIME_UNTIL_EVENT}} will be replaced at delivery time with actual time remaining
             
             if event_time.lower() in ("all day", "all-day", "allday", ""):
                 time_desc = f"on {event_date}"
@@ -657,7 +662,8 @@ Output ONLY the reminder text (1-2 complete sentences that end properly), nothin
                     formatted_time = event_time
                 time_desc = f"at {formatted_time} on {event_date}"
             
-            message = f"You have '{event_title}' coming up {time_desc}. This is your {time_until} reminder."
+            # Use placeholder - actual time will be calculated when briefing is delivered
+            message = f"You have '{event_title}' coming up {time_desc}. It starts in {{{{TIME_UNTIL_EVENT}}}}."
             
             # active_from is the full datetime when the reminder should become active
             active_from_datetime = reminder["reminder_at_iso"]
@@ -756,11 +762,101 @@ Output ONLY the reminder text (1-2 complete sentences that end properly), nothin
                 self._event_cache.save_and_prune()
             
             print(f"📅 Stored {len(records)} calendar reminder briefings to Supabase (briefing_announcements)")
+            
+            # Clean up expired calendar reminders
+            expired_count = self._mark_expired_reminders()
+            if expired_count > 0:
+                print(f"🧹 Marked {expired_count} expired calendar reminder(s) as 'expired'")
+            
             return True
             
         except Exception as e:
             print(f"❌ Failed to store briefings: {e}")
             return False
+    
+    def _mark_expired_reminders(self) -> int:
+        """
+        Mark pending calendar reminders as 'expired' if their active_from time has passed.
+        
+        This prevents stale reminders from accumulating when they were never delivered.
+        
+        Returns:
+            Number of reminders marked as expired
+        """
+        if not self.is_available():
+            return 0
+        
+        try:
+            now = datetime.now(timezone.utc)
+            
+            # Fetch all pending calendar reminders
+            response = (
+                self._client.table(self.TABLE_NAME)
+                .select("id, content")
+                .eq("status", "pending")
+                .like("id", "calendar_%")  # Match new format: calendar_{date}_{...}_{uuid}
+                .execute()
+            )
+            
+            # Also check old format IDs
+            response_old = (
+                self._client.table(self.TABLE_NAME)
+                .select("id, content")
+                .eq("status", "pending")
+                .like("id", "cal_reminder_%")  # Old format
+                .execute()
+            )
+            
+            all_reminders = (response.data or []) + (response_old.data or [])
+            
+            if not all_reminders:
+                return 0
+            
+            expired_ids = []
+            for reminder in all_reminders:
+                content = reminder.get("content", {})
+                
+                # Handle content as string (JSONB stored as string)
+                if isinstance(content, str):
+                    try:
+                        content = json.loads(content)
+                    except (json.JSONDecodeError, TypeError):
+                        continue
+                
+                active_from = content.get("active_from")
+                if not active_from:
+                    continue
+                
+                try:
+                    # Parse active_from datetime
+                    if "T" in active_from:
+                        active_dt = datetime.fromisoformat(active_from.replace("Z", "+00:00"))
+                    else:
+                        # Date-only format - treat as start of day
+                        active_dt = datetime.strptime(active_from, "%Y-%m-%d").replace(tzinfo=timezone.utc)
+                    
+                    # If active_from is in the past, mark as expired
+                    if active_dt < now:
+                        expired_ids.append(reminder["id"])
+                        
+                except (ValueError, TypeError):
+                    continue
+            
+            # Batch update expired reminders
+            if expired_ids:
+                for reminder_id in expired_ids:
+                    try:
+                        self._client.table(self.TABLE_NAME).update({
+                            "status": "expired"
+                        }).eq("id", reminder_id).execute()
+                    except Exception as e:
+                        print(f"   ⚠️  Failed to expire {reminder_id}: {e}")
+            
+            return len(expired_ids)
+            
+        except Exception as e:
+            print(f"⚠️  Error checking for expired reminders: {e}")
+            return 0
     
     def get_pending_reminders(
         self,
@@ -779,8 +875,19 @@ Output ONLY the reminder text (1-2 complete sentences that end properly), nothin
             return []
         
         try:
-            # Fetch pending calendar reminders for user
+            # Fetch pending calendar reminders for user (new format)
             response = (
+                self._client.table(self.TABLE_NAME)
+                .select("*")
+                .eq("user_id", user)
+                .eq("status", "pending")
+                .like("id", "calendar_%")
+                .order("created_at")
+                .execute()
+            )
+            
+            # Also check old format IDs
+            response_old = (
                 self._client.table(self.TABLE_NAME)
                 .select("*")
                 .eq("user_id", user)
@@ -790,7 +897,7 @@ Output ONLY the reminder text (1-2 complete sentences that end properly), nothin
                 .execute()
             )
             
-            return response.data or []
+            return (response.data or []) + (response_old.data or [])
             
         except Exception as e:
             print(f"❌ Failed to fetch pending reminders: {e}")
