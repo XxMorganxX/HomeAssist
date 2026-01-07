@@ -34,6 +34,7 @@ You can interrupt it mid-sentence (barge-in), ask multi-step questions, and have
 | Barge-in | Interrupt the assistant by speaking |
 | Send phrases | "Send it", "Sir" to submit your message |
 | Auto-send | Automatic submission after silence timeout |
+| Termination phrase | Instant cutoff -> end the session by saying "over out" at any time |
 
 ### Smart Home & Services
 | Tool | What It Controls |
@@ -45,6 +46,9 @@ You can interrupt it mid-sentence (barge-in), ask multi-step questions, and have
 | **Web Search** | Google search with AI-summarized results |
 | **SMS** | Send text messages via macOS Messages |
 | **Notifications** | Email summaries, news digests, custom alerts |
+| **System Info** | Explain the assistant’s architecture and capabilities |
+| **State** | Inspect/update runtime state (debug + automation) |
+| **Cursor** | Local editor automation helpers |
 
 ### Memory & Context
 | System | Purpose |
@@ -69,7 +73,7 @@ The assistant recognizes this needs multiple tools (search → SMS), executes th
 
 1. **Modular providers** — Each component (transcription, TTS, wake word, LLM) is swappable via configuration
 2. **State machine coordination** — Audio components are orchestrated through explicit state transitions to prevent conflicts
-3. **Process isolation** — Wake word detection runs in a separate process to prevent model corruption
+3. **Process isolation** — Wake word + fast termination detection run in separate processes to prevent model corruption
 4. **Tool abstraction** — Smart home control via MCP (Model Context Protocol) for clean separation
 
 ### System Flow
@@ -99,7 +103,7 @@ The assistant recognizes this needs multiple tools (search → SMS), executes th
 |-----------|------------------|---------|
 | Wake Word | OpenWakeWord | `hey_honey_v2` |
 | Transcription | AssemblyAI, OpenAI Whisper | AssemblyAI |
-| Response/LLM | OpenAI Realtime API | `gpt-4o-realtime-preview` |
+| Response/LLM | OpenAI Realtime API (WebSocket) | `gpt-realtime` |
 | TTS | Piper, macOS, Google Cloud, Chatterbox | Piper |
 | Tools | MCP Server | HTTP on `localhost:3000` |
 
@@ -107,10 +111,10 @@ The assistant recognizes this needs multiple tools (search → SMS), executes th
 
 | Scenario | Model | Rationale |
 |----------|-------|-----------|
-| Direct conversation | `gpt-4o-realtime-preview` | Quality prose for thoughtful responses |
-| Tool decisions | `gpt-4o-realtime-preview` | Accurate intent classification |
-| Tool chaining | `gpt-4o-mini` | Cost-effective for "need more tools?" checks |
-| Final answer (after tools) | `gpt-4o-mini` | Just composing results, premium model unnecessary |
+| Direct conversation (streaming) | `gpt-realtime` | Low-latency, natural streaming dialogue |
+| Tool decisions (in-session) | `gpt-realtime` | Lets the realtime model decide and call MCP tools directly |
+| Tool chaining / iterative tool execution | `gpt-4o-mini` | Fast, cost-effective multi-step tool planning + execution loops |
+| Final answer (after tools) | `gpt-4o-mini` | Compose the final response from tool results |
 
 ---
 
@@ -126,6 +130,7 @@ HomeAssist/
 │   │   ├── response/          # LLM responses
 │   │   ├── tts/               # Text-to-speech
 │   │   ├── wakeword_v2/       # Wake word detection
+│   │   ├── termination/       # Fast termination detection ("over out")
 │   │   └── context/           # Conversation history
 │   ├── utils/                 # Shared utilities
 │   │   ├── state_machine.py   # Audio lifecycle management
@@ -133,6 +138,7 @@ HomeAssist/
 │   │   ├── briefing_manager.py
 │   │   └── briefing_processor.py
 │   └── interfaces/            # Abstract base classes
+│       ├── termination.py     # TerminationInterface
 │
 ├── mcp_server/                # Tool server
 │   ├── server.py              # MCP entry point
@@ -194,6 +200,7 @@ python3 -m assistant_framework.main_v2 continuous
 2. Speak your request
 3. Say **"send it"** or wait for auto-send
 4. Listen to the response (interrupt anytime by speaking)
+5. Say **"over out"** to end immediately (including during speech, if fast termination is enabled)
 
 ---
 
@@ -205,6 +212,7 @@ All settings are in `assistant_framework/config.py`. Key sections:
 |---------|----------|
 | Provider Selection | Which implementation for each component |
 | Wake Word | Trigger phrases, sensitivity, multiple wake words |
+| Termination | Fast termination detection config (parallel “over out”) |
 | Transcription | ASR provider settings |
 | Response/LLM | Model selection, temperature, system prompt |
 | TTS | Voice selection, speed, chunking |
