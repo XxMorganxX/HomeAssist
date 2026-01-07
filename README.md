@@ -1,10 +1,10 @@
 # HomeAssist
 
-A personal AI infrastructure project.
+Voice Controlled Personal AI infrastructure. Always listening. Low latency. Actually useful.
 
-This is an always-listening voice assistant tailored to my life, workflows, and data. It's highly modular, agentic, and designed to be a natural companion/mentor. Built on a custom voice agent framework with low-latency processing, HomeAssist is more than a reactive chatbot—it proactively surfaces relevant information, delivers briefings, and anticipates needs like a real assistant would.
+HomeAssist is a voice-first assistant tailored to my life, workflows, and data—modular, agentic, and built to feel like a real companion/mentor (not a reactive chatbot). It doesn’t just answer: it **proactively** surfaces what matters, delivers briefings, and nudges me at the right moment.
 
-Say the wake word, speak naturally, and HomeAssist responds: controlling lights, playing music, checking your calendar, answering questions, and more. The first steps on the road to building a real-life Jarvis.
+Say the wake word and speak naturally—HomeAssist handles lights, music, calendar, questions, and more. The first steps on the road to building a real-life Jarvis.
 
 ---
 
