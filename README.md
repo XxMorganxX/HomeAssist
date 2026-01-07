@@ -1,6 +1,10 @@
 # HomeAssist
 
-A modular, always-listening voice assistant for smart home control and natural conversation. Say the wake word, speak naturally, and HomeAssist responds—controlling lights, playing music, checking your calendar, answering questions, and more.
+A personal AI infrastructure project.
+
+This is an always-listening voice assistant tailored to my life, workflows, and data. It's highly modular, agentic, and designed to be a natural companion/mentor. Built on a custom voice agent framework with low-latency processing, HomeAssist is more than a reactive chatbot—it proactively surfaces relevant information, delivers briefings, and anticipates needs like a real assistant would.
+
+Say the wake word, speak naturally, and HomeAssist responds: controlling lights, playing music, checking your calendar, answering questions, and more. The first steps on the road to building a real-life Jarvis.
 
 ---
 

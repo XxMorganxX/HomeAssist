@@ -2,7 +2,7 @@
 System Information Tool using BaseTool.
 
 This tool provides information about the assistant's internal structure,
-capabilities, and configuration by reading project documentation.
+capabilities, and configuration by reading the developer documentation.
 """
 
 from mcp_server.config import LOG_TOOLS
@@ -22,7 +22,24 @@ class SystemInfoTool(BaseTool):
         "memory systems, troubleshooting, or any questions about the assistant itself. "
         "Returns documentation about the assistant's design and features."
     )
-    version = "1.0.0"
+    version = "2.0.0"
+    
+    # Section mappings to DEV_README.md headers
+    SECTION_HEADERS = {
+        "overview": ["## Architecture Overview", "## Table of Contents"],
+        "architecture": ["## Architecture Overview", "### Directory Structure", "### Execution Flow"],
+        "providers": ["## Provider Pattern"],
+        "orchestrator": ["## Orchestrator & State Machine"],
+        "audio": ["## Audio Pipeline"],
+        "tools": ["## MCP Tool System"],
+        "memory": ["## Memory Systems"],
+        "config": ["## Configuration System"],
+        "models": ["## Data Models"],
+        "scheduled": ["## Scheduled Jobs"],
+        "errors": ["## Error Handling"],
+        "development": ["## Common Development Tasks"],
+        "performance": ["## Performance Considerations", "## Key Implementation Details"],
+    }
     
     def __init__(self):
         """Initialize the system info tool."""
@@ -31,11 +48,8 @@ class SystemInfoTool(BaseTool):
         # Get project root (two levels up from tools directory)
         self.project_root = Path(__file__).parent.parent.parent
         
-        # README file paths
-        self.readme_paths = {
-            "main": self.project_root / "README.md",
-            "framework": self.project_root / "assistant_framework" / "README.md",
-        }
+        # DEV_README path
+        self.dev_readme_path = self.project_root / "DEV_README.md"
     
     def get_schema(self) -> Dict[str, Any]:
         """
@@ -51,32 +65,42 @@ class SystemInfoTool(BaseTool):
                     "type": "string",
                     "description": (
                         "Optional: specific section of documentation to retrieve. "
-                        "Options: 'overview' (general project info and quick start), "
-                        "'structure' (project structure and file organization), "
-                        "'tools' (available MCP tools and smart home capabilities), "
-                        "'memory' (memory systems - persistent and vector), "
-                        "'config' (configuration options and settings), "
-                        "'framework' (detailed assistant framework architecture), "
-                        "'troubleshooting' (common issues and solutions), "
+                        "Options: 'overview' (project summary and table of contents), "
+                        "'architecture' (directory structure and execution flow), "
+                        "'providers' (interface system and factory pattern), "
+                        "'orchestrator' (state machine and component lifecycle), "
+                        "'audio' (transcription, TTS, barge-in detection), "
+                        "'tools' (MCP tool system and how to add tools), "
+                        "'memory' (persistent memory, vector memory, conversation context), "
+                        "'config' (configuration system and presets), "
+                        "'models' (data structures and types), "
+                        "'scheduled' (background jobs and briefings), "
+                        "'errors' (error handling and recovery), "
+                        "'development' (running, testing, debugging tips), "
+                        "'performance' (latency optimization, memory usage), "
                         "'all' (complete documentation). "
-                        "Default is 'all' which returns comprehensive information."
+                        "Default is 'overview' for general questions, use 'all' only if specifically requested."
                     ),
-                    "enum": ["overview", "structure", "tools", "memory", "config", "framework", "troubleshooting", "all"],
-                    "default": "all"
+                    "enum": [
+                        "overview", "architecture", "providers", "orchestrator", "audio",
+                        "tools", "memory", "config", "models", "scheduled", "errors",
+                        "development", "performance", "all"
+                    ],
+                    "default": "overview"
                 }
             },
             "required": []
         }
     
-    def _read_readme(self, path: Path) -> str:
-        """Read a README file and return its contents."""
+    def _read_dev_readme(self) -> str:
+        """Read the DEV_README file and return its contents."""
         try:
-            if path.exists():
-                return path.read_text(encoding="utf-8")
+            if self.dev_readme_path.exists():
+                return self.dev_readme_path.read_text(encoding="utf-8")
             else:
-                return f"[File not found: {path}]"
+                return f"[DEV_README.md not found at {self.dev_readme_path}]"
         except Exception as e:
-            return f"[Error reading {path}: {str(e)}]"
+            return f"[Error reading DEV_README.md: {str(e)}]"
     
     def _extract_section(self, content: str, section_name: str) -> str:
         """Extract a specific section from markdown content."""
@@ -85,41 +109,54 @@ class SystemInfoTool(BaseTool):
         in_section = False
         current_level = 0
         
-        # Define section mappings
-        section_headers = {
-            "overview": ["# HomeAssist", "## Quick Start"],
-            "structure": ["## Project Structure", "## Architecture Overview"],
-            "tools": ["## MCP Tools", "## Supported Providers"],
-            "memory": ["## Memory Systems"],
-            "config": ["## Configuration"],
-            "troubleshooting": ["## Troubleshooting", "## Error Handling"],
-        }
-        
-        target_headers = section_headers.get(section_name, [])
+        target_headers = self.SECTION_HEADERS.get(section_name, [])
         
         for line in lines:
             # Check if this is a header
             if line.startswith('#'):
                 # Count header level
                 level = len(line) - len(line.lstrip('#'))
+                header_text = line.lstrip('#').strip()
                 
                 # Check if this is our target section
+                matched = False
                 for header in target_headers:
-                    if line.strip().startswith(header.lstrip('#').strip()) or header in line:
-                        in_section = True
-                        current_level = level
-                        result_lines.append(line)
+                    header_clean = header.lstrip('#').strip()
+                    if header_text == header_clean or header_text.startswith(header_clean):
+                        matched = True
                         break
-                else:
+                
+                if matched:
+                    in_section = True
+                    current_level = level
+                    result_lines.append(line)
+                elif in_section:
                     # Different header - check if we should exit the section
-                    if in_section and level <= current_level:
+                    if level <= current_level:
+                        # Same or higher level header, stop collecting
                         in_section = False
-                    elif in_section:
+                    else:
+                        # Subsection, keep collecting
                         result_lines.append(line)
             elif in_section:
                 result_lines.append(line)
         
         return '\n'.join(result_lines).strip()
+    
+    def _get_quick_summary(self) -> str:
+        """Get a quick summary of the assistant."""
+        return (
+            "HomeAssist V2 is a fully local, always-listening voice assistant built in Python. "
+            "Key components:\n"
+            "• Wake word detection (OpenWakeWord, process-isolated)\n"
+            "• Real-time transcription (AssemblyAI or OpenAI Whisper)\n"
+            "• GPT-4o Realtime for responses with MCP tool calling\n"
+            "• Text-to-speech (Piper, Google, Chatterbox)\n"
+            "• Three-tier memory: conversation context, persistent facts, vector search\n"
+            "• Smart home tools: Spotify, Kasa lights, Google Calendar, weather, SMS, etc.\n"
+            "• Scheduled briefings: email summaries, news digests, calendar reminders\n\n"
+            "The codebase uses a provider pattern with swappable implementations for each component."
+        )
     
     def execute(self, params: Dict[str, Any]) -> Dict[str, Any]:
         """
@@ -132,77 +169,68 @@ class SystemInfoTool(BaseTool):
             Dictionary containing system documentation
         """
         try:
-            section = params.get("section", "all")
+            section = params.get("section", "overview")
             
             if LOG_TOOLS:
                 self.logger.info("Executing Tool: SystemInfo -- section=%s", section)
             
-            # Read both README files
-            main_readme = self._read_readme(self.readme_paths["main"])
-            framework_readme = self._read_readme(self.readme_paths["framework"])
+            # Read DEV_README
+            dev_readme = self._read_dev_readme()
             
-            if section == "all":
-                # Return everything
+            if "[DEV_README.md not found" in dev_readme or "[Error reading" in dev_readme:
                 return {
-                    "success": True,
-                    "message": "Complete system documentation retrieved",
-                    "main_documentation": main_readme,
-                    "framework_documentation": framework_readme,
-                    "summary": (
-                        "HomeAssist V2 is a fully local, always-listening voice assistant. "
-                        "It uses wake word detection, real-time transcription, GPT-4 for responses, "
-                        "and text-to-speech output. It can control smart home devices, play Spotify, "
-                        "check calendars, get weather, and more. It has persistent memory for facts "
-                        "and preferences, plus vector memory for semantic search of past conversations."
-                    )
+                    "success": False,
+                    "error": dev_readme,
+                    "fallback_summary": self._get_quick_summary()
                 }
             
-            elif section == "framework":
-                # Return framework-specific docs
+            if section == "all":
+                # Return complete documentation
                 return {
                     "success": True,
-                    "message": "Framework architecture documentation retrieved",
-                    "framework_documentation": framework_readme,
-                    "summary": (
-                        "The assistant framework uses a provider-based architecture with interfaces "
-                        "for transcription, response generation, TTS, context management, and wake word detection. "
-                        "Providers can be swapped by changing configuration."
-                    )
+                    "message": "Complete developer documentation retrieved",
+                    "documentation": dev_readme,
+                    "summary": self._get_quick_summary()
+                }
+            
+            elif section == "overview":
+                # Return architecture overview with quick summary
+                extracted = self._extract_section(dev_readme, "overview")
+                architecture = self._extract_section(dev_readme, "architecture")
+                
+                return {
+                    "success": True,
+                    "message": "Architecture overview retrieved",
+                    "summary": self._get_quick_summary(),
+                    "architecture_overview": architecture if architecture else extracted,
+                    "note": "Use specific section names for detailed info: providers, orchestrator, audio, tools, memory, config, etc."
                 }
             
             else:
-                # Extract specific section from main README
-                extracted = self._extract_section(main_readme, section)
+                # Extract specific section
+                extracted = self._extract_section(dev_readme, section)
                 
-                # Also check framework README for additional context
-                framework_extracted = self._extract_section(framework_readme, section)
-                
-                if not extracted and not framework_extracted:
-                    # Fallback to returning all if section not found
+                if not extracted:
+                    # Section not found, return overview with note
                     return {
                         "success": True,
-                        "message": f"Section '{section}' not found as distinct section, returning relevant documentation",
-                        "main_documentation": main_readme,
-                        "note": "The requested section may be integrated throughout the documentation"
+                        "message": f"Section '{section}' not found as distinct section",
+                        "summary": self._get_quick_summary(),
+                        "available_sections": list(self.SECTION_HEADERS.keys()),
+                        "note": "Try 'all' for complete documentation"
                     }
                 
-                result = {
+                return {
                     "success": True,
                     "message": f"Documentation section '{section}' retrieved",
                     "section": section,
+                    "content": extracted
                 }
-                
-                if extracted:
-                    result["main_documentation"] = extracted
-                if framework_extracted:
-                    result["framework_documentation"] = framework_extracted
-                    
-                return result
             
         except Exception as e:
             self.logger.error("Failed to retrieve system info: %s", e)
             return {
                 "success": False,
-                "error": f"Failed to retrieve system documentation: {str(e)}"
+                "error": f"Failed to retrieve system documentation: {str(e)}",
+                "fallback_summary": self._get_quick_summary()
             }
-
