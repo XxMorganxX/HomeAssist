@@ -199,6 +199,32 @@ class OpenAIWebSocketResponseProvider(ResponseInterface):
             
             return self._ws
     
+    async def ensure_ws_warm(self) -> bool:
+        """
+        Ensure WebSocket connection is warm (pre-connected and healthy).
+        
+        Call this speculatively during idle/wake word to reduce first-response latency.
+        Non-blocking if already connected.
+        
+        Returns:
+            True if connection is warm/healthy, False if reconnection needed
+        """
+        import time
+        
+        try:
+            # Quick check without lock first
+            if self._ws and not self._ws.closed:
+                if time.time() - self._last_heartbeat < 20:
+                    return True  # Already warm
+                
+            # Need to connect or refresh
+            await self._ensure_ws_connected()
+            return True
+            
+        except Exception as e:
+            print(f"⚠️  WebSocket warm-up failed (will retry on request): {e}")
+            return False
+    
     async def _discover_mcp_tools(self):
         """Discover and catalog all available MCP tools."""
         if not self.mcp_session:

@@ -12,13 +12,15 @@ try:
         ResponseInterface, 
         TextToSpeechInterface,
         ContextInterface,
-        WakeWordInterface
+        WakeWordInterface,
+        TerminationInterface
     )
     from .providers.transcription_v2 import AssemblyAIAsyncProvider, OpenAIWhisperProvider
     from .providers.response import OpenAIWebSocketResponseProvider
     from .providers.tts import GoogleTTSProvider, LocalTTSProvider, ChatterboxTTSProvider, PiperTTSProvider
     from .providers.context import UnifiedContextProvider
     from .providers.wakeword_v2 import IsolatedOpenWakeWordProvider
+    from .providers.termination import IsolatedTerminationProvider
 except ImportError:
     # Fall back to absolute imports (when run as module)
     from assistant_framework.interfaces import (
@@ -26,13 +28,15 @@ except ImportError:
         ResponseInterface, 
         TextToSpeechInterface,
         ContextInterface,
-        WakeWordInterface
+        WakeWordInterface,
+        TerminationInterface
     )
     from assistant_framework.providers.transcription_v2 import AssemblyAIAsyncProvider, OpenAIWhisperProvider
     from assistant_framework.providers.response import OpenAIWebSocketResponseProvider
     from assistant_framework.providers.tts import GoogleTTSProvider, LocalTTSProvider, ChatterboxTTSProvider, PiperTTSProvider
     from assistant_framework.providers.context import UnifiedContextProvider
     from assistant_framework.providers.wakeword_v2 import IsolatedOpenWakeWordProvider
+    from assistant_framework.providers.termination import IsolatedTerminationProvider
 
 
 class ProviderFactory:
@@ -61,6 +65,10 @@ class ProviderFactory:
     
     WAKEWORD_PROVIDERS = {
         'openwakeword': IsolatedOpenWakeWordProvider,
+    }
+    
+    TERMINATION_PROVIDERS = {
+        'openwakeword': IsolatedTerminationProvider,
     }
     
     @classmethod
@@ -183,6 +191,29 @@ class ProviderFactory:
         return provider_class(config)
     
     @classmethod
+    def create_termination_provider(cls,
+                                    provider_name: str,
+                                    config: Dict[str, Any]) -> TerminationInterface:
+        """
+        Create a termination phrase detection provider instance.
+        
+        Args:
+            provider_name: Name of the provider to create
+            config: Configuration for the provider
+            
+        Returns:
+            TerminationInterface: Provider instance
+            
+        Raises:
+            ValueError: If provider name is not supported
+        """
+        if provider_name not in cls.TERMINATION_PROVIDERS:
+            available = ', '.join(cls.TERMINATION_PROVIDERS.keys())
+            raise ValueError(f"Unsupported termination provider: {provider_name}. Available: {available}")
+        provider_class = cls.TERMINATION_PROVIDERS[provider_name]
+        return provider_class(config)
+    
+    @classmethod
     def create_all_providers(cls, config: Dict[str, Any]) -> Dict[str, Any]:
         """
         Create all providers based on configuration.
@@ -246,6 +277,16 @@ class ProviderFactory:
                     provider_name, provider_config
                 )
         
+        if 'termination' in config:
+            termination_config = config['termination']
+            provider_name = termination_config.get('provider')
+            provider_config = termination_config.get('config', {})
+            
+            if provider_name:
+                providers['termination'] = cls.create_termination_provider(
+                    provider_name, provider_config
+                )
+        
         return providers
     
     @classmethod
@@ -262,6 +303,7 @@ class ProviderFactory:
             'tts': list(cls.TTS_PROVIDERS.keys()),
             'context': list(cls.CONTEXT_PROVIDERS.keys()),
             'wakeword': list(cls.WAKEWORD_PROVIDERS.keys()),
+            'termination': list(cls.TERMINATION_PROVIDERS.keys()),
         }
     
     @classmethod
@@ -287,6 +329,7 @@ class ProviderFactory:
             'tts': cls.TTS_PROVIDERS,
             'context': cls.CONTEXT_PROVIDERS,
             'wakeword': cls.WAKEWORD_PROVIDERS,
+            'termination': cls.TERMINATION_PROVIDERS,
         }
         
         if provider_type not in provider_registries:
@@ -326,3 +369,8 @@ def create_tts_provider(provider_name: str, config: Dict[str, Any]) -> TextToSpe
 def create_context_provider(provider_name: str, config: Dict[str, Any]) -> ContextInterface:
     """Convenience function to create context provider."""
     return ProviderFactory.create_context_provider(provider_name, config)
+
+
+def create_termination_provider(provider_name: str, config: Dict[str, Any]) -> TerminationInterface:
+    """Convenience function to create termination provider."""
+    return ProviderFactory.create_termination_provider(provider_name, config)

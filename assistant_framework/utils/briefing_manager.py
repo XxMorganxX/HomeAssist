@@ -12,7 +12,7 @@ CREATE TABLE briefing_announcements (
     content JSONB NOT NULL,            -- { message: str, llm_instructions?: str, meta?: {...} }
     opener_text TEXT,                  -- Pre-generated conversation opener (via BriefingProcessor)
     priority TEXT DEFAULT 'normal',    -- 'high', 'normal', 'low'
-    status TEXT DEFAULT 'pending',     -- 'pending', 'delivered', 'dismissed'
+    status TEXT DEFAULT 'pending',     -- 'pending', 'delivered', 'dismissed', 'skipped'
     created_at TIMESTAMPTZ DEFAULT NOW(),
     delivered_at TIMESTAMPTZ,
     dismissed_at TIMESTAMPTZ
@@ -212,6 +212,50 @@ def _is_briefing_active(briefing: Dict[str, Any]) -> bool:
         return True
 
 
+def _is_briefing_expired(briefing: Dict[str, Any]) -> bool:
+    """
+    Check if a briefing's event has already happened (expired).
+    
+    Looks for event_datetime_iso in content.meta to determine if the
+    event the briefing refers to has already passed.
+    
+    Args:
+        briefing: The briefing record (with 'content' field)
+        
+    Returns:
+        True if the event has already happened (briefing should be skipped),
+        False if the event is still in the future or no datetime found
+    """
+    content = briefing.get("content", {})
+    
+    # Handle content as string
+    if isinstance(content, str):
+        try:
+            content = json.loads(content)
+        except (json.JSONDecodeError, TypeError):
+            return False  # Can't determine, don't skip
+    
+    meta = content.get("meta", {})
+    
+    # Look for event datetime - check multiple possible field names
+    event_datetime_iso = meta.get("event_datetime_iso")
+    if not event_datetime_iso:
+        # Try alternative fields
+        event_datetime_iso = content.get("event_datetime_iso") or meta.get("reminder_at_iso")
+    
+    if not event_datetime_iso:
+        return False  # No datetime found, don't skip
+    
+    now = datetime.now(timezone.utc)
+    
+    try:
+        event_dt = datetime.fromisoformat(event_datetime_iso.replace("Z", "+00:00"))
+        # Event has expired if it's in the past
+        return event_dt < now
+    except (ValueError, TypeError):
+        return False  # If parsing fails, don't skip
+
+
 class BriefingManager:
     """
     Manages briefing announcements stored in Supabase with local file fallback.
@@ -280,20 +324,31 @@ class BriefingManager:
                 .eq("status", "pending")
                 .order("priority", desc=False)
                 .order("created_at", desc=False)
-                .limit(limit * 2)  # Fetch extra to account for filtered inactive ones
+                .limit(limit * 3)  # Fetch extra to account for filtered/skipped ones
                 .execute()
             )
             
             if not response.data:
                 return []
             
-            # Filter out briefings that aren't active yet (future active_from date)
-            active_briefings = [b for b in response.data if _is_briefing_active(b)]
+            # Separate expired briefings (event already happened) from active ones
+            expired_ids = []
+            valid_briefings = []
+            
+            for b in response.data:
+                if _is_briefing_expired(b):
+                    expired_ids.append(b.get("id"))
+                elif _is_briefing_active(b):
+                    valid_briefings.append(b)
+            
+            # Mark expired briefings as skipped (fire and forget)
+            if expired_ids:
+                await self.mark_skipped(expired_ids)
             
             # Re-sort by priority properly (high > normal > low)
             priority_order = {"high": 0, "normal": 1, "low": 2}
             briefings = sorted(
-                active_briefings,
+                valid_briefings,
                 key=lambda b: (priority_order.get(b.get("priority", "normal"), 1), b.get("created_at", ""))
             )[:limit]
             
@@ -313,23 +368,32 @@ class BriefingManager:
             with open(self.LOCAL_FALLBACK_PATH, 'r') as f:
                 data = json.load(f)
             
-            # Filter by user, status, and active_from date
-            user_briefings = [
-                b for b in data.get("briefings", [])
-                if b.get("user_id") == user 
-                and b.get("status") == "pending"
-                and _is_briefing_active(b)
-            ]
+            # Separate expired from valid briefings
+            expired_ids = []
+            valid_briefings = []
+            
+            for b in data.get("briefings", []):
+                if b.get("user_id") != user or b.get("status") != "pending":
+                    continue
+                    
+                if _is_briefing_expired(b):
+                    expired_ids.append(b.get("id"))
+                elif _is_briefing_active(b):
+                    valid_briefings.append(b)
+            
+            # Mark expired briefings as skipped
+            if expired_ids:
+                self._mark_skipped_local(expired_ids)
             
             priority_order = {"high": 0, "normal": 1, "low": 2}
-            user_briefings.sort(
+            valid_briefings.sort(
                 key=lambda b: (priority_order.get(b.get("priority", "normal"), 1), b.get("created_at", ""))
             )
             
-            if user_briefings:
-                print(f"📋 BriefingManager (local): Found {len(user_briefings)} pending briefing(s) for {user}")
+            if valid_briefings:
+                print(f"📋 BriefingManager (local): Found {len(valid_briefings)} pending briefing(s) for {user}")
             
-            return user_briefings[:limit]
+            return valid_briefings[:limit]
             
         except Exception as e:
             print(f"❌ BriefingManager: Error reading local fallback - {e}")
@@ -477,6 +541,77 @@ class BriefingManager:
             print(f"❌ BriefingManager: Error dismissing in local - {e}")
             return 0
     
+    async def mark_skipped(self, briefing_ids: List[str]) -> int:
+        """
+        Mark briefings as skipped (event already happened).
+        
+        Args:
+            briefing_ids: List of briefing IDs to mark as skipped
+            
+        Returns:
+            Number of briefings successfully marked as skipped
+        """
+        if not briefing_ids:
+            return 0
+        
+        if self.is_available():
+            return await self._mark_skipped_supabase(briefing_ids)
+        else:
+            return self._mark_skipped_local(briefing_ids)
+    
+    async def _mark_skipped_supabase(self, briefing_ids: List[str]) -> int:
+        """Mark briefings as skipped in Supabase."""
+        try:
+            now = datetime.now(timezone.utc).isoformat()
+            skipped = 0
+            
+            for briefing_id in briefing_ids:
+                try:
+                    self._client.table(self.TABLE_NAME).update({
+                        "status": "skipped",
+                        "dismissed_at": now  # Reuse dismissed_at for skip timestamp
+                    }).eq("id", briefing_id).execute()
+                    skipped += 1
+                except Exception as e:
+                    print(f"⚠️  BriefingManager: Failed to mark {briefing_id} as skipped - {e}")
+            
+            if skipped:
+                print(f"⏭️  BriefingManager: Marked {skipped} expired briefing(s) as skipped")
+            return skipped
+            
+        except Exception as e:
+            print(f"❌ BriefingManager: Error marking skipped in Supabase - {e}")
+            return 0
+    
+    def _mark_skipped_local(self, briefing_ids: List[str]) -> int:
+        """Mark briefings as skipped in local fallback file."""
+        try:
+            if not self.LOCAL_FALLBACK_PATH.exists():
+                return 0
+            
+            with open(self.LOCAL_FALLBACK_PATH, 'r') as f:
+                data = json.load(f)
+            
+            now = datetime.now(timezone.utc).isoformat()
+            skipped = 0
+            
+            for briefing in data.get("briefings", []):
+                if briefing.get("id") in briefing_ids and briefing.get("status") == "pending":
+                    briefing["status"] = "skipped"
+                    briefing["dismissed_at"] = now
+                    skipped += 1
+            
+            with open(self.LOCAL_FALLBACK_PATH, 'w') as f:
+                json.dump(data, f, indent=2)
+            
+            if skipped:
+                print(f"⏭️  BriefingManager (local): Marked {skipped} expired briefing(s) as skipped")
+            return skipped
+            
+        except Exception as e:
+            print(f"❌ BriefingManager: Error marking skipped in local - {e}")
+            return 0
+    
     # =========================================================================
     # OPENER TEXT MANAGEMENT (for pre-generated conversation openers)
     # =========================================================================
@@ -527,7 +662,8 @@ class BriefingManager:
         """
         Get pending briefings that have a pre-generated opener (ready for TTS).
         
-        Only returns briefings that are currently active (active_from date <= today).
+        Only returns briefings that are currently active (active_from date <= today)
+        and whose events haven't already happened.
         
         Args:
             user: User ID
@@ -546,19 +682,30 @@ class BriefingManager:
                     .not_.is_("opener_text", "null")
                     .order("priority", desc=False)
                     .order("created_at", desc=False)
-                    .limit(limit * 2)  # Fetch extra to account for filtered inactive ones
+                    .limit(limit * 3)  # Fetch extra to account for filtered/skipped ones
                     .execute()
                 )
                 
                 if not response.data:
                     return []
                 
-                # Filter out briefings that aren't active yet (future active_from date)
-                active_briefings = [b for b in response.data if _is_briefing_active(b)]
+                # Separate expired briefings from valid active ones
+                expired_ids = []
+                valid_briefings = []
+                
+                for b in response.data:
+                    if _is_briefing_expired(b):
+                        expired_ids.append(b.get("id"))
+                    elif _is_briefing_active(b):
+                        valid_briefings.append(b)
+                
+                # Mark expired briefings as skipped
+                if expired_ids:
+                    await self.mark_skipped(expired_ids)
                 
                 priority_order = {"high": 0, "normal": 1, "low": 2}
                 briefings = sorted(
-                    active_briefings,
+                    valid_briefings,
                     key=lambda b: (priority_order.get(b.get("priority", "normal"), 1), b.get("created_at", ""))
                 )[:limit]
                 
@@ -576,21 +723,31 @@ class BriefingManager:
                 with open(self.LOCAL_FALLBACK_PATH, 'r') as f:
                     data = json.load(f)
                 
-                # Filter by user, status, opener_text, and active_from date
-                briefings = [
-                    b for b in data.get("briefings", [])
-                    if b.get("user_id") == user 
-                    and b.get("status") == "pending"
-                    and b.get("opener_text")
-                    and _is_briefing_active(b)
-                ]
+                # Separate expired from valid briefings
+                expired_ids = []
+                valid_briefings = []
+                
+                for b in data.get("briefings", []):
+                    if (b.get("user_id") != user 
+                        or b.get("status") != "pending"
+                        or not b.get("opener_text")):
+                        continue
+                    
+                    if _is_briefing_expired(b):
+                        expired_ids.append(b.get("id"))
+                    elif _is_briefing_active(b):
+                        valid_briefings.append(b)
+                
+                # Mark expired briefings as skipped
+                if expired_ids:
+                    self._mark_skipped_local(expired_ids)
                 
                 priority_order = {"high": 0, "normal": 1, "low": 2}
-                briefings.sort(key=lambda b: (priority_order.get(b.get("priority", "normal"), 1), b.get("created_at", "")))
+                valid_briefings.sort(key=lambda b: (priority_order.get(b.get("priority", "normal"), 1), b.get("created_at", "")))
                 
-                if briefings:
-                    print(f"📋 BriefingManager (local): Found {len(briefings)} briefing(s) with opener for {user}")
-                return briefings[:limit]
+                if valid_briefings:
+                    print(f"📋 BriefingManager (local): Found {len(valid_briefings)} briefing(s) with opener for {user}")
+                return valid_briefings[:limit]
             except Exception:
                 return []
     

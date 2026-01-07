@@ -208,6 +208,40 @@ SEND_PHRASES = ["send it", "sir"]
 AUTO_SEND_SILENCE_TIMEOUT = 6.0  # Auto-send after 6s of silence
 ```
 
+#### Parallel Termination Detection
+
+Enables instant conversation termination by detecting phrases like "over out" in parallel with other operations. Unlike text-based termination phrases (above) that require transcription, this uses a dedicated wake word model that can detect termination phrases even while the assistant is speaking.
+
+```python
+TERMINATION_DETECTION_CONFIG = {
+    "enabled": True,                   # Enable/disable feature
+    "model_name": "over_out",          # Custom trained OpenWakeWord model
+    "threshold": 0.5,                  # Detection sensitivity (higher = fewer false positives)
+    "cooldown_seconds": 1.0,           # Min time between detections
+    "verbose": False,                  # Debug output
+}
+```
+
+**Key benefits:**
+
+- ⚡ **Instant response** — Wake word model detects in ~100-200ms vs waiting for transcription
+- 🗣️ **Works during TTS** — Say "over out" while assistant is speaking to immediately stop
+- 🔄 **Parallel execution** — Runs alongside transcription, response generation, and TTS
+- 🛡️ **Process isolated** — Crashes don't affect main application
+
+**Training a custom model:**
+
+The termination detection requires a trained OpenWakeWord model. Train one using [OpenWakeWord's training guide](https://github.com/dscripka/openWakeWord#training-new-models) with phrases like:
+
+- "over out"
+- "over and out"  
+- "stop listening"
+- "end session"
+
+Place the trained model at: `audio_data/wake_word_models/over_out.onnx`
+
+> 💡 **Tip:** If the model doesn't exist, termination detection gracefully degrades to text-based detection only.
+
 #### Barge-In Detection
 
 Allows interrupting the assistant while it's speaking:
@@ -353,7 +387,7 @@ CREATE TABLE briefing_announcements (
     content JSONB NOT NULL,            -- { message: str, llm_instructions?: str, meta?: {...} }
     opener_text TEXT,                  -- Pre-generated conversation opener (via BriefingProcessor)
     priority TEXT DEFAULT 'normal',    -- 'high', 'normal', 'low'
-    status TEXT DEFAULT 'pending',     -- 'pending', 'delivered', 'dismissed'
+    status TEXT DEFAULT 'pending',     -- 'pending', 'delivered', 'dismissed', 'skipped'
     created_at TIMESTAMPTZ DEFAULT NOW(),
     delivered_at TIMESTAMPTZ,
     dismissed_at TIMESTAMPTZ
@@ -373,7 +407,8 @@ Content structure:
   "llm_instructions": "Mention this casually at the start of conversation",
   "meta": {
     "timestamp": "2026-01-03T14:00:00Z",
-    "source": "delivery_tracker"
+    "source": "delivery_tracker",
+    "event_datetime_iso": "2026-01-03T14:00:00Z"
   }
 }
 ```
@@ -384,6 +419,7 @@ Content structure:
 - On wake word, the assistant fetches briefings with `opener_text` and speaks via TTS only (no LLM latency).
 - If briefings don't have openers yet, falls back to LLM generation at wake time.
 - After speaking, briefings are marked `delivered` (remain until explicitly `dismissed`).
+- If `event_datetime_iso` is in the past when fetched, the briefing is automatically marked `skipped` (event already happened).
 
 💡 **Multiple Wake Words for Selective Briefings**
 
@@ -804,6 +840,43 @@ VECTOR_MEMORY_CONFIG = {
 
 ---
 
+### ❌ Termination Detection Not Working
+
+**Symptoms:** Saying "over out" during TTS doesn't stop the conversation.
+
+**Solutions:**
+
+1. Check if the model exists:
+```bash
+ls audio_data/wake_word_models/over_out.onnx
+```
+
+2. If missing, you need to train a custom model or use text-based termination only:
+```python
+# Disable parallel termination (use text-based only)
+TERMINATION_DETECTION_CONFIG = {
+    "enabled": False,
+}
+```
+
+3. Lower the threshold for more sensitivity:
+```python
+TERMINATION_DETECTION_CONFIG = {
+    "threshold": 0.3,  # Default is 0.5
+}
+```
+
+4. Check console for initialization message:
+```
+✅ Termination detection ready (PID: 12345)
+```
+or
+```
+⚠️  Termination detection unavailable (model not found)
+```
+
+---
+
 ### ❌ Configuration Validation
 
 Run the built-in validator:
@@ -840,6 +913,41 @@ The persistent memory system tracks behavioral patterns with strength levels:
 
 Patterns upgrade/downgrade based on evidence and inform what gets stored as known facts.
 
+### Verbose Logging
+
+Control terminal output verbosity for cleaner production logs:
+
+```python
+# In config.py (or via environment variable)
+VERBOSE_LOGGING = True   # Show all status messages (default)
+VERBOSE_LOGGING = False  # Minimal output: only errors, warnings, and key events
+```
+
+**Environment variable:**
+```bash
+export VERBOSE_LOGGING=false  # Disable verbose logging
+```
+
+**What shows when `VERBOSE_LOGGING=False`:**
+
+| Always Shown | Hidden |
+|-------------|--------|
+| ❌ Errors | 🔄 Status updates |
+| ⚠️ Warnings | ✅ Success confirmations |
+| 🎯 Wake word detected | 🎤 Audio stream details |
+| 👤 User message | 🧹 Cleanup messages |
+| 🤖 Assistant message | ⏳ Waiting messages |
+| 💀 Critical errors | 📋 Config summaries |
+
+**Using in code:**
+```python
+from assistant_framework.utils.logging_config import vprint, eprint
+
+vprint("🔄 Processing...")     # Only shows if VERBOSE_LOGGING=True
+print("❌ Connection failed")  # Always shows (use for errors)
+eprint("🎯 Wake word!")        # Shows if verbose OR has essential prefix (❌⚠️🎯👤🤖)
+```
+
 ### Latency Tuning
 
 For faster response times, adjust turnaround delays:
@@ -853,6 +961,48 @@ TURNAROUND_CONFIG = {
 ```
 
 > ⚠️ **Warning:** Very low values may cause audio device conflicts on some systems.
+
+### Fast Reboot (Warm Mode)
+
+Dramatically reduce the time to restart wake word detection after a conversation ends:
+
+```python
+TURNAROUND_CONFIG = {
+    # ... other settings ...
+    "wake_word_warm_mode": True,      # Keep subprocess alive (~2s faster restart)
+    "post_conversation_delay": 0.0,   # No delay after conversation ends
+    "wake_word_stop_delay": 0.0,      # No delay after pausing wake word
+}
+```
+
+**How it works:**
+
+| Mode | Restart Time | Description |
+|------|-------------|-------------|
+| **Warm mode** (default) | ~200ms | Subprocess stays alive, audio stream pauses/resumes |
+| **Cold mode** | ~2-3s | Full subprocess termination and restart with model loading |
+
+**Warm mode benefits:**
+
+- ⚡ **Faster restart** — No model reloading between conversations
+- 💾 **Lower memory churn** — Models stay loaded in the subprocess
+- 🎯 **Same reliability** — Process isolation still prevents model corruption
+
+**When to disable warm mode:**
+
+- Memory-constrained systems where you need to free subprocess memory
+- Debugging wake word detection issues (full restart gives cleaner state)
+
+```python
+# Disable warm mode (cold restarts)
+TURNAROUND_CONFIG = {
+    "wake_word_warm_mode": False,
+    "post_conversation_delay": 0.2,   # Add settling time for cold restart
+    "wake_word_stop_delay": 0.1,      # Wait for process termination
+}
+```
+
+💡 **Tip:** Monitor console logs for `⚡ Resuming wake word detection (warm mode)` to confirm warm mode is active.
 
 ---
 

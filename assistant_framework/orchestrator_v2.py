@@ -13,7 +13,8 @@ try:
         ResponseInterface,
         TextToSpeechInterface,
         WakeWordInterface,
-        ContextInterface
+        ContextInterface,
+        TerminationInterface
     )
     from .utils.state_machine import AudioStateMachine, AudioState
     from .utils.error_handling import ErrorHandler, ComponentError, ErrorSeverity
@@ -25,20 +26,23 @@ try:
     )
     from .utils.console_logger import (
         log_boot, log_shutdown, log_conversation_end, log_wake_word,
-        log_user_message, log_assistant_response, log_tool_call
+        log_user_message, log_assistant_response, log_tool_call,
+        log_termination_detected
     )
     from .providers.wakeword_v2 import IsolatedOpenWakeWordProvider
     from .providers.transcription_v2 import AssemblyAIAsyncProvider
     from .providers.context import UnifiedContextProvider
+    from .providers.termination import IsolatedTerminationProvider
     from .utils.briefing_manager import BriefingManager
-    from .config import get_active_preset
+    from .config import get_active_preset, TERMINATION_DETECTION_CONFIG
 except ImportError:
     from assistant_framework.interfaces import (
         TranscriptionInterface,
         ResponseInterface,
         TextToSpeechInterface,
         WakeWordInterface,
-        ContextInterface
+        ContextInterface,
+        TerminationInterface
     )
     from assistant_framework.utils.state_machine import AudioStateMachine, AudioState
     from assistant_framework.utils.error_handling import ErrorHandler, ComponentError, ErrorSeverity
@@ -50,13 +54,15 @@ except ImportError:
     )
     from assistant_framework.utils.console_logger import (
         log_boot, log_shutdown, log_conversation_end, log_wake_word,
-        log_user_message, log_assistant_response, log_tool_call
+        log_user_message, log_assistant_response, log_tool_call,
+        log_termination_detected
     )
     from assistant_framework.providers.wakeword_v2 import IsolatedOpenWakeWordProvider
     from assistant_framework.providers.transcription_v2 import AssemblyAIAsyncProvider
     from assistant_framework.providers.context import UnifiedContextProvider
+    from assistant_framework.providers.termination import IsolatedTerminationProvider
     from assistant_framework.utils.briefing_manager import BriefingManager
-    from assistant_framework.config import get_active_preset
+    from assistant_framework.config import get_active_preset, TERMINATION_DETECTION_CONFIG
 
 
 class RefactoredOrchestrator:
@@ -77,6 +83,10 @@ class RefactoredOrchestrator:
         self._transcription_stop_delay = turnaround.get('transcription_stop_delay', 0.15)
         self._state_transition_delay = turnaround.get('state_transition_delay', 0.25)
         self._streaming_tts_enabled = turnaround.get('streaming_tts_enabled', False)
+        # Fast reboot optimizations
+        self._wake_word_warm_mode = turnaround.get('wake_word_warm_mode', True)
+        self._post_conversation_delay = turnaround.get('post_conversation_delay', 0.0)
+        self._wake_word_stop_delay = turnaround.get('wake_word_stop_delay', 0.0)
         
         # Core infrastructure (respect current preset: dev/prod/test)
         try:
@@ -91,6 +101,13 @@ class RefactoredOrchestrator:
         self._response: Optional[ResponseInterface] = None
         self._tts: Optional[TextToSpeechInterface] = None
         self._wakeword: Optional[WakeWordInterface] = None
+        self._termination: Optional[TerminationInterface] = None
+        
+        # Termination detection (parallel "over out" detection)
+        self._termination_enabled = TERMINATION_DETECTION_CONFIG.get('enabled', True)
+        self._termination_task: Optional[asyncio.Task] = None
+        self._termination_detected = False  # Flag to signal conversation termination
+        self._termination_poll_interval = TERMINATION_DETECTION_CONFIG.get('interrupt_poll_interval', 0.05)
         
         # Barge-in support (interrupt TTS with speech)
         self._barge_in_enabled = config.get('barge_in_enabled', True)
@@ -179,6 +196,11 @@ class RefactoredOrchestrator:
             
             print("🔧 Creating TTS provider...")
             self._tts = await self._create_tts_provider()
+            
+            # Initialize termination detection (parallel "over out" detection)
+            if self._termination_enabled:
+                print("🔧 Creating termination detection provider...")
+                self._termination = await self._create_termination_provider()
             
             # Initialize conversation recorder (Supabase)
             if self._recording_enabled and self._supabase_url and self._supabase_key:
@@ -362,6 +384,89 @@ class RefactoredOrchestrator:
         provider = providers['tts']
         await provider.initialize()
         return provider
+    
+    async def _create_termination_provider(self) -> Optional[TerminationInterface]:
+        """
+        Create termination detection provider (called once at startup).
+        
+        Returns None if model not available (graceful degradation).
+        """
+        try:
+            provider = IsolatedTerminationProvider(TERMINATION_DETECTION_CONFIG)
+            if not provider.is_available:
+                print("⚠️  Termination detection unavailable (model not found)")
+                return None
+            success = await provider.initialize()
+            if success:
+                print("✅ Termination detection ready")
+                return provider
+            else:
+                print("⚠️  Termination detection initialization failed")
+                return None
+        except Exception as e:
+            print(f"⚠️  Termination detection setup failed: {e}")
+            return None
+    
+    async def _start_termination_detection(self) -> None:
+        """
+        Start parallel termination detection.
+        
+        Creates a background task that monitors for termination phrases
+        and sets the _termination_detected flag when triggered.
+        """
+        if not self._termination or not self._termination_enabled:
+            return
+        
+        async def _monitor_termination():
+            """Background task to monitor for termination phrase."""
+            try:
+                # Resume detection (provider starts paused)
+                await self._termination.resume_detection()
+                
+                async for event in self._termination.start_detection():
+                    if event:
+                        print(f"🛑 Termination phrase detected: {event.phrase_name}")
+                        print(f"   Interrupted state: {event.interrupted_state}")
+                        log_termination_detected(event.phrase_name, event.interrupted_state or "UNKNOWN")
+                        beep_shutdown()
+                        self._termination_detected = True
+                        break  # Stop after first detection
+            except asyncio.CancelledError:
+                pass  # Normal cancellation
+            except Exception as e:
+                print(f"⚠️  Termination detection error: {e}")
+        
+        # Reset flag and start monitoring task
+        self._termination_detected = False
+        self._termination_task = asyncio.create_task(_monitor_termination())
+    
+    async def _stop_termination_detection(self, fire_and_forget: bool = False) -> None:
+        """
+        Stop parallel termination detection.
+        
+        Args:
+            fire_and_forget: If True, don't wait for pause confirmation (faster).
+                           Use when termination was triggered (already stopped).
+        """
+        if self._termination_task:
+            self._termination_task.cancel()
+            try:
+                await self._termination_task
+            except asyncio.CancelledError:
+                pass
+            self._termination_task = None
+        
+        if self._termination:
+            if fire_and_forget:
+                # Don't wait - detection already stopped when termination triggered
+                asyncio.create_task(self._termination.pause_detection())
+            else:
+                await self._termination.pause_detection()
+    
+    def _update_termination_state(self, state: str) -> None:
+        """Update termination detector with current state (for metadata)."""
+        if self._termination:
+            self._termination.set_current_state(state)
     
     async def run_wake_word_detection(self):
         """Run wake word detection loop."""
@@ -845,18 +950,48 @@ class RefactoredOrchestrator:
             if self._transcription and hasattr(self._transcription, 'preconnect'):
                 self._transcription_preconnect_task = asyncio.create_task(self._transcription.preconnect())
             
-            # Play audio (will be interrupted if barge-in triggers)
+            # Play audio (will be interrupted if barge-in or termination triggers)
             print("🔊 Speaking...")
-            if use_chunked:
-                # Use chunked synthesis+playback for long messages (overlaps synthesis and playback)
-                await tts.synthesize_and_play_chunked(text)
-            else:
-                # Standard playback for short messages
-                await tts.play_audio_async(audio)
             
-            # Check if barge-in occurred
-            if self._barge_in_triggered:
-                print("⚡ Speech interrupted by user")
+            # Run playback as task so we can interrupt for termination
+            if use_chunked:
+                playback_task = asyncio.create_task(tts.synthesize_and_play_chunked(text))
+            else:
+                playback_task = asyncio.create_task(tts.play_audio_async(audio))
+            
+            # Poll for termination during playback
+            termination_triggered = False
+            while not playback_task.done():
+                if self._termination_detected:
+                    print("🛑 Termination detected during TTS - cutting audio")
+                    termination_triggered = True
+                    # Immediately stop audio playback
+                    if tts and hasattr(tts, 'stop_audio'):
+                        tts.stop_audio()
+                    playback_task.cancel()
+                    try:
+                        await playback_task
+                    except asyncio.CancelledError:
+                        pass
+                    break
+                # Also check barge-in flag (set by callback)
+                if self._barge_in_triggered:
+                    break
+                await asyncio.sleep(self._termination_poll_interval)
+            
+            # Wait for playback to finish if not cancelled
+            if not termination_triggered and not self._barge_in_triggered:
+                try:
+                    await playback_task
+                except asyncio.CancelledError:
+                    pass
+            
+            # Check if barge-in or termination occurred
+            if termination_triggered:
+                print("🛑 Speech terminated by user command")
+                barge_in_occurred = True  # Treat same as barge-in for flow control
+            elif self._barge_in_triggered:
+                print("⚡ Speech interrupted by barge-in")
                 barge_in_occurred = True
             else:
                 print("✅ Speech complete")
@@ -1040,7 +1175,13 @@ class RefactoredOrchestrator:
                     chunk_count += 1
                     print(f"[DEBUG] Chunk {chunk_count}: is_complete={chunk.is_complete}, content_len={len(chunk.content) if chunk.content else 0}, has_tools={bool(chunk.tool_calls)}")
                     
-                    if self._barge_in_triggered:
+                    # Check for barge-in or termination
+                    if self._barge_in_triggered or self._termination_detected:
+                        if self._termination_detected:
+                            print("\n🛑 Termination detected during response generation")
+                            # Stop audio immediately
+                            if tts and hasattr(tts, 'stop_audio'):
+                                tts.stop_audio()
                         break
                     
                     if chunk.content:
@@ -1099,11 +1240,30 @@ class RefactoredOrchestrator:
                 # Fallback: collect all text then speak normally
                 print("⚠️  TTS doesn't support streaming, falling back to batch mode")
                 async for _ in response_text_generator():
-                    pass
-                if full_response:
+                    if self._termination_detected:
+                        break
+                if full_response and not self._termination_detected:
                     audio = await tts.synthesize(full_response)
-                    await tts.play_audio_async(audio)
-                speech_completed = not self._barge_in_triggered
+                    # Run playback as task for termination interruption
+                    playback_task = asyncio.create_task(tts.play_audio_async(audio))
+                    while not playback_task.done():
+                        if self._termination_detected:
+                            print("🛑 Termination detected during fallback TTS")
+                            if tts and hasattr(tts, 'stop_audio'):
+                                tts.stop_audio()
+                            playback_task.cancel()
+                            try:
+                                await playback_task
+                            except asyncio.CancelledError:
+                                pass
+                            break
+                        await asyncio.sleep(self._termination_poll_interval)
+                    if not self._termination_detected:
+                        try:
+                            await playback_task
+                        except asyncio.CancelledError:
+                            pass
+                speech_completed = not self._barge_in_triggered and not self._termination_detected
             
             # Capture composition API token usage (from tool decisions and final answer composition)
             if self._recorder and hasattr(response, 'get_composition_token_usage'):
@@ -1269,7 +1429,7 @@ class RefactoredOrchestrator:
             opener = self._briefing_manager.get_combined_opener(briefings_with_opener)
             if opener:
                 print(f"📢 Speaking pre-generated opener for {len(briefings_with_opener)} briefing(s)")
-                await self.run_tts(opener, transition_to_idle=False, enable_barge_in=True)
+                await self.run_tts(opener, transition_to_idle=False, enable_barge_in=False)
                 # Add opener to conversation context so follow-up responses have context
                 if self._context:
                     self._context.add_message("assistant", opener)
@@ -1331,7 +1491,7 @@ class RefactoredOrchestrator:
 
         response = await self.run_response(briefing_prompt)
         if response:
-            await self.run_tts(response, transition_to_idle=False, enable_barge_in=True)
+            await self.run_tts(response, transition_to_idle=False, enable_barge_in=False)
             ids = [b.get("id") for b in pending if b.get("id")]
             try:
                 await self._briefing_manager.mark_delivered(ids)
@@ -1347,28 +1507,63 @@ class RefactoredOrchestrator:
         try:
             while True:
                 # 1. Wait for wake word to start conversation
+                # Start speculative pre-warming tasks during idle (before wake word)
+                prewarm_tasks = []
+                
+                # Pre-warm OpenAI WebSocket connection
+                if self._response and hasattr(self._response, 'ensure_ws_warm'):
+                    prewarm_tasks.append(asyncio.create_task(self._response.ensure_ws_warm()))
+                
+                # Pre-warm vector memory cache
+                if self._context and hasattr(self._context, 'preload_vector_cache'):
+                    prewarm_tasks.append(asyncio.create_task(self._context.preload_vector_cache()))
+                
                 wake_model = None
                 async for wake_event in self.run_wake_word_detection():
                     print(f"\n🎯 Wake word detected: {wake_event.model_name}\n")
                     wake_model = wake_event.model_name
                     break  # Got wake word, enter conversation mode
                 
-                # Start pre-connecting transcription BEFORE stopping wake word (parallel operation)
+                # Cancel any remaining pre-warm tasks (they should be done by now)
+                for task in prewarm_tasks:
+                    if not task.done():
+                        task.cancel()
+                
+                # OPTIMISTIC PARALLEL STARTUP: Start multiple operations simultaneously
+                # 1. Pre-connect transcription WebSocket
+                # 2. Stop/pause wake word (fire-and-forget style)
+                # 3. Both happen in parallel to minimize transition time
+                
                 preconnect_task = None
                 if self._transcription and hasattr(self._transcription, 'preconnect'):
                     preconnect_task = asyncio.create_task(self._transcription.preconnect())
                 
-                # Explicitly stop wake word detection before entering conversation
-                # The async generator break doesn't stop the subprocess
+                # Fire-and-forget wake word pause (don't await, let it run in background)
+                wake_word_task = None
                 if self._wakeword:
-                    await self._wakeword.stop_detection()
-                    # Wait for subprocess to fully terminate (reduced from 0.5s)
-                    await asyncio.sleep(0.1)
+                    if self._wake_word_warm_mode and hasattr(self._wakeword, 'pause_detection'):
+                        wake_word_task = asyncio.create_task(self._wakeword.pause_detection())
+                    else:
+                        wake_word_task = asyncio.create_task(self._wakeword.stop_detection())
+                
+                # Short overlap window - let both start, then ensure wake word is done
+                await asyncio.sleep(0.03)  # 30ms head start for parallel operations
+                
+                # Now wait for wake word to finish (should be almost done)
+                if wake_word_task:
+                    try:
+                        await asyncio.wait_for(wake_word_task, timeout=0.3)
+                    except asyncio.TimeoutError:
+                        print("⚠️  Wake word pause timed out (continuing)")
+                
+                # Configurable delay (default 0 in warm mode)
+                if self._wake_word_stop_delay > 0:
+                    await asyncio.sleep(self._wake_word_stop_delay)
                 
                 # Ensure preconnect completed (overlapped with wake word stop)
                 if preconnect_task:
                     try:
-                        await asyncio.wait_for(preconnect_task, timeout=0.5)
+                        await asyncio.wait_for(preconnect_task, timeout=0.3)
                     except asyncio.TimeoutError:
                         pass  # Will connect on-demand
                 
@@ -1400,12 +1595,56 @@ class RefactoredOrchestrator:
                     await self._brief_pending_announcements(primary_user)
 
                 # 2. Enter multi-turn conversation mode
+                # Start parallel termination detection (listens for "over out" etc.)
+                await self._start_termination_detection()
+                
                 print("💬 Conversation mode active (say termination phrase to exit)")
                 conversation_active = True
                 
                 while conversation_active:
-                    # Transcribe user speech
-                    user_text = await self.run_transcription()
+                    # Check if termination phrase was detected in parallel
+                    if self._termination_detected:
+                        print("🛑 Termination phrase detected - ending conversation")
+                        conversation_active = False
+                        break
+                    
+                    # Update termination detector with current state
+                    self._update_termination_state("TRANSCRIBING")
+                    
+                    # Transcribe user speech with termination interrupt support
+                    # Run transcription as task so we can cancel it if termination detected
+                    transcription_task = asyncio.create_task(self.run_transcription())
+                    
+                    # Poll for termination while transcription is running
+                    user_text = None
+                    while not transcription_task.done():
+                        if self._termination_detected:
+                            print("🛑 Termination detected during transcription - cancelling")
+                            transcription_task.cancel()
+                            try:
+                                await transcription_task
+                            except asyncio.CancelledError:
+                                pass
+                            # Stop transcription provider immediately
+                            if self._transcription and hasattr(self._transcription, 'stop_streaming'):
+                                try:
+                                    await self._transcription.stop_streaming()
+                                except Exception:
+                                    pass  # Don't let cleanup errors block termination
+                            conversation_active = False
+                            break
+                        # Short sleep to avoid busy-waiting (configurable)
+                        await asyncio.sleep(self._termination_poll_interval)
+                    
+                    # If terminated during transcription, break outer loop
+                    if not conversation_active:
+                        break
+                    
+                    # Get transcription result
+                    try:
+                        user_text = transcription_task.result()
+                    except asyncio.CancelledError:
+                        user_text = None
                     
                     # Check if user wants to end conversation
                     if not user_text:
@@ -1442,6 +1681,9 @@ class RefactoredOrchestrator:
                         await self._recorder.record_message("user", user_text)
                     
                     # Generate response and speak it
+                    # Update termination detector with state for better metadata
+                    self._update_termination_state("PROCESSING_RESPONSE")
+                    
                     if self._streaming_tts_enabled:
                         # EXPERIMENTAL: Stream TTS - start speaking before response is complete
                         print("⚡ Using streaming TTS mode")
@@ -1450,6 +1692,12 @@ class RefactoredOrchestrator:
                             enable_barge_in=True
                         )
                         speech_completed = not barge_in_occurred
+                        
+                        # Check for termination during response/TTS
+                        if self._termination_detected:
+                            print("🛑 Termination detected during streaming response")
+                            conversation_active = False
+                            break
                         
                         if not assistant_text:
                             print("⚠️  No response generated")
@@ -1468,6 +1716,13 @@ class RefactoredOrchestrator:
                     else:
                         # Traditional mode: generate full response, then speak
                         assistant_text = await self.run_response(user_text)
+                        
+                        # Check for termination during response generation
+                        if self._termination_detected:
+                            print("🛑 Termination detected during response generation")
+                            conversation_active = False
+                            break
+                        
                         if not assistant_text:
                             print("⚠️  No response generated")
                             # Transition to IDLE before continuing (state may be stuck in PROCESSING_RESPONSE)
@@ -1483,6 +1738,9 @@ class RefactoredOrchestrator:
                             # Record tool calls used to generate this response
                             await self._record_tool_calls()
                         
+                        # Update state before TTS
+                        self._update_termination_state("SYNTHESIZING")
+                        
                         # Speak response with barge-in enabled
                         # If user interrupts, we'll immediately start transcribing
                         speech_completed = await self.run_tts(
@@ -1490,6 +1748,12 @@ class RefactoredOrchestrator:
                             transition_to_idle=False,  # Don't auto-transition, we handle it
                             enable_barge_in=True
                         )
+                        
+                        # Check for termination during TTS
+                        if self._termination_detected:
+                            print("🛑 Termination detected during TTS")
+                            conversation_active = False
+                            break
                     
                     if speech_completed:
                         # Normal completion - transition to IDLE then back to transcription
@@ -1512,13 +1776,23 @@ class RefactoredOrchestrator:
                         print("🎤 Listening (prefill audio will be processed first)...\n")
                         # Continue the loop - next iteration will run transcription
                 
-                # End recording session
-                if self._recorder and self._recorder.current_session_id:
-                    await self._recorder.end_session()
+                # Log if terminated by phrase detection (vs other reasons)
+                was_terminated = self._termination_detected
+                if was_terminated:
+                    log_conversation_end()
+                    self._termination_detected = False  # Reset for next conversation
                 
-                # Update persistent memory with conversation learnings
-                if self._context and hasattr(self._context, 'on_conversation_end'):
-                    self._context.on_conversation_end()
+                # End recording session and update memory (run in parallel for speed)
+                async def _end_conversation_tasks():
+                    if self._recorder and self._recorder.current_session_id:
+                        await self._recorder.end_session()
+                    if self._context and hasattr(self._context, 'on_conversation_end'):
+                        self._context.on_conversation_end()
+                
+                # Run cleanup tasks in parallel with state transition
+                # Also stop termination detection (fire-and-forget - don't await)
+                cleanup_task = asyncio.create_task(_end_conversation_tasks())
+                asyncio.create_task(self._stop_termination_detection(fire_and_forget=was_terminated))
                 
                 # Conversation ended - ensure we're in IDLE before restarting wake word
                 print("✅ Conversation session ended\n")
@@ -1529,9 +1803,13 @@ class RefactoredOrchestrator:
                     print("🔄 Transitioning to IDLE before restarting wake word...")
                     await self.state_machine.transition_to(AudioState.IDLE)
                 
-                # Extra settling time for audio device to fully release (reduced from 1.0s)
-                print("⏳ Waiting for audio device to settle...")
-                await asyncio.sleep(0.2)
+                # Wait for cleanup tasks to complete
+                await cleanup_task
+                
+                # Configurable settling time (default 0 with warm mode)
+                if self._post_conversation_delay > 0:
+                    print(f"⏳ Waiting {self._post_conversation_delay}s for audio device to settle...")
+                    await asyncio.sleep(self._post_conversation_delay)
                 
         except KeyboardInterrupt:
             print("\n⚠️  Stopping continuous loop...")
@@ -1552,6 +1830,14 @@ class RefactoredOrchestrator:
             except Exception as e:
                 print(f"⚠️  Barge-in cleanup error: {e}")
             self._barge_in_detector = None
+        
+        # Cleanup termination detector
+        if self._termination:
+            try:
+                await self._termination.cleanup()
+            except Exception as e:
+                print(f"⚠️  Termination detector cleanup error: {e}")
+            self._termination = None
         
         # Cleanup conversation recorder
         if self._recorder:

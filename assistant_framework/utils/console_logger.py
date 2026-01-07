@@ -123,6 +123,15 @@ def log_conversation_end() -> None:
     console_log("👋 Conversation ended (user said goodbye)", message_type="command", is_positive=True)
 
 
+def log_termination_detected(phrase_name: str, interrupted_state: str) -> None:
+    """Log parallel termination phrase detection."""
+    console_log(
+        f"🛑 Termination phrase '{phrase_name}' detected - interrupting {interrupted_state}",
+        message_type="command",
+        is_positive=True
+    )
+
+
 def log_wake_word(model_name: str, score: float) -> None:
     """Log wake word detection."""
     console_log(f"👂 Wake word detected: {model_name} (score: {score:.2f})", message_type="command", is_positive=True)

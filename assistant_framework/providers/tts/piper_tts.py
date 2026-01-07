@@ -712,63 +712,117 @@ class PiperTTSProvider(TextToSpeechInterface):
     
     async def speak_streaming(self, text_generator, on_sentence_start=None, on_complete=None) -> bool:
         """
-        Stream TTS - speak sentences as they arrive.
+        Stream TTS - speak sentences as they arrive with pipeline parallelism.
         
-        Piper is fast enough that we can generate and play sentence-by-sentence
-        with minimal latency.
+        Uses a producer-consumer pattern:
+        - Producer: Extracts sentences and synthesizes them (fast, ~60ms each)
+        - Consumer: Plays synthesized audio (slow, 2-3s each)
+        
+        The producer synthesizes AHEAD while the consumer plays, eliminating
+        gaps between sentences and reducing perceived latency.
         """
         import re
         
         self._is_playing = True
         self._stop_playback.clear()
         
-        buffer = ""
-        sentence_end = re.compile(r'[.!?]+\s*')
-        sentence_count = 0
+        # Audio queue for pipeline parallelism (synthesize ahead while playing)
+        audio_queue: asyncio.Queue = asyncio.Queue(maxsize=3)  # Buffer up to 3 sentences
+        synthesis_done = asyncio.Event()
         was_interrupted = False
+        sentence_count = 0
         
-        try:
-            async for chunk in text_generator:
+        async def producer():
+            """Extract sentences from text stream and synthesize them."""
+            nonlocal sentence_count, was_interrupted
+            
+            buffer = ""
+            sentence_end = re.compile(r'[.!?]+\s*')
+            
+            try:
+                async for chunk in text_generator:
+                    if self._stop_playback.is_set():
+                        was_interrupted = True
+                        break
+                    
+                    buffer += chunk
+                    
+                    # Extract and synthesize complete sentences
+                    while True:
+                        match = sentence_end.search(buffer)
+                        if not match:
+                            break
+                        
+                        end_pos = match.end()
+                        sentence = buffer[:end_pos].strip()
+                        buffer = buffer[end_pos:]
+                        
+                        if sentence and not self._stop_playback.is_set():
+                            sentence_count += 1
+                            
+                            if on_sentence_start:
+                                on_sentence_start(sentence_count, sentence)
+                            
+                            # Synthesize (fast, ~60ms) and queue for playback
+                            audio = await self.synthesize(sentence)
+                            await audio_queue.put(audio)
+                    
+                    if was_interrupted:
+                        break
+                
+                # Synthesize remaining buffer
+                if buffer.strip() and not self._stop_playback.is_set():
+                    sentence_count += 1
+                    if on_sentence_start:
+                        on_sentence_start(sentence_count, buffer.strip())
+                    audio = await self.synthesize(buffer.strip())
+                    await audio_queue.put(audio)
+                    
+            except Exception as e:
+                print(f"⚠️  Streaming TTS producer error: {e}")
+            finally:
+                synthesis_done.set()
+        
+        async def consumer():
+            """Play synthesized audio from the queue."""
+            nonlocal was_interrupted
+            
+            while True:
                 if self._stop_playback.is_set():
                     was_interrupted = True
                     break
                 
-                buffer += chunk
-                
-                # Extract and speak complete sentences
-                while True:
-                    match = sentence_end.search(buffer)
-                    if not match:
+                try:
+                    # Wait for next audio chunk with timeout
+                    audio = await asyncio.wait_for(
+                        audio_queue.get(),
+                        timeout=0.1
+                    )
+                    
+                    # Play this chunk (slow, 2-3s typically)
+                    await self.play_audio_async(audio)
+                    
+                    if self._stop_playback.is_set():
+                        was_interrupted = True
                         break
-                    
-                    end_pos = match.end()
-                    sentence = buffer[:end_pos].strip()
-                    buffer = buffer[end_pos:]
-                    
-                    if sentence:
-                        sentence_count += 1
                         
-                        if self._stop_playback.is_set():
-                            was_interrupted = True
-                            break
-                        
-                        if on_sentence_start:
-                            on_sentence_start(sentence_count, sentence)
-                        
-                        # Generate and play
-                        audio = await self.synthesize(sentence)
-                        await self.play_audio_async(audio)
-                
-                if was_interrupted:
+                except asyncio.TimeoutError:
+                    # Check if synthesis is done and queue is empty
+                    if synthesis_done.is_set() and audio_queue.empty():
+                        break
+                    continue
+                except Exception as e:
+                    print(f"⚠️  Streaming TTS consumer error: {e}")
                     break
+        
+        try:
+            # Run producer and consumer concurrently
+            # Producer synthesizes ahead while consumer plays
+            producer_task = asyncio.create_task(producer())
+            await consumer()
             
-            # Speak remaining buffer
-            if buffer.strip() and not self._stop_playback.is_set():
-                sentence_count += 1
-                if on_sentence_start:
-                    on_sentence_start(sentence_count, buffer.strip())
-                audio = await self.synthesize(buffer.strip())
-                await self.play_audio_async(audio)
+            # Ensure producer completes
+            await producer_task
             
             if on_complete:
                 on_complete(was_interrupted)

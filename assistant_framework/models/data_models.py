@@ -112,6 +112,22 @@ class WakeWordEvent:
     timestamp: float = field(default_factory=lambda: datetime.now().timestamp())
     metadata: Dict[str, Any] = field(default_factory=dict)
 
+
+@dataclass
+class TerminationEvent:
+    """
+    Represents a termination phrase detection event.
+    
+    Used for parallel detection of conversation-ending phrases like "over out"
+    that can interrupt any ongoing operation (TTS, processing, transcription).
+    """
+    phrase_name: str  # e.g., "over_out", "stop_listening"
+    score: float
+    timestamp: float = field(default_factory=lambda: datetime.now().timestamp())
+    interrupted_state: Optional[str] = None  # What state was interrupted (SYNTHESIZING, etc.)
+    metadata: Dict[str, Any] = field(default_factory=dict)
+
+
 @dataclass
 class ConversationMessage:
     """Represents a message in conversation history."""

@@ -1,12 +1,111 @@
 """
 Structured logging configuration for assistant framework.
+
+Includes:
+- Structured logging with ComponentLogger
+- Verbose print utility (vprint) for conditional terminal output
 """
 
 import logging
 import sys
-from typing import Optional
+import os
+from typing import Optional, Any
 from pathlib import Path
 from datetime import datetime
+from functools import lru_cache
+
+
+# =============================================================================
+# VERBOSE PRINTING
+# =============================================================================
+# Simple conditional print that respects VERBOSE_LOGGING config.
+# Use vprint() instead of print() for non-essential output.
+
+@lru_cache(maxsize=1)
+def _get_verbose_setting() -> bool:
+    """Get verbose logging setting (cached for performance)."""
+    # First check environment variable
+    env_val = os.getenv("VERBOSE_LOGGING", "").lower()
+    if env_val in ("false", "0", "no"):
+        return False
+    if env_val in ("true", "1", "yes"):
+        return True
+    
+    # Fall back to config.py setting
+    try:
+        from assistant_framework.config import VERBOSE_LOGGING
+        return VERBOSE_LOGGING
+    except ImportError:
+        return True  # Default to verbose if config not available
+
+
+def reset_verbose_cache():
+    """Reset the verbose setting cache (call if config changes at runtime)."""
+    _get_verbose_setting.cache_clear()
+
+
+def vprint(*args, **kwargs) -> None:
+    """
+    Verbose print - only prints if VERBOSE_LOGGING is enabled.
+    
+    Use this for informational output that's nice during development
+    but not needed in production.
+    
+    Usage:
+        from assistant_framework.utils.logging_config import vprint
+        vprint("🔄 Processing audio...")  # Only shows if VERBOSE_LOGGING=True
+    
+    For critical output that should ALWAYS show (errors, key events),
+    use regular print() instead.
+    """
+    if _get_verbose_setting():
+        print(*args, **kwargs)
+
+
+def cprint(message: str, always: bool = False) -> None:
+    """
+    Conditional print with explicit control.
+    
+    Args:
+        message: The message to print
+        always: If True, always print regardless of verbose setting
+    
+    Usage:
+        cprint("✅ Started")           # Only if verbose
+        cprint("❌ Error!", always=True)  # Always shows
+    """
+    if always or _get_verbose_setting():
+        print(message)
+
+
+# Minimal logging mode - only these message prefixes are shown when verbose=False
+ESSENTIAL_PREFIXES = (
+    "❌",   # Errors
+    "⚠️",   # Warnings  
+    "💀",   # Critical
+    "🎯",   # Wake word detected (key event)
+    "👤",   # User message
+    "🤖",   # Assistant message
+    "✅ Conversation",  # Conversation complete
+    "🔁 Starting",  # Loop start
+)
+
+
+def eprint(message: str) -> None:
+    """
+    Essential print - prints if verbose, OR if message starts with essential prefix.
+    
+    This allows key events to show even in quiet mode.
+    
+    Usage:
+        eprint("🔄 Initializing...")      # Only if verbose
+        eprint("❌ Connection failed")    # Always (error prefix)
+        eprint("🎯 Wake word detected")   # Always (key event prefix)
+    """
+    if _get_verbose_setting():
+        print(message)
+    elif message.lstrip().startswith(ESSENTIAL_PREFIXES):
+        print(message)
 
 
 class StructuredFormatter(logging.Formatter):

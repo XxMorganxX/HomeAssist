@@ -14,7 +14,16 @@ from assistant_framework.utils.device_manager import get_emeet_device, get_audio
 
 
 # =============================================================================
-# SECTION 0: DYNAMIC USER CONFIG
+# SECTION 0: LOGGING VERBOSITY
+# =============================================================================
+# Controls how much output is printed to the terminal.
+# Set to False for minimal/production logging.
+
+VERBOSE_LOGGING = os.getenv("VERBOSE_LOGGING", "true").lower() in ("true", "1", "yes")
+
+
+# =============================================================================
+# SECTION 0B: DYNAMIC USER CONFIG
 # =============================================================================
 
 def _get_primary_user() -> str:
@@ -543,6 +552,33 @@ WAKEWORD_CONFIG = {
 
 
 # =============================================================================
+# SECTION 6A: TERMINATION DETECTION CONFIGURATION
+# =============================================================================
+# Parallel termination phrase detection for instant conversation ending.
+# Runs alongside TTS, transcription, and response generation to detect
+# phrases like "over out" and immediately end the conversation.
+#
+# IMPORTANT: Requires a trained OpenWakeWord model for the termination phrase.
+# See: https://github.com/dscripka/openWakeWord#training-new-models
+# Place trained model at: audio_data/wake_word_models/over_out.onnx
+
+TERMINATION_DETECTION_CONFIG = {
+    "enabled": True,  # Enable/disable parallel termination detection
+    "model_dir": os.getenv("TERMINATION_MODEL_DIR", "./audio_data/wake_word_models"),
+    "model_name": "alexa_v0.1",  # Name of the trained termination phrase model
+    "sample_rate": 16000,
+    "chunk": 1280,  # Audio chunk size (same as wake word)
+    "threshold": 0.5,  # Detection threshold (higher = fewer false positives)
+    "cooldown_seconds": 1.0,  # Minimum time between detections
+    "input_device_index": None,  # None = use default device
+    "latency": "high",  # 'high' for Bluetooth devices
+    "suppress_overflow_warnings": True,  # Suppress overflow warnings during parallel detection
+    "verbose": False,  # Verbose logging (usually disabled for cleaner output)
+    "interrupt_poll_interval": 0.05,  # How often to check for termination during transcription (seconds)
+}
+
+
+# =============================================================================
 # SECTION 6B: BRIEFING PROCESSOR CONFIGURATION
 # =============================================================================
 # Configuration for pre-generating conversation openers from briefing announcements.
@@ -699,6 +735,10 @@ VECTOR_MEMORY_CONFIG = {
     "max_cached_vectors": 10000,      # Max vectors in memory (~120MB at 10k)
     "sync_interval_seconds": 300,     # Sync with Supabase every 5 minutes
     "preload_on_startup": True,       # Load all vectors on startup
+    
+    # Speculative cache warming settings
+    "cache_recent_conversations": 50, # Keep last N conversation embeddings hot in cache
+    "prewarm_on_idle": True,          # Preload cache during idle/wake word detection
     
     # User isolation (populated at runtime)
     "console_token": os.getenv("CONSOLE_TOKEN"),
@@ -859,9 +899,13 @@ BARGE_IN_CONFIG = {
 
 TURNAROUND_CONFIG = {
     "state_transition_delay": 0.02,     # Delay when switching between components (aggressive, was 0.05)
-    "barge_in_resume_delay": 0.02,       # Delay after barge-in before transcription (aggressive, was 0.05)
+    "barge_in_resume_delay": 0.02,      # Delay after barge-in before transcription (aggressive, was 0.05)
     "transcription_stop_delay": 0.05,   # Delay after stopping transcription (aggressive, was 0.15)
     "streaming_tts_enabled": False,     # Disabled: Play whole response at once (still has barge-in)
+    # Fast reboot optimizations
+    "wake_word_warm_mode": True,        # Keep wake word subprocess alive between conversations (~2s faster)
+    "post_conversation_delay": 0.0,     # Delay after conversation ends before wake word (was 0.2s)
+    "wake_word_stop_delay": 0.0,        # Delay after stopping wake word subprocess (was 0.1s)
 }
 
 
@@ -912,6 +956,8 @@ def get_framework_config() -> Dict[str, Any]:
     wakeword_config["latency"] = audio_config.latency
     # Suppress overflow warnings for Bluetooth (bursty audio makes occasional overflow expected)
     wakeword_config["suppress_overflow_warnings"] = audio_config.is_bluetooth
+    # Warm mode: keep subprocess alive between conversations for faster restart
+    wakeword_config["warm_mode"] = TURNAROUND_CONFIG.get("wake_word_warm_mode", True)
     
     # Update barge-in config with device-specific settings
     barge_in_config = BARGE_IN_CONFIG.copy()
@@ -952,7 +998,8 @@ def get_framework_config() -> Dict[str, Any]:
             "enabled": ENABLE_CONVERSATION_RECORDING,
             "supabase_url": SUPABASE_CONFIG["url"],
             "supabase_key": SUPABASE_CONFIG["key"]
-        }
+        },
+        "verbose_logging": VERBOSE_LOGGING
     }
 
 

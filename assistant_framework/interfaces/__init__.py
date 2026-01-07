@@ -9,6 +9,7 @@ from .context import ContextInterface
 from .wake_word import WakeWordInterface
 from .embedding import EmbeddingInterface
 from .vector_store import VectorStoreInterface, VectorSearchResult, VectorRecord
+from .termination import TerminationInterface
 
 __all__ = [
     'TranscriptionInterface',
@@ -20,4 +21,5 @@ __all__ = [
     'VectorStoreInterface',
     'VectorSearchResult',
     'VectorRecord',
+    'TerminationInterface',
 ]

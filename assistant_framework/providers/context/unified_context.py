@@ -440,3 +440,23 @@ class UnifiedContextProvider(ContextInterface):
     def vector_memory(self) -> Optional[VectorMemoryManager]:
         """Get the vector memory manager."""
         return self._vector_memory
+    
+    async def preload_vector_cache(self) -> bool:
+        """
+        Preload vector memory cache for faster first query.
+        
+        Call this speculatively during idle/wake word detection.
+        
+        Returns:
+            True if cache is ready, False otherwise
+        """
+        if not self._vector_memory or not self._vector_memory_initialized:
+            return False
+        
+        return await self._vector_memory.preload_recent_vectors()
+    
+    def is_vector_cache_warm(self) -> bool:
+        """Check if vector memory cache is populated."""
+        if not self._vector_memory:
+            return False
+        return self._vector_memory.is_cache_warm()

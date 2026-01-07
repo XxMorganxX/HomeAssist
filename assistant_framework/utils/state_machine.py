@@ -168,8 +168,16 @@ class AudioStateMachine:
             if self._current_component and self._current_component != component:
                 await self._cleanup_component(self._current_component)
                 
-                # Wait for audio system to settle
-                if target_state != AudioState.ERROR:
+                # Wait for audio system to settle ONLY when switching between
+                # components that use different audio resources
+                # Skip delay for same-component or non-audio transitions
+                needs_settling = (
+                    target_state != AudioState.ERROR and
+                    self._transition_delay > 0 and
+                    self._current_component in ("wakeword", "transcription", "tts") and
+                    component in ("wakeword", "transcription", "tts")
+                )
+                if needs_settling:
                     print(f"⏳ Settling for {self._transition_delay}s...")
                     await asyncio.sleep(self._transition_delay)
             

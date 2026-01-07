@@ -91,6 +91,8 @@ class VectorMemoryManager:
         # Cache settings
         self._cache_enabled = config.get("local_cache_enabled", True)
         self._preload_on_startup = config.get("preload_on_startup", True)
+        self._cache_recent_count = config.get("cache_recent_conversations", 50)
+        self._prewarm_on_idle = config.get("prewarm_on_idle", True)
         
         # Build provider configs
         embedding_provider_name = config.get("embedding_provider", "openai")
@@ -223,6 +225,42 @@ class VectorMemoryManager:
         if self._local_cache:
             return self._local_cache.get_stats()
         return {"enabled": False}
+    
+    async def preload_recent_vectors(self, count: int = 50) -> bool:
+        """
+        Preload recent vectors into cache for faster first query.
+        
+        Call this speculatively during idle/wake word to warm up the cache.
+        If cache is already populated, this is a no-op.
+        
+        Args:
+            count: Maximum number of recent vectors to preload
+            
+        Returns:
+            True if cache is ready, False if preload failed
+        """
+        if not self._initialized or not self._local_cache:
+            return False
+        
+        # Check if cache already has vectors
+        stats = self._local_cache.get_stats()
+        if stats.get("vector_count", 0) > 0:
+            return True  # Already populated
+        
+        try:
+            # Load from database if cache is empty
+            loaded = await self._load_cache_from_database()
+            return loaded > 0 or True  # Success even if no vectors exist yet
+        except Exception as e:
+            print(f"⚠️  Vector cache preload failed: {e}")
+            return False
+    
+    def is_cache_warm(self) -> bool:
+        """Check if the local cache has vectors loaded."""
+        if not self._local_cache:
+            return False
+        stats = self._local_cache.get_stats()
+        return stats.get("vector_count", 0) > 0
     
     def _parse_turns(self, conversation: str) -> List[Dict[str, str]]:
         """

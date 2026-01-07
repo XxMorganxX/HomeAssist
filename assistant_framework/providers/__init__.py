@@ -7,6 +7,7 @@ from .response import OpenAIWebSocketResponseProvider
 from .tts import GoogleTTSProvider, LocalTTSProvider
 from .context import UnifiedContextProvider
 from .wakeword_v2 import IsolatedOpenWakeWordProvider
+from .termination import IsolatedTerminationProvider
 
 __all__ = [
     'AssemblyAIAsyncProvider',
@@ -14,5 +15,6 @@ __all__ = [
     'GoogleTTSProvider',
     'LocalTTSProvider',
     'UnifiedContextProvider',
-    'IsolatedOpenWakeWordProvider'
+    'IsolatedOpenWakeWordProvider',
+    'IsolatedTerminationProvider'
 ]
