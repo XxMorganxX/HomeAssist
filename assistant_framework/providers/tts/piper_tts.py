@@ -569,12 +569,22 @@ class PiperTTSProvider(TextToSpeechInterface):
         import wave
         import io
         
+        # CRITICAL: Check if stop was requested before starting
+        # This prevents clearing a barge-in flag that was just set
+        if self._stop_playback.is_set():
+            return  # Barge-in already triggered, don't play
+        
         if self._is_playing:
             self.stop_audio()
             await asyncio.sleep(0.02)  # Reduced from 0.05s
+            # Re-check after stop in case barge-in was triggered
+            if self._stop_playback.is_set():
+                return
         
         self._is_playing = True
-        self._stop_playback.clear()
+        # Only clear if not already set by barge-in
+        if not self._stop_playback.is_set():
+            self._stop_playback.clear()
         
         try:
             # Parse WAV data directly from memory (no temp file needed)
@@ -741,14 +751,21 @@ class PiperTTSProvider(TextToSpeechInterface):
             
             try:
                 async for chunk in text_generator:
+                    # Check barge-in before processing each chunk
                     if self._stop_playback.is_set():
                         was_interrupted = True
+                        print("🛑 Barge-in detected, stopping text generation")
                         break
                     
                     buffer += chunk
                     
                     # Extract and synthesize complete sentences
                     while True:
+                        # Check again before each sentence
+                        if self._stop_playback.is_set():
+                            was_interrupted = True
+                            break
+                            
                         match = sentence_end.search(buffer)
                         if not match:
                             break
@@ -757,26 +774,31 @@ class PiperTTSProvider(TextToSpeechInterface):
                         sentence = buffer[:end_pos].strip()
                         buffer = buffer[end_pos:]
                         
-                        if sentence and not self._stop_playback.is_set():
+                        if sentence:
                             sentence_count += 1
                             
                             if on_sentence_start:
                                 on_sentence_start(sentence_count, sentence)
                             
                             # Synthesize (fast, ~60ms) and queue for playback
-                            audio = await self.synthesize(sentence)
-                            await audio_queue.put(audio)
+                            # Don't synthesize if barge-in triggered
+                            if not self._stop_playback.is_set():
+                                audio = await self.synthesize(sentence)
+                                # Don't queue if barge-in triggered during synthesis
+                                if not self._stop_playback.is_set():
+                                    await audio_queue.put(audio)
                     
                     if was_interrupted:
                         break
                 
-                # Synthesize remaining buffer
+                # Synthesize remaining buffer (only if no barge-in)
                 if buffer.strip() and not self._stop_playback.is_set():
                     sentence_count += 1
                     if on_sentence_start:
                         on_sentence_start(sentence_count, buffer.strip())
                     audio = await self.synthesize(buffer.strip())
-                    await audio_queue.put(audio)
+                    if not self._stop_playback.is_set():
+                        await audio_queue.put(audio)
                     
             except Exception as e:
                 print(f"⚠️  Streaming TTS producer error: {e}")
@@ -788,8 +810,10 @@ class PiperTTSProvider(TextToSpeechInterface):
             nonlocal was_interrupted
             
             while True:
+                # Check barge-in flag FIRST (before getting from queue)
                 if self._stop_playback.is_set():
                     was_interrupted = True
+                    print("🛑 Barge-in detected, stopping TTS playback")
                     break
                 
                 try:
@@ -799,16 +823,29 @@ class PiperTTSProvider(TextToSpeechInterface):
                         timeout=0.1
                     )
                     
-                    # Play this chunk (slow, 2-3s typically)
-                    await self.play_audio_async(audio)
-                    
+                    # Check AGAIN before playing (barge-in could have happened during wait)
                     if self._stop_playback.is_set():
                         was_interrupted = True
+                        print("🛑 Barge-in detected, stopping TTS playback")
+                        break
+                    
+                    # Play this chunk (slow, 2-3s typically)
+                    # play_audio_async will also check the flag and return early if set
+                    await self.play_audio_async(audio)
+                    
+                    # Check AFTER playing (barge-in during playback)
+                    if self._stop_playback.is_set():
+                        was_interrupted = True
+                        print("🛑 Barge-in detected during playback, stopping TTS")
                         break
                         
                 except asyncio.TimeoutError:
                     # Check if synthesis is done and queue is empty
                     if synthesis_done.is_set() and audio_queue.empty():
+                        break
+                    # Also check barge-in on timeout
+                    if self._stop_playback.is_set():
+                        was_interrupted = True
                         break
                     continue
                 except Exception as e:

@@ -885,7 +885,7 @@ BARGE_IN_CONFIG = {
     "bluetooth_energy_threshold": 0.03, # Much lower threshold for Bluetooth (mic quality drops during playback)
     "early_barge_in_threshold": 3.0,    # Seconds - if barge-in within this time, append to previous message
     "min_speech_duration": 0.2,         # Seconds of speech before triggering
-    "cooldown_after_tts_start": 0.0,    # Ignore speech for this long after TTS starts
+    "cooldown_after_tts_start": 0.5,    # Ignore speech for first 0.5s after TTS starts (avoid self-trigger)
     "pre_barge_in_buffer_duration": 0.8,  # Seconds of audio to buffer before barge-in
     "post_barge_in_capture_duration": 0.3  # Extra capture after detection
 }
@@ -901,7 +901,7 @@ TURNAROUND_CONFIG = {
     "state_transition_delay": 0.02,     # Delay when switching between components (aggressive, was 0.05)
     "barge_in_resume_delay": 0.02,      # Delay after barge-in before transcription (aggressive, was 0.05)
     "transcription_stop_delay": 0.05,   # Delay after stopping transcription (aggressive, was 0.15)
-    "streaming_tts_enabled": False,     # Disabled: Play whole response at once (still has barge-in)
+    "streaming_tts_enabled": False,     # DISABLED: Wait for full response before speaking (more reliable barge-in)
     # Fast reboot optimizations
     "wake_word_warm_mode": True,        # Keep wake word subprocess alive between conversations (~2s faster)
     "post_conversation_delay": 0.0,     # Delay after conversation ends before wake word (was 0.2s)

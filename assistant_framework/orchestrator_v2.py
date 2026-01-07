@@ -1112,10 +1112,11 @@ class RefactoredOrchestrator:
                     vector_context=vector_context
                 )
             
-            # Setup barge-in detection
+            # Prepare barge-in detection (but don't start yet - wait until audio begins)
+            barge_in_callback = None
             if enable_barge_in and self._barge_in_enabled:
                 bt_mode = " [Bluetooth/Meta]" if self._barge_in_is_bluetooth else ""
-                print(f"👂 Barge-in enabled for streaming TTS{bt_mode}")
+                print(f"👂 Barge-in will be enabled for streaming TTS{bt_mode}")
                 self._barge_in_detector = BargeInDetector(BargeInConfig(
                     mode=BargeInMode.ENERGY,
                     energy_threshold=self._barge_in_energy_threshold,
@@ -1152,11 +1153,8 @@ class RefactoredOrchestrator:
                     if tts and hasattr(tts, 'stop_audio'):
                         tts.stop_audio()
                 
-                await self._barge_in_detector.start(on_barge_in=on_barge_in)
-                
-                # Start the early barge-in window now (when assistant starts responding)
-                self._playback_start_time = asyncio.get_event_loop().time()
-                print(f"⏱️  Early barge-in window opened ({self._early_barge_in_threshold}s from now)")
+                barge_in_callback = on_barge_in
+                # NOTE: Barge-in detector will be STARTED later, right before audio playback begins
             
             # Pre-connect transcription WebSocket
             if self._transcription and hasattr(self._transcription, 'preconnect'):
@@ -1216,6 +1214,13 @@ class RefactoredOrchestrator:
                 AudioState.SYNTHESIZING,
                 "tts"
             )
+            
+            # NOW start barge-in detection (right before audio playback)
+            # This ensures the cooldown timer starts when audio actually begins
+            if self._barge_in_detector and barge_in_callback:
+                await self._barge_in_detector.start(on_barge_in=barge_in_callback)
+                self._playback_start_time = asyncio.get_event_loop().time()
+                print(f"👂 Barge-in detection started (cooldown: {self._barge_in_cooldown_after_tts_start}s)")
             
             # Stream TTS with sentence buffering
             print("🔊 Starting streaming TTS...")
