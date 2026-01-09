@@ -52,21 +52,28 @@ HomeAssistV2/
 │   │   └── vector_store/         # Supabase pgvector
 │   ├── models/                   # Data structures
 │   │   └── data_models.py        # Dataclasses for all components
-│   └── utils/                    # Shared utilities
+│   └── utils/                    # Shared utilities (organized by domain)
 │       ├── state_machine.py      # AudioStateMachine
-│       ├── barge_in.py           # Interrupt detection
-│       ├── persistent_memory.py  # Long-term fact storage
-│       ├── vector_memory.py      # Semantic search
-│       ├── conversation_summarizer.py
-│       ├── briefing_manager.py   # Supabase briefing CRUD
-│       ├── briefing_processor.py # LLM opener generation
-│       ├── conversation_recorder.py  # Session logging
-│       ├── console_logger.py     # Remote dashboard
-│       ├── audio_manager.py      # Device handling
-│       ├── device_manager.py     # Bluetooth/device detection
-│       ├── tones.py              # Audio feedback sounds
 │       ├── error_handling.py     # Recovery strategies
-│       └── logging_config.py     # Verbose/quiet modes
+│       ├── audio/                # Audio pipeline utilities
+│       │   ├── audio_manager.py  # Device ownership handling
+│       │   ├── barge_in.py       # Interrupt detection
+│       │   ├── shared_audio_bus.py # Zero-latency audio routing
+│       │   ├── device_manager.py # Bluetooth/device detection
+│       │   └── tones.py          # Audio feedback sounds
+│       ├── memory/               # Memory & persistence
+│       │   ├── persistent_memory.py  # Long-term fact storage
+│       │   ├── vector_memory.py      # Semantic search
+│       │   ├── local_vector_cache.py # Fast numpy cache
+│       │   └── conversation_summarizer.py
+│       ├── logging/              # Logging & metrics
+│       │   ├── console_logger.py     # Remote dashboard
+│       │   ├── logging_config.py     # Verbose/quiet modes
+│       │   ├── metrics.py            # Performance metrics
+│       │   └── conversation_recorder.py  # Supabase session logging
+│       └── briefing/             # Scheduled briefings
+│           ├── briefing_manager.py   # Supabase briefing CRUD
+│           └── briefing_processor.py # LLM opener generation
 │
 ├── mcp_server/                   # Model Context Protocol server
 │   ├── server.py                 # FastMCP entry point
@@ -352,6 +359,87 @@ async def cleanup_transcription():
             await self._transcription.stop_streaming()
 ```
 
+### Transition Wrapper & Diagnostics
+
+All state transitions in the orchestrator flow through a single `_transition()` method that provides:
+
+- **Rich context** — Every transition records why it happened, who initiated it
+- **Timeline events** — Ring buffer of recent events for postmortem debugging
+- **Auto-dump on errors** — When transitions fail, recent history is printed automatically
+
+**TransitionReason enum** (`models/data_models.py`):
+
+```python
+class TransitionReason(str, Enum):
+    WAKE_DETECTED = "wake_detected"
+    TRANSCRIPTION_START = "transcription_start"
+    TRANSCRIPTION_ERROR = "transcription_error"
+    RESPONSE_START = "response_start"
+    RESPONSE_ERROR = "response_error"
+    TTS_START = "tts_start"
+    TTS_COMPLETE = "tts_complete"
+    TTS_BARGE_IN = "tts_barge_in"
+    TERMINATION_DETECTED = "termination_detected"
+    SESSION_END = "session_end"
+    ERROR_RECOVERY = "error_recovery"
+    # ... more reasons
+```
+
+**TransitionContext dataclass**:
+
+```python
+@dataclass
+class TransitionContext:
+    reason: TransitionReason
+    initiated_by: str  # "system", "user", "error_handler"
+    conversation_id: Optional[str] = None
+    error_message: Optional[str] = None
+    # ... more optional fields
+```
+
+**Using the transition wrapper**:
+
+```python
+# Instead of:
+await self.state_machine.transition_to(AudioState.TRANSCRIBING, "transcription")
+
+# Use:
+await self._transition(
+    AudioState.TRANSCRIBING,
+    component="transcription",
+    ctx=TransitionContext(
+        reason=TransitionReason.TRANSCRIPTION_START,
+        initiated_by="system",
+        conversation_id=self._get_conversation_id(),
+    )
+)
+```
+
+**Timeline ring buffer**:
+
+The orchestrator maintains a `_timeline` deque (last 100 events) that records:
+- State transitions (from, to, reason, duration)
+- Barge-in events
+- Termination events
+- Errors
+
+**Debugging with timeline dump**:
+
+```python
+# Automatically called on transition errors, or call manually:
+self._dump_recent_history(last_n=30)
+
+# Output:
+# ======================================================================
+# 🔍 RECENT TIMELINE (for debugging)
+# ======================================================================
+#   12:34:56.789 | ✓ IDLE                   → WAKE_WORD_LISTENING     | wake_detected (15ms)
+#   12:35:01.234 | ✓ WAKE_WORD_LISTENING    → TRANSCRIBING            | transcription_start (23ms)
+#   12:35:05.567 | ✓ TRANSCRIBING           → PROCESSING_RESPONSE     | response_start (12ms)
+#   12:35:08.890 | ❌ PROCESSING_RESPONSE    → TRANSCRIBING            | ERROR: Invalid transition
+# ======================================================================
+```
+
 ### Process Isolation
 
 Wake word and termination detection run in **separate processes** to prevent model corruption:
@@ -432,6 +520,74 @@ class BargeInDetector:
 **Early Barge-In** (within 3 seconds of response start):
 - Appends new message to previous message
 - Enables natural corrections: "No wait, I meant..."
+
+### Shared Audio Bus
+
+`utils/shared_audio_bus.py` provides zero-latency audio transitions during conversations:
+
+```python
+class SharedAudioBus:
+    """
+    Persistent audio input stream with subscriber pattern.
+    
+    Eliminates device acquisition delays by keeping a single InputStream
+    alive during conversations. Components subscribe/unsubscribe to
+    receive audio data without stream teardown.
+    """
+    
+    async def start(self) -> None:
+        """Start the persistent input stream (after wake word)."""
+    
+    async def stop(self) -> None:
+        """Stop the input stream (end of conversation)."""
+    
+    def subscribe(self, name: str, callback: Callable, priority: int = 0) -> None:
+        """Add a subscriber (instant, no device setup)."""
+    
+    def unsubscribe(self, name: str) -> None:
+        """Remove a subscriber (instant, no device teardown)."""
+    
+    def get_buffer(self, seconds: float) -> Optional[np.ndarray]:
+        """Get recent audio for prefill (barge-in captured audio)."""
+```
+
+**Architecture:**
+
+```
+Wake Word (subprocess) → [wake detected] → Start SharedAudioBus
+    ↓
+Transcription subscribes → [user speaks] → Transcription unsubscribes
+    ↓
+TTS plays + Barge-in subscribes → [user interrupts] → Barge-in triggers
+    ↓
+Transcription subscribes (instant, bus already running) → ...
+    ↓
+Conversation ends → Stop SharedAudioBus → Wake Word resumes
+```
+
+**Key Benefits:**
+- Reduces TTS → Transcription transition from ~300ms to ~10ms
+- Ring buffer maintains last 3s of audio for instant prefill
+- Priority system ensures barge-in detector runs before transcription
+- Backward compatible — components fall back to standalone streams if disabled
+
+**Configuration** (`config.py`):
+
+```python
+SHARED_AUDIO_BUS_CONFIG = {
+    "enabled": True,              # Set False to disable
+    "sample_rate": 16000,
+    "channels": 1,
+    "chunk_size": 1024,           # 64ms at 16kHz
+    "buffer_seconds": 3.0,        # Ring buffer for prefill
+    "device_index": None,         # Auto-detected
+    "latency": "high",            # 'high' for Bluetooth
+}
+```
+
+**Subscriber Priority:**
+- Priority 10: Barge-in detector (processes first for fast interruption)
+- Priority 0: Transcription (default)
 
 ### TTS Pipeline
 
@@ -1015,6 +1171,40 @@ class TerminationEvent:
     interrupted_state: Optional[str] = None  # "SYNTHESIZING", etc.
 ```
 
+### State Transitions
+
+```python
+class TransitionReason(str, Enum):
+    """Why a state transition is happening."""
+    WAKE_DETECTED = "wake_detected"
+    TRANSCRIPTION_START = "transcription_start"
+    TRANSCRIPTION_ERROR = "transcription_error"
+    RESPONSE_START = "response_start"
+    RESPONSE_ERROR = "response_error"
+    TTS_START = "tts_start"
+    TTS_COMPLETE = "tts_complete"
+    TTS_BARGE_IN = "tts_barge_in"
+    TERMINATION_DETECTED = "termination_detected"
+    SESSION_END = "session_end"
+    ERROR_RECOVERY = "error_recovery"
+    MANUAL_RESET = "manual_reset"
+    # ... more reasons
+
+@dataclass
+class TransitionContext:
+    """Rich context for state transitions."""
+    reason: TransitionReason
+    initiated_by: str  # "system", "user", "error_handler"
+    conversation_id: Optional[str] = None
+    wake_word: Optional[str] = None
+    user_message_snippet: Optional[str] = None
+    error_message: Optional[str] = None
+    audio_device: Dict[str, Any] = field(default_factory=dict)
+    extra: Dict[str, Any] = field(default_factory=dict)
+    
+    def to_metadata(self) -> Dict[str, Any]: ...
+```
+
 ### Conversation
 
 ```python
@@ -1384,5 +1574,5 @@ else:
 
 ---
 
-*Last updated: January 2026*
+*Last updated: January 8, 2026*
 

@@ -10,9 +10,9 @@ try:
     # Try relative imports first (when used as package)
     from ...interfaces.context import ContextInterface
     from ...models.data_models import ConversationMessage, MessageRole
-    from ...utils.conversation_summarizer import ConversationSummarizer
-    from ...utils.persistent_memory import PersistentMemoryManager
-    from ...utils.vector_memory import VectorMemoryManager
+    from ...utils.memory.conversation_summarizer import ConversationSummarizer
+    from ...utils.memory.persistent_memory import PersistentMemoryManager
+    from ...utils.memory.vector_memory import VectorMemoryManager
 except ImportError:
     # Fall back to absolute imports (when run as module)
     import sys
@@ -20,9 +20,9 @@ except ImportError:
     sys.path.append(str(Path(__file__).parent.parent.parent))
     from interfaces.context import ContextInterface
     from models.data_models import ConversationMessage, MessageRole
-    from utils.conversation_summarizer import ConversationSummarizer
-    from utils.persistent_memory import PersistentMemoryManager
-    from utils.vector_memory import VectorMemoryManager
+    from utils.memory.conversation_summarizer import ConversationSummarizer
+    from utils.memory.persistent_memory import PersistentMemoryManager
+    from utils.memory.vector_memory import VectorMemoryManager
 
 
 class UnifiedContextProvider(ContextInterface):

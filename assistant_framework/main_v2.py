@@ -12,11 +12,11 @@ from datetime import datetime
 try:
     from .orchestrator_v2 import RefactoredOrchestrator
     from .config import get_framework_config, print_config_summary
-    from .utils.logging_config import setup_logging
+    from .utils.logging.logging_config import setup_logging
 except ImportError:
     from assistant_framework.orchestrator_v2 import RefactoredOrchestrator
     from assistant_framework.config import get_framework_config, print_config_summary
-    from assistant_framework.utils.logging_config import setup_logging
+    from assistant_framework.utils.logging.logging_config import setup_logging
 
 
 # =============================================================================

@@ -18,7 +18,7 @@ try:
     from .tones import beep_ready_to_listen  # type: ignore
 except Exception:  # pragma: no cover
     try:
-        from assistant_framework.utils.tones import beep_ready_to_listen  # type: ignore
+        from assistant_framework.utils.audio.tones import beep_ready_to_listen  # type: ignore
     except Exception:  # pragma: no cover
         def beep_ready_to_listen() -> None:  # type: ignore
             return

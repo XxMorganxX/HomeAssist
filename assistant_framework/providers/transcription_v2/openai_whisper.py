@@ -28,12 +28,14 @@ except ImportError:
 try:
     from ...interfaces.transcription import TranscriptionInterface
     from ...models.data_models import TranscriptionResult
-    from ...utils.audio_manager import get_audio_manager
+    from ...utils.audio.audio_manager import get_audio_manager
+    from ...utils.audio.shared_audio_bus import SharedAudioBus
     from ..base import StreamingProviderBase
 except ImportError:
     from assistant_framework.interfaces.transcription import TranscriptionInterface
     from assistant_framework.models.data_models import TranscriptionResult
-    from assistant_framework.utils.audio_manager import get_audio_manager
+    from assistant_framework.utils.audio.audio_manager import get_audio_manager
+    from assistant_framework.utils.audio.shared_audio_bus import SharedAudioBus
     from assistant_framework.providers.base import StreamingProviderBase
 
 
@@ -56,7 +58,7 @@ class OpenAIWhisperProvider(StreamingProviderBase, TranscriptionInterface):
     - silence_duration: Seconds of silence to trigger final result
     """
     
-    def __init__(self, config: Dict[str, Any]):
+    def __init__(self, config: Dict[str, Any], shared_bus: Optional[SharedAudioBus] = None):
         super().__init__(config)
         self._component_name = "transcription"
         
@@ -111,6 +113,10 @@ class OpenAIWhisperProvider(StreamingProviderBase, TranscriptionInterface):
         
         # Session tracking
         self.session_id: Optional[str] = None
+        
+        # Shared audio bus support (for zero-latency transitions)
+        self._shared_bus = shared_bus
+        self._using_shared_bus = False
     
     async def initialize(self) -> bool:
         """Initialize the OpenAI client."""
@@ -145,6 +151,24 @@ class OpenAIWhisperProvider(StreamingProviderBase, TranscriptionInterface):
     def is_preconnected(self) -> bool:
         """Check if client is ready."""
         return self._client is not None
+    
+    def set_shared_bus(self, bus: Optional[SharedAudioBus]) -> None:
+        """
+        Set the shared audio bus for zero-latency transitions.
+        
+        Can be called after initialization to enable shared bus support.
+        
+        Args:
+            bus: SharedAudioBus instance, or None to disable
+        """
+        self._shared_bus = bus
+        if bus:
+            print("⚡ Whisper transcription provider connected to shared audio bus")
+    
+    @property
+    def is_using_shared_bus(self) -> bool:
+        """Check if currently using the shared audio bus."""
+        return self._using_shared_bus
     
     def _audio_callback(self, indata: np.ndarray, frames: int, time_info: dict, status: sd.CallbackFlags):
         """
@@ -192,11 +216,6 @@ class OpenAIWhisperProvider(StreamingProviderBase, TranscriptionInterface):
         if not self._client:
             await self.initialize()
         
-        # Acquire audio
-        acquired = self.audio_manager.acquire_audio("transcription", force_cleanup=True)
-        if not acquired:
-            raise RuntimeError("Failed to acquire audio for transcription")
-        
         # Create queues
         self._audio_queue = asyncio.Queue(maxsize=50)
         self._result_queue = asyncio.Queue(maxsize=20)
@@ -208,22 +227,46 @@ class OpenAIWhisperProvider(StreamingProviderBase, TranscriptionInterface):
         self._last_speech_time = asyncio.get_event_loop().time()
         self.session_id = f"whisper_{datetime.now().strftime('%Y%m%d_%H%M%S')}"
         
-        # Open audio stream
-        bt_mode = " [Bluetooth]" if self._is_bluetooth else ""
-        print(f"🎙️  Opening Whisper transcription audio stream{bt_mode}...")
-        print(f"   Device: {self._device_index or 'default'}, Blocksize: {self.frames_per_buffer}, Latency: '{self._latency}'")
-        self._audio_stream = sd.InputStream(
-            device=self._device_index,
-            samplerate=self.sample_rate,
-            channels=self.channels,
-            dtype='int16',
-            blocksize=self.frames_per_buffer,
-            latency=self._latency,
-            callback=self._audio_callback
-        )
-        self._audio_stream.start()
-        self._callback_active.set()
-        print("✅ Audio stream opened for Whisper transcription")
+        # Check if we can use shared audio bus (zero-latency transition)
+        if self._shared_bus and self._shared_bus.is_running:
+            # Use shared bus - instant subscription, no device setup
+            self._shared_bus.subscribe("transcription", self._audio_callback, priority=0)
+            self._using_shared_bus = True
+            self._callback_active.set()
+            print("⚡ Subscribed to shared audio bus (instant start)")
+            
+            # Check if bus has prefill audio available (from barge-in)
+            if not self._prefill_audio:
+                prefill = self._shared_bus.get_buffer_bytes(seconds=2.0)
+                if prefill:
+                    self._prefill_audio = prefill
+                    duration = len(prefill) / 2 / self.sample_rate
+                    print(f"📼 Using {duration:.2f}s of audio from shared bus buffer")
+        else:
+            # Fallback to standalone stream (original behavior)
+            self._using_shared_bus = False
+            
+            # Acquire audio
+            acquired = self.audio_manager.acquire_audio("transcription", force_cleanup=True)
+            if not acquired:
+                raise RuntimeError("Failed to acquire audio for transcription")
+            
+            # Open audio stream
+            bt_mode = " [Bluetooth]" if self._is_bluetooth else ""
+            print(f"🎙️  Opening Whisper transcription audio stream{bt_mode}...")
+            print(f"   Device: {self._device_index or 'default'}, Blocksize: {self.frames_per_buffer}, Latency: '{self._latency}'")
+            self._audio_stream = sd.InputStream(
+                device=self._device_index,
+                samplerate=self.sample_rate,
+                channels=self.channels,
+                dtype='int16',
+                blocksize=self.frames_per_buffer,
+                latency=self._latency,
+                callback=self._audio_callback
+            )
+            self._audio_stream.start()
+            self._callback_active.set()
+            print("✅ Audio stream opened for Whisper transcription")
         
         # Process prefill audio
         if self._prefill_audio:
@@ -239,6 +282,7 @@ class OpenAIWhisperProvider(StreamingProviderBase, TranscriptionInterface):
         """Clean up resources."""
         if (self._process_task is None and
             self._audio_stream is None and
+            not self._using_shared_bus and
             (full_cleanup or self._client is None)):
             return
         
@@ -257,19 +301,25 @@ class OpenAIWhisperProvider(StreamingProviderBase, TranscriptionInterface):
                 print("⚠️  Process task cancellation timed out")
         self._process_task = None
         
-        # Stop audio stream
-        if self._audio_stream:
+        # Unsubscribe from shared bus OR stop audio stream
+        if self._using_shared_bus and self._shared_bus:
+            # Instant unsubscription - no device teardown
+            self._shared_bus.unsubscribe("transcription")
+            self._using_shared_bus = False
+            self._callback_active.clear()
+            print("⚡ Unsubscribed from shared audio bus (instant)")
+        elif self._audio_stream:
+            # Stop audio stream
             try:
                 if hasattr(self._audio_stream, 'active') and self._audio_stream.active:
                     self._audio_stream.stop()
                 await asyncio.sleep(0.05)
             except Exception as e:
                 print(f"⚠️  Audio stream stop error: {e}")
-        
-        self._callback_active.clear()
-        
-        # Close audio stream
-        if self._audio_stream:
+            
+            self._callback_active.clear()
+            
+            # Close audio stream
             try:
                 self._audio_stream.close()
                 await asyncio.sleep(0.1)

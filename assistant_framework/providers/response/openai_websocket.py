@@ -703,7 +703,7 @@ class OpenAIWebSocketResponseProvider(ResponseInterface):
             traceback.print_exc()
             
             # Play failure sound for exceptions
-            from assistant_framework.utils.tones import beep_tool_failure
+            from assistant_framework.utils.audio.tones import beep_tool_failure
             beep_tool_failure()
             
             return error_msg
@@ -712,7 +712,7 @@ class OpenAIWebSocketResponseProvider(ResponseInterface):
         """Play audio feedback based on tool execution result."""
         try:
             import json
-            from assistant_framework.utils.tones import beep_tool_success, beep_tool_failure
+            from assistant_framework.utils.audio.tones import beep_tool_success, beep_tool_failure
             
             # Try to parse as JSON to check for success field
             try:

@@ -21,11 +21,11 @@ from pathlib import Path
 try:
     from ...interfaces.termination import TerminationInterface
     from ...models.data_models import TerminationEvent
-    from ...utils.logging_config import vprint, eprint
+    from ...utils.logging.logging_config import vprint, eprint
 except ImportError:
     from assistant_framework.interfaces.termination import TerminationInterface
     from assistant_framework.models.data_models import TerminationEvent
-    from assistant_framework.utils.logging_config import vprint, eprint
+    from assistant_framework.utils.logging.logging_config import vprint, eprint
 
 
 def _termination_worker(

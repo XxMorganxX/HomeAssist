@@ -5,6 +5,9 @@ Simplified, reliable pipeline execution.
 
 import asyncio
 import os
+import time
+from collections import deque
+from datetime import datetime
 from typing import Dict, Any, Optional, List
 
 try:
@@ -18,13 +21,14 @@ try:
     )
     from .utils.state_machine import AudioStateMachine, AudioState
     from .utils.error_handling import ErrorHandler, ComponentError, ErrorSeverity
-    from .utils.barge_in import BargeInDetector, BargeInConfig, BargeInMode
-    from .utils.conversation_recorder import ConversationRecorder
-    from .utils.tones import (
+    from .utils.audio.barge_in import BargeInDetector, BargeInConfig, BargeInMode
+    from .utils.audio.shared_audio_bus import SharedAudioBus, SharedAudioBusConfig
+    from .utils.logging.conversation_recorder import ConversationRecorder
+    from .utils.audio.tones import (
         beep_wake_detected, beep_listening_start,
         beep_send_detected, beep_ready_to_listen, beep_shutdown
     )
-    from .utils.console_logger import (
+    from .utils.logging.console_logger import (
         log_boot, log_shutdown, log_conversation_end, log_wake_word,
         log_user_message, log_assistant_response, log_tool_call,
         log_termination_detected
@@ -33,8 +37,9 @@ try:
     from .providers.transcription_v2 import AssemblyAIAsyncProvider
     from .providers.context import UnifiedContextProvider
     from .providers.termination import IsolatedTerminationProvider
-    from .utils.briefing_manager import BriefingManager
+    from .utils.briefing.briefing_manager import BriefingManager
     from .config import get_active_preset, TERMINATION_DETECTION_CONFIG
+    from .models.data_models import TransitionReason, TransitionContext
 except ImportError:
     from assistant_framework.interfaces import (
         TranscriptionInterface,
@@ -46,13 +51,14 @@ except ImportError:
     )
     from assistant_framework.utils.state_machine import AudioStateMachine, AudioState
     from assistant_framework.utils.error_handling import ErrorHandler, ComponentError, ErrorSeverity
-    from assistant_framework.utils.barge_in import BargeInDetector, BargeInConfig, BargeInMode
-    from assistant_framework.utils.conversation_recorder import ConversationRecorder
-    from assistant_framework.utils.tones import (
+    from assistant_framework.utils.audio.barge_in import BargeInDetector, BargeInConfig, BargeInMode
+    from assistant_framework.utils.audio.shared_audio_bus import SharedAudioBus, SharedAudioBusConfig
+    from assistant_framework.utils.logging.conversation_recorder import ConversationRecorder
+    from assistant_framework.utils.audio.tones import (
         beep_wake_detected, beep_listening_start,
         beep_send_detected, beep_ready_to_listen, beep_shutdown
     )
-    from assistant_framework.utils.console_logger import (
+    from assistant_framework.utils.logging.console_logger import (
         log_boot, log_shutdown, log_conversation_end, log_wake_word,
         log_user_message, log_assistant_response, log_tool_call,
         log_termination_detected
@@ -61,8 +67,9 @@ except ImportError:
     from assistant_framework.providers.transcription_v2 import AssemblyAIAsyncProvider
     from assistant_framework.providers.context import UnifiedContextProvider
     from assistant_framework.providers.termination import IsolatedTerminationProvider
-    from assistant_framework.utils.briefing_manager import BriefingManager
+    from assistant_framework.utils.briefing.briefing_manager import BriefingManager
     from assistant_framework.config import get_active_preset, TERMINATION_DETECTION_CONFIG
+    from assistant_framework.models.data_models import TransitionReason, TransitionContext
 
 
 class RefactoredOrchestrator:
@@ -114,6 +121,22 @@ class RefactoredOrchestrator:
         self._barge_in_detector: Optional[BargeInDetector] = None
         self._barge_in_triggered = False  # Flag to signal TTS interruption
         self._barge_in_audio: Optional[bytes] = None  # Captured audio from barge-in
+        
+        # Shared audio bus (zero-latency transitions between transcription/barge-in)
+        shared_bus_config = config.get('shared_audio_bus', {})
+        self._shared_audio_bus_enabled = shared_bus_config.get('enabled', True)
+        self._shared_audio_bus: Optional[SharedAudioBus] = None
+        if self._shared_audio_bus_enabled:
+            self._shared_audio_bus = SharedAudioBus(SharedAudioBusConfig(
+                enabled=True,
+                sample_rate=shared_bus_config.get('sample_rate', 16000),
+                channels=shared_bus_config.get('channels', 1),
+                chunk_size=shared_bus_config.get('chunk_size', 1024),
+                buffer_seconds=shared_bus_config.get('buffer_seconds', 3.0),
+                device_index=shared_bus_config.get('device_index'),
+                latency=shared_bus_config.get('latency', 'high'),
+                is_bluetooth=shared_bus_config.get('is_bluetooth', False),
+            ))
 
         # Briefing announcements
         try:
@@ -160,6 +183,10 @@ class RefactoredOrchestrator:
         # Context provider for conversation memory
         context_config = config.get('context', {}).get('config', {})
         self._context: Optional[ContextInterface] = UnifiedContextProvider(context_config)
+        
+        # Diagnostics: timeline ring buffer for debugging state transitions and events
+        # Stores last 100 events for postmortem analysis on errors
+        self._timeline: deque = deque(maxlen=100)
         
         self.is_initialized = False
     
@@ -349,6 +376,168 @@ class RefactoredOrchestrator:
         
         print("✅ Cleanup handlers registered with state machine")
     
+    # =========================================================================
+    # TRANSITION WRAPPER & DIAGNOSTICS
+    # =========================================================================
+    
+    async def _transition(
+        self,
+        to_state: AudioState,
+        component: Optional[str],
+        ctx: TransitionContext
+    ) -> bool:
+        """
+        THE ONLY WAY to change audio state in this orchestrator.
+        
+        All state transitions flow through this method to ensure:
+        - Every transition is logged with full context (reason, initiator, etc.)
+        - Timeline events are recorded for debugging
+        - Consistent error handling
+        - Easy to add metrics/alerts later
+        
+        Args:
+            to_state: Target AudioState
+            component: Component name for cleanup handler ("wakeword", "transcription", etc.)
+            ctx: TransitionContext with reason, initiator, and optional metadata
+            
+        Returns:
+            True if transition succeeded, False otherwise
+        """
+        from_state = self.state_machine.current_state
+        start = time.perf_counter()
+        
+        # Build metadata from context
+        metadata = ctx.to_metadata()
+        
+        # Attempt the transition
+        try:
+            ok = await self.state_machine.transition_to(
+                to_state,
+                component=component,
+                metadata=metadata
+            )
+            elapsed_ms = int((time.perf_counter() - start) * 1000)
+            
+            # Record to timeline
+            self._record_timeline_event("state_transition", {
+                "from": from_state.name,
+                "to": to_state.name,
+                "component": component,
+                "reason": ctx.reason.value,
+                "initiated_by": ctx.initiated_by,
+                "ok": ok,
+                "ms": elapsed_ms,
+            })
+            
+            if not ok:
+                print(f"⚠️  Transition {from_state.name} → {to_state.name} failed "
+                      f"(reason: {ctx.reason.value}, by: {ctx.initiated_by})")
+            
+            return ok
+            
+        except ValueError as e:
+            # Invalid transition attempted
+            elapsed_ms = int((time.perf_counter() - start) * 1000)
+            
+            # Record failed transition
+            self._record_timeline_event("state_transition_error", {
+                "from": from_state.name,
+                "to": to_state.name,
+                "component": component,
+                "reason": ctx.reason.value,
+                "initiated_by": ctx.initiated_by,
+                "error": str(e),
+                "ms": elapsed_ms,
+            })
+            
+            print(f"❌ Invalid transition {from_state.name} → {to_state.name}: {e}")
+            print(f"   Reason: {ctx.reason.value}, Initiated by: {ctx.initiated_by}")
+            
+            # Auto-dump recent history for debugging
+            self._dump_recent_history()
+            
+            raise
+    
+    def _record_timeline_event(self, event_type: str, data: Dict[str, Any]) -> None:
+        """
+        Record event to timeline ring buffer.
+        
+        Events are stored with timestamp and can be dumped for debugging
+        when errors occur.
+        
+        Args:
+            event_type: Type of event ("state_transition", "barge_in", "error", etc.)
+            data: Event-specific data to record
+        """
+        self._timeline.append({
+            "ts": datetime.now().isoformat(),
+            "type": event_type,
+            **data
+        })
+    
+    def _dump_recent_history(self, last_n: int = 30) -> None:
+        """
+        Print recent timeline for debugging.
+        
+        Called automatically on transition errors. Can also be called manually
+        for diagnostics.
+        
+        Args:
+            last_n: Number of recent events to show (default: 30)
+        """
+        print("\n" + "=" * 70)
+        print("🔍 RECENT TIMELINE (for debugging)")
+        print("=" * 70)
+        
+        events = list(self._timeline)[-last_n:]
+        
+        if not events:
+            print("  (no events recorded)")
+            print("=" * 70 + "\n")
+            return
+        
+        for e in events:
+            ts = e.get("ts", "?")
+            # Extract just the time portion for readability
+            if "T" in ts:
+                ts = ts.split("T")[1][:12]  # HH:MM:SS.mmm
+            
+            etype = e.get("type", "?")
+            
+            if etype == "state_transition":
+                status = "✓" if e.get("ok", False) else "✗"
+                print(f"  {ts} | {status} {e.get('from','?'):22} → {e.get('to','?'):22} "
+                      f"| {e.get('reason','?')} ({e.get('ms',0)}ms)")
+            elif etype == "state_transition_error":
+                print(f"  {ts} | ❌ {e.get('from','?'):22} → {e.get('to','?'):22} "
+                      f"| {e.get('reason','?')} ERROR: {e.get('error','?')}")
+            elif etype == "barge_in":
+                print(f"  {ts} | 🎤 BARGE-IN | early={e.get('early', False)}, "
+                      f"elapsed={e.get('elapsed_s', '?')}s")
+            elif etype == "termination":
+                print(f"  {ts} | 🛑 TERMINATION | phrase={e.get('phrase', '?')}, "
+                      f"state={e.get('interrupted_state', '?')}")
+            elif etype == "error":
+                print(f"  {ts} | ❌ ERROR | component={e.get('component', '?')}, "
+                      f"msg={e.get('message', '?')[:50]}")
+            else:
+                # Generic event
+                detail = ", ".join(f"{k}={v}" for k, v in e.items() 
+                                   if k not in ("ts", "type"))
+                print(f"  {ts} | {etype}: {detail[:60]}")
+        
+        print("=" * 70)
+        
+        # Also print current state
+        print(f"  Current state: {self.state_machine.current_state.name}")
+        print("=" * 70 + "\n")
+    
+    def _get_conversation_id(self) -> Optional[str]:
+        """Helper to get current conversation ID for transition context."""
+        if self._recorder and self._recorder.current_session_id:
+            return self._recorder.current_session_id
+        return None
+    
     async def _create_wakeword_provider(self) -> WakeWordInterface:
         """Create wake word provider (called once at startup)."""
         config = self.config['wakeword']['config']
@@ -359,7 +548,8 @@ class RefactoredOrchestrator:
     async def _create_transcription_provider(self) -> TranscriptionInterface:
         """Create transcription provider (called once at startup)."""
         config = self.config['transcription']['config']
-        provider = AssemblyAIAsyncProvider(config)
+        # Pass shared audio bus for zero-latency transitions
+        provider = AssemblyAIAsyncProvider(config, shared_bus=self._shared_audio_bus)
         await provider.initialize()
         return provider
     
@@ -472,9 +662,14 @@ class RefactoredOrchestrator:
         """Run wake word detection loop."""
         try:
             # Transition to wake word state
-            await self.state_machine.transition_to(
+            await self._transition(
                 AudioState.WAKE_WORD_LISTENING,
-                "wakeword"
+                component="wakeword",
+                ctx=TransitionContext(
+                    reason=TransitionReason.WAKE_DETECTED,
+                    initiated_by="system",
+                    conversation_id=self._get_conversation_id(),
+                )
             )
             
             # Use pre-initialized provider
@@ -507,9 +702,14 @@ class RefactoredOrchestrator:
         """Run transcription and return final text when send phrase is detected."""
         try:
             # Transition to transcription state
-            await self.state_machine.transition_to(
+            await self._transition(
                 AudioState.TRANSCRIBING,
-                "transcription"
+                component="transcription",
+                ctx=TransitionContext(
+                    reason=TransitionReason.TRANSCRIPTION_START,
+                    initiated_by="system",
+                    conversation_id=self._get_conversation_id(),
+                )
             )
             
             # Wait for pre-connect task if it was started during TTS
@@ -655,7 +855,16 @@ class RefactoredOrchestrator:
             # Transition to IDLE to allow recovery
             try:
                 if self.state_machine.current_state != AudioState.IDLE:
-                    await self.state_machine.transition_to(AudioState.IDLE)
+                    await self._transition(
+                        AudioState.IDLE,
+                        component=None,
+                        ctx=TransitionContext(
+                            reason=TransitionReason.TRANSCRIPTION_ERROR,
+                            initiated_by="error_handler",
+                            conversation_id=self._get_conversation_id(),
+                            error_message=str(e)[:200],
+                        )
+                    )
             except ValueError:
                 await self.state_machine.emergency_reset()
             return None
@@ -682,9 +891,15 @@ class RefactoredOrchestrator:
             
             # Transition to response state
             # NOTE: State machine may trigger additional cleanup via registered handlers
-            await self.state_machine.transition_to(
+            await self._transition(
                 AudioState.PROCESSING_RESPONSE,
-                "response"
+                component="response",
+                ctx=TransitionContext(
+                    reason=TransitionReason.RESPONSE_START,
+                    initiated_by="system",
+                    conversation_id=self._get_conversation_id(),
+                    user_message_snippet=user_message[:50] if user_message else None,
+                )
             )
             
             # Add user message to context BEFORE generating response
@@ -809,7 +1024,16 @@ class RefactoredOrchestrator:
             # Transition to IDLE to allow recovery (PROCESSING_RESPONSE can't go directly to TRANSCRIBING)
             try:
                 if self.state_machine.current_state != AudioState.IDLE:
-                    await self.state_machine.transition_to(AudioState.IDLE)
+                    await self._transition(
+                        AudioState.IDLE,
+                        component=None,
+                        ctx=TransitionContext(
+                            reason=TransitionReason.RESPONSE_ERROR,
+                            initiated_by="error_handler",
+                            conversation_id=self._get_conversation_id(),
+                            error_message=str(e)[:200],
+                        )
+                    )
             except ValueError:
                 # If normal transition fails, use emergency reset
                 await self.state_machine.emergency_reset()
@@ -875,9 +1099,14 @@ class RefactoredOrchestrator:
         
         try:
             # Transition to TTS state
-            await self.state_machine.transition_to(
+            await self._transition(
                 AudioState.SYNTHESIZING,
-                "tts"
+                component="tts",
+                ctx=TransitionContext(
+                    reason=TransitionReason.TTS_START,
+                    initiated_by="system",
+                    conversation_id=self._get_conversation_id(),
+                )
             )
             
             # Use pre-initialized provider
@@ -902,20 +1131,24 @@ class RefactoredOrchestrator:
             # Setup barge-in detection if enabled
             if enable_barge_in and self._barge_in_enabled:
                 bt_mode = " [Bluetooth/Meta]" if self._barge_in_is_bluetooth else ""
-                print(f"👂 Barge-in enabled{bt_mode} - speak to interrupt")
-                self._barge_in_detector = BargeInDetector(BargeInConfig(
-                    mode=BargeInMode.ENERGY,
-                    energy_threshold=self._barge_in_energy_threshold,
-                    min_speech_duration=self._barge_in_min_speech_duration,
-                    cooldown_after_tts_start=self._barge_in_cooldown_after_tts_start,
-                    sample_rate=self._barge_in_sample_rate,
-                    chunk_size=self._barge_in_chunk_size,
-                    buffer_seconds=self._barge_in_buffer_seconds,
-                    capture_after_trigger=self._barge_in_capture_after_trigger,
-                    device_index=self._barge_in_device_index,
-                    latency=self._barge_in_latency,
-                    is_bluetooth=self._barge_in_is_bluetooth,
-                ))
+                bus_status = "running" if (self._shared_audio_bus and self._shared_audio_bus.is_running) else "not running"
+                print(f"👂 Barge-in enabled{bt_mode} - speak to interrupt (shared bus: {bus_status})")
+                self._barge_in_detector = BargeInDetector(
+                    config=BargeInConfig(
+                        mode=BargeInMode.ENERGY,
+                        energy_threshold=self._barge_in_energy_threshold,
+                        min_speech_duration=self._barge_in_min_speech_duration,
+                        cooldown_after_tts_start=self._barge_in_cooldown_after_tts_start,
+                        sample_rate=self._barge_in_sample_rate,
+                        chunk_size=self._barge_in_chunk_size,
+                        buffer_seconds=self._barge_in_buffer_seconds,
+                        capture_after_trigger=self._barge_in_capture_after_trigger,
+                        device_index=self._barge_in_device_index,
+                        latency=self._barge_in_latency,
+                        is_bluetooth=self._barge_in_is_bluetooth,
+                    ),
+                    shared_bus=self._shared_audio_bus,
+                )
                 print(
                     "🔧 Barge-in config: "
                     f"threshold={self._barge_in_energy_threshold}, "
@@ -1022,10 +1255,22 @@ class RefactoredOrchestrator:
             # Transition based on whether barge-in occurred
             if barge_in_occurred:
                 # Don't transition - caller will handle transition to transcription
-                pass
+                # Record barge-in event for diagnostics
+                self._record_timeline_event("barge_in", {
+                    "early": self._early_barge_in,
+                    "conversation_id": self._get_conversation_id(),
+                })
             elif transition_to_idle:
                 # Normal completion - go to IDLE
-                await self.state_machine.transition_to(AudioState.IDLE)
+                await self._transition(
+                    AudioState.IDLE,
+                    component=None,
+                    ctx=TransitionContext(
+                        reason=TransitionReason.TTS_COMPLETE,
+                        initiated_by="system",
+                        conversation_id=self._get_conversation_id(),
+                    )
+                )
         
         return not barge_in_occurred
     
@@ -1055,9 +1300,16 @@ class RefactoredOrchestrator:
                 await asyncio.sleep(self._transcription_stop_delay)
             
             # Transition to response state
-            await self.state_machine.transition_to(
+            await self._transition(
                 AudioState.PROCESSING_RESPONSE,
-                "response"
+                component="response",
+                ctx=TransitionContext(
+                    reason=TransitionReason.RESPONSE_START,
+                    initiated_by="system",
+                    conversation_id=self._get_conversation_id(),
+                    user_message_snippet=user_message[:50] if user_message else None,
+                    extra={"streaming_tts": True},
+                )
             )
             
             # Add user message to context
@@ -1117,19 +1369,22 @@ class RefactoredOrchestrator:
             if enable_barge_in and self._barge_in_enabled:
                 bt_mode = " [Bluetooth/Meta]" if self._barge_in_is_bluetooth else ""
                 print(f"👂 Barge-in will be enabled for streaming TTS{bt_mode}")
-                self._barge_in_detector = BargeInDetector(BargeInConfig(
-                    mode=BargeInMode.ENERGY,
-                    energy_threshold=self._barge_in_energy_threshold,
-                    min_speech_duration=self._barge_in_min_speech_duration,
-                    cooldown_after_tts_start=self._barge_in_cooldown_after_tts_start,
-                    sample_rate=self._barge_in_sample_rate,
-                    chunk_size=self._barge_in_chunk_size,
-                    buffer_seconds=self._barge_in_buffer_seconds,
-                    capture_after_trigger=self._barge_in_capture_after_trigger,
-                    device_index=self._barge_in_device_index,
-                    latency=self._barge_in_latency,
-                    is_bluetooth=self._barge_in_is_bluetooth,
-                ))
+                self._barge_in_detector = BargeInDetector(
+                    config=BargeInConfig(
+                        mode=BargeInMode.ENERGY,
+                        energy_threshold=self._barge_in_energy_threshold,
+                        min_speech_duration=self._barge_in_min_speech_duration,
+                        cooldown_after_tts_start=self._barge_in_cooldown_after_tts_start,
+                        sample_rate=self._barge_in_sample_rate,
+                        chunk_size=self._barge_in_chunk_size,
+                        buffer_seconds=self._barge_in_buffer_seconds,
+                        capture_after_trigger=self._barge_in_capture_after_trigger,
+                        device_index=self._barge_in_device_index,
+                        latency=self._barge_in_latency,
+                        is_bluetooth=self._barge_in_is_bluetooth,
+                    ),
+                    shared_bus=self._shared_audio_bus,
+                )
                 print(
                     "🔧 Barge-in config: "
                     f"threshold={self._barge_in_energy_threshold}, "
@@ -1210,9 +1465,15 @@ class RefactoredOrchestrator:
                 print(f"\n[DEBUG] Generator complete. Total chunks: {chunk_count}, streamed_any: {streamed_any}")
             
             # Transition to TTS state
-            await self.state_machine.transition_to(
+            await self._transition(
                 AudioState.SYNTHESIZING,
-                "tts"
+                component="tts",
+                ctx=TransitionContext(
+                    reason=TransitionReason.TTS_START,
+                    initiated_by="system",
+                    conversation_id=self._get_conversation_id(),
+                    extra={"streaming_tts": True},
+                )
             )
             
             # NOW start barge-in detection (right before audio playback)
@@ -1572,6 +1833,10 @@ class RefactoredOrchestrator:
                     except asyncio.TimeoutError:
                         pass  # Will connect on-demand
                 
+                # Start shared audio bus for conversation (zero-latency transitions)
+                if self._shared_audio_bus:
+                    await self._shared_audio_bus.start()
+                
                 # Start recording session and reset conversation context
                 if self._recorder and self._recorder.is_initialized:
                     await self._recorder.start_session(wake_word_model=wake_model)
@@ -1708,7 +1973,16 @@ class RefactoredOrchestrator:
                             print("⚠️  No response generated")
                             # Transition to IDLE before continuing (state may be stuck in PROCESSING_RESPONSE/SYNTHESIZING)
                             if self.state_machine.current_state != AudioState.IDLE:
-                                await self.state_machine.transition_to(AudioState.IDLE)
+                                await self._transition(
+                                    AudioState.IDLE,
+                                    component=None,
+                                    ctx=TransitionContext(
+                                        reason=TransitionReason.RESPONSE_NO_OUTPUT,
+                                        initiated_by="system",
+                                        conversation_id=self._get_conversation_id(),
+                                        extra={"streaming_tts": True},
+                                    )
+                                )
                             continue
                         
                         print(f"\n🤖 Assistant: {assistant_text}\n")
@@ -1732,7 +2006,15 @@ class RefactoredOrchestrator:
                             print("⚠️  No response generated")
                             # Transition to IDLE before continuing (state may be stuck in PROCESSING_RESPONSE)
                             if self.state_machine.current_state != AudioState.IDLE:
-                                await self.state_machine.transition_to(AudioState.IDLE)
+                                await self._transition(
+                                    AudioState.IDLE,
+                                    component=None,
+                                    ctx=TransitionContext(
+                                        reason=TransitionReason.RESPONSE_NO_OUTPUT,
+                                        initiated_by="system",
+                                        conversation_id=self._get_conversation_id(),
+                                    )
+                                )
                             continue  # Try next question
                         
                         print(f"\n🤖 Assistant: {assistant_text}\n")
@@ -1762,7 +2044,15 @@ class RefactoredOrchestrator:
                     
                     if speech_completed:
                         # Normal completion - transition to IDLE then back to transcription
-                        await self.state_machine.transition_to(AudioState.IDLE)
+                        await self._transition(
+                            AudioState.IDLE,
+                            component=None,
+                            ctx=TransitionContext(
+                                reason=TransitionReason.TTS_COMPLETE,
+                                initiated_by="system",
+                                conversation_id=self._get_conversation_id(),
+                            )
+                        )
                         print("🎤 Ready for next question (or say termination phrase)...\n")
                         beep_ready_to_listen()  # 🔔 Ready for next question sound
                         # Clear previous message since response completed without barge-in
@@ -1799,6 +2089,10 @@ class RefactoredOrchestrator:
                 cleanup_task = asyncio.create_task(_end_conversation_tasks())
                 asyncio.create_task(self._stop_termination_detection(fire_and_forget=was_terminated))
                 
+                # Stop shared audio bus (conversation ended, wake word will use own stream)
+                if self._shared_audio_bus:
+                    await self._shared_audio_bus.stop()
+                
                 # Conversation ended - ensure we're in IDLE before restarting wake word
                 print("✅ Conversation session ended\n")
                 
@@ -1806,7 +2100,16 @@ class RefactoredOrchestrator:
                 # This prevents TRANSCRIBING → WAKE_WORD_LISTENING (invalid transition)
                 if self.state_machine.current_state != AudioState.IDLE:
                     print("🔄 Transitioning to IDLE before restarting wake word...")
-                    await self.state_machine.transition_to(AudioState.IDLE)
+                    await self._transition(
+                        AudioState.IDLE,
+                        component=None,
+                        ctx=TransitionContext(
+                            reason=TransitionReason.SESSION_END,
+                            initiated_by="system",
+                            conversation_id=self._get_conversation_id(),
+                            extra={"was_terminated": was_terminated},
+                        )
+                    )
                 
                 # Wait for cleanup tasks to complete
                 await cleanup_task
@@ -1827,6 +2130,13 @@ class RefactoredOrchestrator:
         """Cleanup all resources."""
         print("🧹 Cleaning up orchestrator...")
         log_shutdown()  # 📡 Remote console log
+        
+        # Stop shared audio bus if running
+        if self._shared_audio_bus:
+            try:
+                await self._shared_audio_bus.stop()
+            except Exception as e:
+                print(f"⚠️  Shared audio bus cleanup error: {e}")
         
         # Cleanup barge-in detector if active
         if self._barge_in_detector:
@@ -1879,7 +2189,15 @@ class RefactoredOrchestrator:
             if hasattr(self._tts, 'stop_audio'):
                 self._tts.stop_audio()
             # Transition back to IDLE
-            await self.state_machine.transition_to(AudioState.IDLE)
+            await self._transition(
+                AudioState.IDLE,
+                component=None,
+                ctx=TransitionContext(
+                    reason=TransitionReason.MANUAL_RESET,
+                    initiated_by="user",
+                    conversation_id=self._get_conversation_id(),
+                )
+            )
             print("✅ TTS interrupted")
     
     def get_status(self) -> Dict[str, Any]:

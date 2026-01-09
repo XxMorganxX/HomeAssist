@@ -180,3 +180,112 @@ class ConversationMessage:
             tool_calls=tool_calls,
             metadata=data.get('metadata', {})
         )
+
+
+# =============================================================================
+# STATE TRANSITION TYPES
+# =============================================================================
+
+class TransitionReason(str, Enum):
+    """
+    Why a state transition is happening.
+    
+    Used by the orchestrator's _transition() wrapper to provide rich context
+    for debugging and diagnostics. Every transition should specify a reason.
+    """
+    # Wake word related
+    WAKE_DETECTED = "wake_detected"
+    WAKE_STOP_FOR_TRANSCRIPTION = "wake_stop_for_transcription"
+    WAKE_RESUME_WARM = "wake_resume_warm"
+    
+    # Transcription related
+    TRANSCRIPTION_START = "transcription_start"
+    TRANSCRIPTION_COMPLETE = "transcription_complete"
+    TRANSCRIPTION_NO_INPUT = "transcription_no_input"
+    TRANSCRIPTION_ERROR = "transcription_error"
+    TRANSCRIPTION_CANCELLED = "transcription_cancelled"
+    
+    # Response/LLM related
+    RESPONSE_START = "response_start"
+    RESPONSE_COMPLETE = "response_complete"
+    RESPONSE_ERROR = "response_error"
+    RESPONSE_NO_OUTPUT = "response_no_output"
+    
+    # TTS related
+    TTS_START = "tts_start"
+    TTS_COMPLETE = "tts_complete"
+    TTS_BARGE_IN = "tts_barge_in"
+    TTS_ERROR = "tts_error"
+    
+    # Conversation flow
+    TERMINATION_DETECTED = "termination_detected"
+    SESSION_END = "session_end"
+    BRIEFING_DELIVERY = "briefing_delivery"
+    
+    # Error handling
+    ERROR_RECOVERY = "error_recovery"
+    MANUAL_RESET = "manual_reset"
+    INVALID_STATE_RECOVERY = "invalid_state_recovery"
+
+
+@dataclass
+class TransitionContext:
+    """
+    Rich context for state transitions.
+    
+    Every call to orchestrator._transition() should include a TransitionContext
+    to provide full visibility into why transitions happen. This enables:
+    - Searchable logs (filter by reason, initiator)
+    - Postmortem debugging (dump recent history on errors)
+    - Metrics and alerting (track transition patterns)
+    
+    Example:
+        await self._transition(
+            AudioState.TRANSCRIBING,
+            component="transcription",
+            ctx=TransitionContext(
+                reason=TransitionReason.WAKE_STOP_FOR_TRANSCRIPTION,
+                initiated_by="system",
+                conversation_id=self._recorder.current_session_id,
+            )
+        )
+    """
+    reason: TransitionReason
+    initiated_by: str  # "wakeword", "user", "tts", "error_handler", "system"
+    
+    # Optional context (include what you have)
+    conversation_id: Optional[str] = None
+    wake_word: Optional[str] = None
+    tool_name: Optional[str] = None
+    user_message_snippet: Optional[str] = None  # First 50 chars of user message
+    error_message: Optional[str] = None
+    
+    # Audio device state (critical for debugging device conflicts)
+    audio_device: Dict[str, Any] = field(default_factory=dict)
+    
+    # Catch-all for anything else
+    extra: Dict[str, Any] = field(default_factory=dict)
+    
+    def to_metadata(self) -> Dict[str, Any]:
+        """Convert to flat metadata dict for state machine."""
+        meta = {
+            "reason": self.reason.value,
+            "initiated_by": self.initiated_by,
+        }
+        
+        if self.conversation_id:
+            meta["conversation_id"] = self.conversation_id
+        if self.wake_word:
+            meta["wake_word"] = self.wake_word
+        if self.tool_name:
+            meta["tool_name"] = self.tool_name
+        if self.user_message_snippet:
+            meta["user_message"] = self.user_message_snippet
+        if self.error_message:
+            meta["error"] = self.error_message
+        if self.audio_device:
+            meta["audio_device"] = self.audio_device
+        if self.extra:
+            meta.update(self.extra)
+        
+        return meta

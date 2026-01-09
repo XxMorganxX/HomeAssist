@@ -10,7 +10,7 @@ import multiprocessing
 from pathlib import Path
 from typing import Dict, Any, Optional
 from dotenv import load_dotenv
-from assistant_framework.utils.device_manager import get_emeet_device, get_audio_device_config
+from assistant_framework.utils.audio.device_manager import get_emeet_device, get_audio_device_config
 
 
 # =============================================================================
@@ -880,14 +880,14 @@ SUPABASE_CONFIG = {
 
 BARGE_IN_CONFIG = {
     "sample_rate": 16000,
-    "chunk_size": 1024,  # Default; auto-adjusted if Ray-Bans detected
-    "energy_threshold": 0.115,          # Voice energy threshold for detection (lower = more sensitive)
+    "chunk_size": 1024,                 # Default; auto-adjusted if Ray-Bans detected
+    "energy_threshold": 0.09,           # Voice energy threshold for detection (lower = more sensitive)
     "bluetooth_energy_threshold": 0.03, # Much lower threshold for Bluetooth (mic quality drops during playback)
     "early_barge_in_threshold": 3.0,    # Seconds - if barge-in within this time, append to previous message
     "min_speech_duration": 0.2,         # Seconds of speech before triggering
     "cooldown_after_tts_start": 0.5,    # Ignore speech for first 0.5s after TTS starts (avoid self-trigger)
-    "pre_barge_in_buffer_duration": 0.8,  # Seconds of audio to buffer before barge-in
-    "post_barge_in_capture_duration": 0.3  # Extra capture after detection
+    "pre_barge_in_buffer_duration": 0.3,  # Seconds of audio to buffer before barge-in (captures speech onset)
+    "post_barge_in_capture_duration": 0.2  # Extra capture after detection
 }
 
 
@@ -906,6 +906,27 @@ TURNAROUND_CONFIG = {
     "wake_word_warm_mode": True,        # Keep wake word subprocess alive between conversations (~2s faster)
     "post_conversation_delay": 0.0,     # Delay after conversation ends before wake word (was 0.2s)
     "wake_word_stop_delay": 0.0,        # Delay after stopping wake word subprocess (was 0.1s)
+}
+
+
+# =============================================================================
+# SECTION 11C: SHARED AUDIO BUS CONFIGURATION
+# =============================================================================
+# The shared audio bus provides a persistent input stream that multiple consumers
+# (transcription, barge-in) can subscribe to, eliminating device acquisition delays
+# during state transitions within conversations.
+#
+# Key benefit: Reduces TTS↔transcription transition latency from ~300ms to ~10ms.
+# Wake word and termination detection remain process-isolated (unchanged).
+
+SHARED_AUDIO_BUS_CONFIG = {
+    "enabled": True,                    # Set False to disable shared bus (fallback to standalone streams)
+    "sample_rate": 16000,               # Audio sample rate (matches other components)
+    "channels": 1,                      # Mono audio
+    "chunk_size": 1024,                 # 64ms at 16kHz - auto-adjusted for Bluetooth
+    "buffer_seconds": 3.0,              # Ring buffer size for prefill (barge-in captured audio)
+    "device_index": None,               # None = use default device (auto-detected)
+    "latency": "high",                  # 'high' for Bluetooth devices
 }
 
 
@@ -971,6 +992,13 @@ def get_framework_config() -> Dict[str, Any]:
         barge_in_config["energy_threshold"] = BARGE_IN_CONFIG.get("bluetooth_energy_threshold", 0.03)
         print(f"   Using Bluetooth barge-in threshold: {barge_in_config['energy_threshold']}")
     
+    # Update shared audio bus config with device-specific settings
+    shared_audio_bus_config = SHARED_AUDIO_BUS_CONFIG.copy()
+    shared_audio_bus_config["device_index"] = audio_config.device_index
+    shared_audio_bus_config["chunk_size"] = audio_config.blocksize
+    shared_audio_bus_config["latency"] = audio_config.latency
+    shared_audio_bus_config["is_bluetooth"] = audio_config.is_bluetooth
+    
     return {
         "transcription": {
             "provider": TRANSCRIPTION_PROVIDER,
@@ -994,6 +1022,7 @@ def get_framework_config() -> Dict[str, Any]:
         },
         "barge_in": barge_in_config,
         "turnaround": TURNAROUND_CONFIG,
+        "shared_audio_bus": shared_audio_bus_config,
         "recording": {
             "enabled": ENABLE_CONVERSATION_RECORDING,
             "supabase_url": SUPABASE_CONFIG["url"],

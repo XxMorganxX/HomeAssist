@@ -20,12 +20,14 @@ import sounddevice as sd
 try:
     from ...interfaces.transcription import TranscriptionInterface
     from ...models.data_models import TranscriptionResult
-    from ...utils.audio_manager import get_audio_manager
+    from ...utils.audio.audio_manager import get_audio_manager
+    from ...utils.audio.shared_audio_bus import SharedAudioBus
     from ..base import StreamingProviderBase
 except ImportError:
     from assistant_framework.interfaces.transcription import TranscriptionInterface
     from assistant_framework.models.data_models import TranscriptionResult
-    from assistant_framework.utils.audio_manager import get_audio_manager
+    from assistant_framework.utils.audio.audio_manager import get_audio_manager
+    from assistant_framework.utils.audio.shared_audio_bus import SharedAudioBus
     from assistant_framework.providers.base import StreamingProviderBase
 
 
@@ -46,7 +48,7 @@ class AssemblyAIAsyncProvider(StreamingProviderBase, TranscriptionInterface):
     - Better error handling and cancellation
     """
     
-    def __init__(self, config: Dict[str, Any]):
+    def __init__(self, config: Dict[str, Any], shared_bus: Optional[SharedAudioBus] = None):
         super().__init__(config)
         self._component_name = "transcription"
         
@@ -95,6 +97,10 @@ class AssemblyAIAsyncProvider(StreamingProviderBase, TranscriptionInterface):
         self._preconnect_task: Optional[asyncio.Task] = None
         self._ws_ready = asyncio.Event() if asyncio.get_event_loop().is_running() else None
         self._preconnected = False
+        
+        # Shared audio bus support (for zero-latency transitions)
+        self._shared_bus = shared_bus
+        self._using_shared_bus = False
     
     async def initialize(self) -> bool:
         """One-time initialization - creates persistent HTTP session."""
@@ -106,6 +112,24 @@ class AssemblyAIAsyncProvider(StreamingProviderBase, TranscriptionInterface):
         # Initialize the event for pre-connection signaling
         self._ws_ready = asyncio.Event()
         return True
+    
+    def set_shared_bus(self, bus: Optional[SharedAudioBus]) -> None:
+        """
+        Set the shared audio bus for zero-latency transitions.
+        
+        Can be called after initialization to enable shared bus support.
+        
+        Args:
+            bus: SharedAudioBus instance, or None to disable
+        """
+        self._shared_bus = bus
+        if bus:
+            print("⚡ Transcription provider connected to shared audio bus")
+    
+    @property
+    def is_using_shared_bus(self) -> bool:
+        """Check if currently using the shared audio bus."""
+        return self._using_shared_bus
     
     def set_prefill_audio(self, audio_bytes: Optional[bytes]) -> None:
         """
@@ -240,32 +264,51 @@ class AssemblyAIAsyncProvider(StreamingProviderBase, TranscriptionInterface):
         # Clear shutdown flag
         self._shutdown_flag.clear()
         
-        # Acquire audio
-        acquired = self.audio_manager.acquire_audio("transcription", force_cleanup=True)
-        if not acquired:
-            raise RuntimeError("Failed to acquire audio for transcription")
-        
         # Create audio queue BEFORE opening stream (callback may fire immediately)
         # Larger queue for Bluetooth devices which can have bursty delivery
         self._audio_queue = asyncio.Queue(maxsize=50)  # Buffer up to 50 chunks
         
-        # Open audio stream with CALLBACK (not blocking reads!)
-        bt_mode = " [Bluetooth]" if self._is_bluetooth else ""
-        print(f"🎙️  Opening transcription audio stream (callback mode){bt_mode}...")
-        print(f"   Device: {self._device_index or 'default'}, Rate: {self.sample_rate}Hz")
-        print(f"   Blocksize: {self.frames_per_buffer} frames ({self.frames_per_buffer/self.sample_rate*1000:.0f}ms), Latency: '{self._latency}'")
-        self._audio_stream = sd.InputStream(
-            device=self._device_index,
-            samplerate=self.sample_rate,
-            channels=self.channels,
-            dtype='int16',
-            blocksize=self.frames_per_buffer,
-            latency=self._latency,
-            callback=self._audio_callback  # CRITICAL: Use callback instead of blocking reads
-        )
-        self._audio_stream.start()
-        self._callback_active.set()
-        print("✅ Audio stream opened (callback mode - no blocking threads)")
+        # Check if we can use shared audio bus (zero-latency transition)
+        if self._shared_bus and self._shared_bus.is_running:
+            # Use shared bus - instant subscription, no device setup
+            self._shared_bus.subscribe("transcription", self._audio_callback, priority=0)
+            self._using_shared_bus = True
+            self._callback_active.set()
+            print("⚡ Subscribed to shared audio bus (instant start)")
+            
+            # Check if bus has prefill audio available (from barge-in)
+            if not self._prefill_audio:
+                prefill = self._shared_bus.get_buffer_bytes(seconds=2.0)
+                if prefill:
+                    self._prefill_audio = prefill
+                    duration = len(prefill) / 2 / self.sample_rate
+                    print(f"📼 Using {duration:.2f}s of audio from shared bus buffer")
+        else:
+            # Fallback to standalone stream (original behavior)
+            self._using_shared_bus = False
+            
+            # Acquire audio
+            acquired = self.audio_manager.acquire_audio("transcription", force_cleanup=True)
+            if not acquired:
+                raise RuntimeError("Failed to acquire audio for transcription")
+            
+            # Open audio stream with CALLBACK (not blocking reads!)
+            bt_mode = " [Bluetooth]" if self._is_bluetooth else ""
+            print(f"🎙️  Opening transcription audio stream (callback mode){bt_mode}...")
+            print(f"   Device: {self._device_index or 'default'}, Rate: {self.sample_rate}Hz")
+            print(f"   Blocksize: {self.frames_per_buffer} frames ({self.frames_per_buffer/self.sample_rate*1000:.0f}ms), Latency: '{self._latency}'")
+            self._audio_stream = sd.InputStream(
+                device=self._device_index,
+                samplerate=self.sample_rate,
+                channels=self.channels,
+                dtype='int16',
+                blocksize=self.frames_per_buffer,
+                latency=self._latency,
+                callback=self._audio_callback  # CRITICAL: Use callback instead of blocking reads
+            )
+            self._audio_stream.start()
+            self._callback_active.set()
+            print("✅ Audio stream opened (callback mode - no blocking threads)")
         
         # Use pre-connected WebSocket if available, otherwise connect now
         if self.is_preconnected:
@@ -355,6 +398,7 @@ class AssemblyAIAsyncProvider(StreamingProviderBase, TranscriptionInterface):
         # Skip if nothing to cleanup (idempotent)
         if (self._send_task is None and
             self._audio_stream is None and 
+            not self._using_shared_bus and
             self._ws is None and 
             (full_cleanup or self._session is None)):
             return
@@ -377,8 +421,14 @@ class AssemblyAIAsyncProvider(StreamingProviderBase, TranscriptionInterface):
         self._preconnect_task = None
         self._preconnected = False
         
-        # 3. Stop audio stream - callbacks will stop firing
-        if self._audio_stream:
+        # 3. Unsubscribe from shared bus OR stop audio stream
+        if self._using_shared_bus and self._shared_bus:
+            # Instant unsubscription - no device teardown
+            self._shared_bus.unsubscribe("transcription")
+            self._using_shared_bus = False
+            self._callback_active.clear()
+            print("⚡ Unsubscribed from shared audio bus (instant)")
+        elif self._audio_stream:
             try:
                 if hasattr(self._audio_stream, 'active') and self._audio_stream.active:
                     self._audio_stream.stop()

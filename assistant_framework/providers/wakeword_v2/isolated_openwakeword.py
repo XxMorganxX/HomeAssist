@@ -15,13 +15,13 @@ from pathlib import Path
 try:
     from ...interfaces.wake_word import WakeWordInterface
     from ...models.data_models import WakeWordEvent
-    from ...utils.audio_manager import get_audio_manager
-    from ...utils.logging_config import vprint, eprint
+    from ...utils.audio.audio_manager import get_audio_manager
+    from ...utils.logging.logging_config import vprint, eprint
 except ImportError:
     from assistant_framework.interfaces.wake_word import WakeWordInterface
     from assistant_framework.models.data_models import WakeWordEvent
-    from assistant_framework.utils.audio_manager import get_audio_manager
-    from assistant_framework.utils.logging_config import vprint, eprint
+    from assistant_framework.utils.audio.audio_manager import get_audio_manager
+    from assistant_framework.utils.logging.logging_config import vprint, eprint
 
 
 def _wake_word_worker(
@@ -59,7 +59,7 @@ def _wake_word_worker(
     
     # Import tones for audio feedback
     try:
-        from assistant_framework.utils.tones import beep_wake_model_ready
+        from assistant_framework.utils.audio.tones import beep_wake_model_ready
     except ImportError:
         beep_wake_model_ready = lambda: None  # Fallback if import fails
     

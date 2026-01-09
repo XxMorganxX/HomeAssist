@@ -52,7 +52,7 @@ def vprint(*args, **kwargs) -> None:
     but not needed in production.
     
     Usage:
-        from assistant_framework.utils.logging_config import vprint
+        from assistant_framework.utils.logging.logging_config import vprint
         vprint("🔄 Processing audio...")  # Only shows if VERBOSE_LOGGING=True
     
     For critical output that should ALWAYS show (errors, key events),

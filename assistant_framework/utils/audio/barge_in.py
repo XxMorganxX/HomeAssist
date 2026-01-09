@@ -6,17 +6,23 @@ which triggers immediate transition to transcription mode.
 
 FEATURE: Audio buffering - captures speech that triggered barge-in
 so it can be fed to transcription (user doesn't need to repeat).
+
+FEATURE: Shared audio bus support - when using SharedAudioBus, barge-in
+subscribes instantly without device setup, enabling zero-latency transitions.
 """
 
 import asyncio
 import threading
 from collections import deque
-from typing import Optional, Callable, List
+from typing import Optional, Callable, List, TYPE_CHECKING
 
 import numpy as np
 import sounddevice as sd
 from dataclasses import dataclass, field
 from enum import Enum
+
+if TYPE_CHECKING:
+    from .shared_audio_bus import SharedAudioBus
 
 
 class BargeInMode(Enum):
@@ -53,9 +59,12 @@ class BargeInDetector:
     
     FEATURE: Captures audio that triggered barge-in so it can be fed
     to transcription - user doesn't need to repeat themselves!
+    
+    FEATURE: Shared audio bus support - when using SharedAudioBus, barge-in
+    subscribes instantly without device setup, enabling zero-latency transitions.
     """
     
-    def __init__(self, config: Optional[BargeInConfig] = None):
+    def __init__(self, config: Optional[BargeInConfig] = None, shared_bus: Optional['SharedAudioBus'] = None):
         self.config = config or BargeInConfig()
         
         # State
@@ -65,6 +74,10 @@ class BargeInDetector:
         
         # Audio stream
         self._stream: Optional[sd.InputStream] = None
+        
+        # Shared audio bus support (for zero-latency transitions)
+        self._shared_bus = shared_bus
+        self._using_shared_bus = False
         
         # Detection state
         self._speech_frames = 0
@@ -140,6 +153,11 @@ class BargeInDetector:
             audio = audio_copy.astype(np.float32) / 32768.0  # Normalize int16 to float
             rms = np.sqrt(np.mean(audio ** 2))
             
+            # Debug: log high RMS values to help diagnose threshold issues
+            # Only log if above 50% of threshold (indicates speech activity)
+            if rms > self.config.energy_threshold * 0.5 and self._frame_count > self._cooldown_frames:
+                print(f"🔊 Audio activity: RMS={rms:.4f} (threshold={self.config.energy_threshold}, speech_frames={self._speech_frames})")
+            
             # Check if above threshold
             if rms > self.config.energy_threshold:
                 self._speech_frames += 1
@@ -193,6 +211,24 @@ class BargeInDetector:
             except Exception as e:
                 print(f"⚠️  Barge-in callback error: {e}")
     
+    def set_shared_bus(self, bus: Optional['SharedAudioBus']) -> None:
+        """
+        Set the shared audio bus for zero-latency transitions.
+        
+        Can be called after initialization to enable shared bus support.
+        
+        Args:
+            bus: SharedAudioBus instance, or None to disable
+        """
+        self._shared_bus = bus
+        if bus:
+            print("⚡ Barge-in detector connected to shared audio bus")
+    
+    @property
+    def is_using_shared_bus(self) -> bool:
+        """Check if currently using the shared audio bus."""
+        return self._using_shared_bus
+    
     async def start(self, on_barge_in: Optional[Callable[[], None]] = None) -> None:
         """
         Start listening for barge-in.
@@ -221,30 +257,42 @@ class BargeInDetector:
         with self._buffer_lock:
             self._audio_buffer.clear()
         
-        # Open audio stream with callback
-        bt_mode = " [Bluetooth]" if self.config.is_bluetooth else ""
-        print(f"👂 Starting barge-in detection{bt_mode}...")
-        
-        try:
-            self._stream = sd.InputStream(
-                device=self.config.device_index,
-                samplerate=self.config.sample_rate,
-                channels=1,
-                dtype='int16',
-                blocksize=self.config.chunk_size,
-                latency=self.config.latency,
-                callback=self._audio_callback
-            )
-            self._stream.start()
+        # Check if we can use shared audio bus (zero-latency subscription)
+        if self._shared_bus and self._shared_bus.is_running:
+            # Use shared bus - instant subscription with high priority
+            # Priority 10 ensures barge-in is processed before transcription
+            self._shared_bus.subscribe("barge_in", self._audio_callback, priority=10)
+            self._using_shared_bus = True
             self._is_listening = True
-            print(f"✅ Barge-in detection active (threshold: {self.config.energy_threshold}, buffer: {self.config.buffer_seconds}s)")
-        except Exception as e:
-            print(f"❌ Failed to start barge-in detection: {e}")
-            raise
+            print(f"⚡ Barge-in subscribed to shared audio bus (threshold: {self.config.energy_threshold})")
+            print(f"   cooldown={self.config.cooldown_after_tts_start}s, min_speech={self.config.min_speech_duration}s")
+        else:
+            # Fallback to standalone stream (original behavior)
+            self._using_shared_bus = False
+            
+            bt_mode = " [Bluetooth]" if self.config.is_bluetooth else ""
+            print(f"👂 Starting barge-in detection{bt_mode}...")
+            
+            try:
+                self._stream = sd.InputStream(
+                    device=self.config.device_index,
+                    samplerate=self.config.sample_rate,
+                    channels=1,
+                    dtype='int16',
+                    blocksize=self.config.chunk_size,
+                    latency=self.config.latency,
+                    callback=self._audio_callback
+                )
+                self._stream.start()
+                self._is_listening = True
+                print(f"✅ Barge-in detection active (threshold: {self.config.energy_threshold}, buffer: {self.config.buffer_seconds}s)")
+            except Exception as e:
+                print(f"❌ Failed to start barge-in detection: {e}")
+                raise
     
     async def stop(self) -> None:
         """Stop listening for barge-in."""
-        if not self._is_listening and self._stream is None:
+        if not self._is_listening and self._stream is None and not self._using_shared_bus:
             return
         
         print("🛑 Stopping barge-in detection...")
@@ -260,7 +308,13 @@ class BargeInDetector:
         if self._detected.is_set() and self._captured_audio is None:
             self._finalize_captured_audio()
         
-        if self._stream:
+        # Unsubscribe from shared bus OR stop standalone stream
+        if self._using_shared_bus and self._shared_bus:
+            # Instant unsubscription - no device teardown
+            self._shared_bus.unsubscribe("barge_in")
+            self._using_shared_bus = False
+            print("⚡ Barge-in unsubscribed from shared audio bus (instant)")
+        elif self._stream:
             try:
                 self._stream.stop()
                 await asyncio.sleep(0.05)  # Wait for callback thread to fully exit
@@ -288,9 +342,16 @@ class BargeInDetector:
         """
         Get the captured audio as bytes (for sending to transcription API).
         
+        When using shared audio bus, this retrieves audio from the bus buffer
+        instead of the internal buffer (bus buffer is more comprehensive).
+        
         Returns:
             bytes of int16 PCM audio, or None if no audio captured
         """
+        # If using shared bus, prefer bus buffer (already has all audio)
+        if self._using_shared_bus and self._shared_bus:
+            return self._shared_bus.get_buffer_bytes(seconds=self.config.buffer_seconds)
+        
         if self._captured_audio is not None:
             return self._captured_audio.astype(np.int16).tobytes()
         return None

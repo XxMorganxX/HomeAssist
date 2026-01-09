@@ -5,7 +5,7 @@ This utility transforms briefings into natural conversation opener statements vi
 so that wake word activation only requires TTS (no LLM latency).
 
 Usage by briefing input sources:
-    from assistant_framework.utils.briefing_processor import BriefingProcessor
+    from assistant_framework.utils.briefing.briefing_processor import BriefingProcessor
     
     processor = BriefingProcessor()
     

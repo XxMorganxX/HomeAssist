@@ -16,15 +16,15 @@ from typing import Dict, Any, Optional, List
 from dataclasses import dataclass
 
 try:
-    from ..interfaces.vector_store import VectorRecord, VectorSearchResult
-    from ..providers.embedding import OpenAIEmbeddingProvider
-    from ..providers.vector_store import SupabasePgVectorStore
+    from ...interfaces.vector_store import VectorRecord, VectorSearchResult
+    from ...providers.embedding import OpenAIEmbeddingProvider
+    from ...providers.vector_store import SupabasePgVectorStore
     from .local_vector_cache import LocalVectorCache, CachedVector, SearchResult
 except ImportError:
     from assistant_framework.interfaces.vector_store import VectorRecord, VectorSearchResult
     from assistant_framework.providers.embedding import OpenAIEmbeddingProvider
     from assistant_framework.providers.vector_store import SupabasePgVectorStore
-    from assistant_framework.utils.local_vector_cache import LocalVectorCache, CachedVector, SearchResult
+    from assistant_framework.utils.memory.local_vector_cache import LocalVectorCache, CachedVector, SearchResult
 
 
 @dataclass

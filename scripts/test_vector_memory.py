@@ -29,7 +29,7 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).parent.parent))
 
 from assistant_framework.config import VECTOR_MEMORY_CONFIG
-from assistant_framework.utils.vector_memory import VectorMemoryManager
+from assistant_framework.utils.memory.vector_memory import VectorMemoryManager
 
 
 # Sample conversation - will be parsed into individual exchanges

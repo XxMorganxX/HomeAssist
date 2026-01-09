@@ -18,11 +18,11 @@ sys.modules['sounddevice'] = MagicMock()
 mock_device_manager = MagicMock()
 mock_device_manager.get_emeet_device = MagicMock(return_value=None)
 mock_device_manager.list_audio_devices = MagicMock()
-sys.modules['assistant_framework.utils.device_manager'] = mock_device_manager
+sys.modules['assistant_framework.utils.audio.device_manager'] = mock_device_manager
 
 # Mock barge_in module to avoid audio dependencies
 mock_barge_in = MagicMock()
-sys.modules['assistant_framework.utils.barge_in'] = mock_barge_in
+sys.modules['assistant_framework.utils.audio.barge_in'] = mock_barge_in
 
 # Project root (mcp_server/tool_response_tests -> mcp_server -> project root)
 project_root = Path(__file__).parent.parent.parent
