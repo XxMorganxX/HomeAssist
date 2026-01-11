@@ -290,55 +290,103 @@ class OpenAIWebSocketResponseProvider(ResponseInterface):
         # Reset composition token counters for this response
         self.reset_composition_tokens()
         
-        # Prefer a small recent window if the context provider supports it,
-        # to bias toward the latest prompt while still passing history.
-        messages = []
-        if context:
-            messages = context
-        else:
-            messages = []
+        # Build messages list from context
+        messages = list(context) if context else []
         messages.append({"role": "user", "content": message})
         
-        # If provided, prepend a compact tool context as a guidance system message
-        if tool_context:
-            guidance_header = (
-                "For choosing tools, consider ONLY this short recent context to infer device references and intent. "
-                "Do not use it for final wording, only for tool selection:"
-            )
-            compact_lines = []
-            for m in tool_context:
-                role = m.get("role", "user")
-                content = m.get("content", "")
-                if content:
-                    compact_lines.append(f"{role}: {content}")
-            compact_text = guidance_header + "\n" + "\n".join(compact_lines)
-            messages.insert(0, {"role": "system", "content": compact_text})
-
-        # Prepend a recency-bias system instruction if configured
-        if self.recency_bias_prompt:
-            messages.insert(0, {"role": "system", "content": self.recency_bias_prompt})
-
-        # Build the Realtime "instructions" from ALL system messages.
-        # Realtime sessions take instructions via session.update; system-role conversation items are ignored below.
-        system_parts: List[str] = []
-        for m in messages:
-            if m.get("role") == "system":
-                content = m.get("content", "")
-                if content:
-                    system_parts.append(content)
-
-        # Fallback to provider-configured system prompt if no system messages were provided in context
-        if not system_parts and self.system_prompt:
-            system_parts.append(self.system_prompt)
-
-        effective_instructions = "\n\n".join(system_parts).strip()
-
+        # Build structured instructions with clear sections
+        effective_instructions = self._build_structured_instructions(messages, tool_context)
+        
         # Check if home-related for tool inclusion
         tools = self._should_include_tools(message) if self.openai_functions else None
         
         # Perform WebSocket roundtrip
         async for chunk in self._ws_stream_roundtrip(messages, tools, instructions=effective_instructions):
             yield chunk
+    
+    def _build_structured_instructions(self, 
+                                       messages: List[Dict[str, Any]], 
+                                       tool_context: Optional[List[Dict[str, str]]] = None) -> str:
+        """
+        Build structured instructions with clear XML-like sections.
+        
+        Organizes all system content into distinct, labeled sections for the model:
+        - <instructions>: Main system prompt (with persistent memory)
+        - <recent_context>: Vector memory / past conversation context
+        - <tool_guidance>: Compact context for tool selection
+        - <response_guidance>: Recency bias and other response instructions
+        
+        Args:
+            messages: Full message list (may contain system messages)
+            tool_context: Compact context for tool decisions
+            
+        Returns:
+            Structured instructions string
+        """
+        sections = []
+        
+        # Categorize system messages by their purpose
+        main_system_prompt = None
+        vector_context = None
+        other_system = []
+        
+        for m in messages:
+            if m.get("role") != "system":
+                continue
+            content = m.get("content", "").strip()
+            if not content:
+                continue
+            
+            # Detect vector memory context (has specific header)
+            if content.startswith("RELEVANT PAST CONVERSATIONS:"):
+                vector_context = content
+            # First substantial system message is likely the main prompt
+            elif main_system_prompt is None and len(content) > 100:
+                main_system_prompt = content
+            else:
+                other_system.append(content)
+        
+        # Fallback to provider-configured system prompt if no main prompt found
+        if not main_system_prompt and self.system_prompt:
+            main_system_prompt = self.system_prompt
+        
+        # Section 1: Main instructions (system prompt with persistent memory)
+        if main_system_prompt:
+            sections.append(f"<instructions>\n{main_system_prompt}\n</instructions>")
+        
+        # Section 2: Recent context from vector memory (past conversations)
+        if vector_context:
+            sections.append(f"<recent_context>\n{vector_context}\n</recent_context>")
+        
+        # Section 3: Tool guidance (compact recent context for tool selection)
+        if tool_context:
+            tool_lines = []
+            for m in tool_context:
+                role = m.get("role", "user")
+                content = m.get("content", "")
+                # Skip system messages in tool context (already captured above)
+                if role == "system" or not content:
+                    continue
+                tool_lines.append(f"{role}: {content}")
+            
+            if tool_lines:
+                tool_guidance = (
+                    "For tool selection, consider this recent context to infer device references and intent. "
+                    "Use current request for tool parameters, not past context:\n" + 
+                    "\n".join(tool_lines)
+                )
+                sections.append(f"<tool_guidance>\n{tool_guidance}\n</tool_guidance>")
+        
+        # Section 4: Response guidance (recency bias, other instructions)
+        response_guidance_parts = []
+        if self.recency_bias_prompt:
+            response_guidance_parts.append(self.recency_bias_prompt)
+        response_guidance_parts.extend(other_system)
+        
+        if response_guidance_parts:
+            sections.append(f"<response_guidance>\n{chr(10).join(response_guidance_parts)}\n</response_guidance>")
+        
+        return "\n\n".join(sections)
     
     def _should_include_tools(self, message: str) -> Optional[List[Dict[str, Any]]]:
         """Expose all discovered tools and let the model decide which to call."""

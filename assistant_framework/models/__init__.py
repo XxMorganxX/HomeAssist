@@ -7,7 +7,8 @@ from .data_models import (
     ResponseChunk,
     AudioOutput,
     ToolCall,
-    ConversationMessage
+    ConversationMessage,
+    ContextBundle
 )
 
 __all__ = [
@@ -15,5 +16,6 @@ __all__ = [
     'ResponseChunk',
     'AudioOutput',
     'ToolCall',
-    'ConversationMessage'
+    'ConversationMessage',
+    'ContextBundle'
 ]

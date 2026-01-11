@@ -276,13 +276,9 @@ class AssemblyAIAsyncProvider(StreamingProviderBase, TranscriptionInterface):
             self._callback_active.set()
             print("⚡ Subscribed to shared audio bus (instant start)")
             
-            # Check if bus has prefill audio available (from barge-in)
-            if not self._prefill_audio:
-                prefill = self._shared_bus.get_buffer_bytes(seconds=2.0)
-                if prefill:
-                    self._prefill_audio = prefill
-                    duration = len(prefill) / 2 / self.sample_rate
-                    print(f"📼 Using {duration:.2f}s of audio from shared bus buffer")
+            # NOTE: We do NOT auto-prefill from shared bus here.
+            # Prefill audio is ONLY used when explicitly set via set_prefill_audio()
+            # after a barge-in detection. Otherwise we'd feed old/stale audio to transcription.
         else:
             # Fallback to standalone stream (original behavior)
             self._using_shared_bus = False

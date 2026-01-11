@@ -135,7 +135,8 @@ class BargeInDetector:
         # If already triggered, continue capturing for a bit then stop
         if self._detected.is_set():
             self._post_trigger_frames += 1
-            if self._post_trigger_frames >= self._capture_after_frames:
+            # Only finalize once when we reach the threshold
+            if self._post_trigger_frames == self._capture_after_frames:
                 # Done capturing post-trigger audio
                 self._finalize_captured_audio()
                 self._is_listening = False
@@ -190,6 +191,10 @@ class BargeInDetector:
     def _finalize_captured_audio(self):
         """Finalize the captured audio buffer into a single array."""
         with self._buffer_lock:
+            # Only finalize once - skip if already done
+            if self._captured_audio is not None:
+                return
+            
             if self._audio_buffer:
                 try:
                     # Make a copy of the buffer contents to avoid concurrent modification
@@ -304,9 +309,17 @@ class BargeInDetector:
         # Give any in-flight callbacks time to complete
         await asyncio.sleep(0.05)
         
-        # Now safe to finalize captured audio
-        if self._detected.is_set() and self._captured_audio is None:
-            self._finalize_captured_audio()
+        # Only finalize captured audio if barge-in was actually detected
+        if self._detected.is_set():
+            if self._captured_audio is None:
+                self._finalize_captured_audio()
+            print(f"📼 Barge-in detected - audio captured for prefill")
+        else:
+            # No barge-in detected - clear the buffer (don't use stale audio)
+            with self._buffer_lock:
+                self._audio_buffer.clear()
+            self._captured_audio = None
+            print("🎤 No barge-in detected - buffer cleared (no prefill)")
         
         # Unsubscribe from shared bus OR stop standalone stream
         if self._using_shared_bus and self._shared_bus:
@@ -342,18 +355,33 @@ class BargeInDetector:
         """
         Get the captured audio as bytes (for sending to transcription API).
         
-        When using shared audio bus, this retrieves audio from the bus buffer
-        instead of the internal buffer (bus buffer is more comprehensive).
+        IMPORTANT: Only returns audio if barge-in was actually detected.
+        If no barge-in was detected, returns None to prevent stale audio
+        from being prefilled to transcription.
+        
+        When using shared audio bus and barge-in was detected, retrieves
+        audio from the bus buffer (more comprehensive than internal buffer).
         
         Returns:
-            bytes of int16 PCM audio, or None if no audio captured
+            bytes of int16 PCM audio, or None if no barge-in detected
         """
+        # CRITICAL: Only return audio if barge-in was detected
+        if not self._detected.is_set():
+            return None
+        
         # If using shared bus, prefer bus buffer (already has all audio)
         if self._using_shared_bus and self._shared_bus:
-            return self._shared_bus.get_buffer_bytes(seconds=self.config.buffer_seconds)
+            audio_bytes = self._shared_bus.get_buffer_bytes(seconds=self.config.buffer_seconds)
+            if audio_bytes:
+                duration = len(audio_bytes) / 2 / self.config.sample_rate
+                print(f"📼 Retrieved {duration:.2f}s from shared audio bus (requested {self.config.buffer_seconds}s)")
+            return audio_bytes
         
         if self._captured_audio is not None:
-            return self._captured_audio.astype(np.int16).tobytes()
+            audio_bytes = self._captured_audio.astype(np.int16).tobytes()
+            duration = len(audio_bytes) / 2 / self.config.sample_rate
+            print(f"📼 Retrieved {duration:.2f}s from internal buffer")
+            return audio_bytes
         return None
     
     async def wait_for_barge_in(self, timeout: Optional[float] = None) -> bool:

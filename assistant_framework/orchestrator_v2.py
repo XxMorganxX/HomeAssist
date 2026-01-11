@@ -160,6 +160,9 @@ class RefactoredOrchestrator:
         self._barge_in_device_index = barge_in_config.get('device_index', None)
         self._barge_in_latency = barge_in_config.get('latency', 'high')
         self._barge_in_is_bluetooth = barge_in_config.get('is_bluetooth', False)
+        # Processing-phase barge-in settings
+        self._barge_in_during_processing = barge_in_config.get('enable_during_processing', True)
+        self._barge_in_processing_cooldown = float(barge_in_config.get('processing_cooldown', 0.1))
         self._early_barge_in = False  # Flag: next message should append to previous
         self._previous_user_message = ""  # Store last user message for appending
         self._vector_query_override = None  # Override for vector query (raw single message)
@@ -727,11 +730,22 @@ class RefactoredOrchestrator:
                 return None
             
             # Check for barge-in prefill audio
+            # IMPORTANT: Prefill is ONLY used when barge-in was detected.
+            # _barge_in_audio is ONLY set by:
+            #   1. run_response() when barge_in_during_response is True
+            #   2. run_tts() when barge_in_occurred is True
+            # Otherwise, it remains None and no prefill is used.
             if self._barge_in_audio:
-                print("📼 Using barge-in captured audio as prefill")
+                duration = len(self._barge_in_audio) / 2 / 16000
+                print(f"📼 BARGE-IN PREFILL: {duration:.2f}s ({len(self._barge_in_audio)} bytes) → transcription")
                 if hasattr(transcription, 'set_prefill_audio'):
                     transcription.set_prefill_audio(self._barge_in_audio)
+                    print("✅ Prefill audio set on transcription provider")
+                else:
+                    print("⚠️  Transcription provider doesn't support prefill audio")
                 self._barge_in_audio = None  # Clear after use
+            else:
+                print("🎤 Starting fresh transcription (no barge-in prefill)")
             
             # Get send phrases from config
             from .config import SEND_PHRASES, TERMINATION_PHRASES, AUTO_SEND_SILENCE_TIMEOUT
@@ -873,10 +887,20 @@ class RefactoredOrchestrator:
         # The finally block was causing double cleanup (here + state machine)
         # which led to segmentation faults
     
-    async def run_response(self, user_message: str) -> Optional[str]:
-        """Generate response for user message with conversation context."""
+    async def run_response(self, user_message: str, enable_barge_in: bool = True) -> Optional[str]:
+        """
+        Generate response for user message with conversation context.
+        
+        Args:
+            user_message: The user's message to respond to
+            enable_barge_in: If True, allows user to interrupt during response generation
+            
+        Returns:
+            The assistant's response, or None if interrupted/failed
+        """
         # Clear previous tool calls
         self._last_tool_calls = []
+        barge_in_during_response = False
         
         try:
             # Ensure transcription is fully stopped before starting response
@@ -922,14 +946,19 @@ class RefactoredOrchestrator:
                     self._context.get_vector_memory_context(query_for_vector)
                 )
             
-            # Get conversation context for the response (runs in parallel with vector query)
+            # Get unified context bundle (single pass over conversation history)
             context = None
             tool_context = None
             if self._context:
-                # Get recent context for response generation
-                context = self._context.get_recent_for_response()
-                # Get compact context for tool decisions
-                tool_context = self._context.get_tool_context()
+                # Use unified method for efficiency (computes both in one pass)
+                if hasattr(self._context, 'get_context_bundle'):
+                    bundle = self._context.get_context_bundle()
+                    context = bundle.response_context
+                    tool_context = bundle.tool_context
+                else:
+                    # Fallback to separate calls for compatibility
+                    context = self._context.get_recent_for_response()
+                    tool_context = self._context.get_tool_context()
             
             # Wait for vector memory query (parallelized with context prep above)
             vector_context = ""
@@ -942,6 +971,36 @@ class RefactoredOrchestrator:
             # Stream response with context
             print("💭 Generating response...")
             log_user_message(user_message)  # 📡 Remote console log
+            
+            # Start barge-in detection during response generation if enabled
+            # This allows user to interrupt while LLM is thinking
+            if enable_barge_in and self._barge_in_enabled and self._barge_in_during_processing:
+                self._barge_in_triggered = False
+                bt_mode = " [Bluetooth/Meta]" if self._barge_in_is_bluetooth else ""
+                print(f"👂 Barge-in enabled during response generation{bt_mode}")
+                
+                self._barge_in_detector = BargeInDetector(
+                    config=BargeInConfig(
+                        mode=BargeInMode.ENERGY,
+                        energy_threshold=self._barge_in_energy_threshold,
+                        min_speech_duration=self._barge_in_min_speech_duration,
+                        cooldown_after_tts_start=self._barge_in_processing_cooldown,
+                        sample_rate=self._barge_in_sample_rate,
+                        chunk_size=self._barge_in_chunk_size,
+                        buffer_seconds=self._barge_in_buffer_seconds,
+                        capture_after_trigger=self._barge_in_capture_after_trigger,
+                        device_index=self._barge_in_device_index,
+                        latency=self._barge_in_latency,
+                        is_bluetooth=self._barge_in_is_bluetooth,
+                    ),
+                    shared_bus=self._shared_audio_bus,
+                )
+                
+                def on_processing_barge_in():
+                    print("🎤 BARGE-IN: Interrupting response generation!")
+                    self._barge_in_triggered = True
+                
+                await self._barge_in_detector.start(on_barge_in=on_processing_barge_in)
             
             # Record comprehensive API input tokens (system prompt + context + tools)
             if self._recorder and self._recorder.current_session_id:
@@ -969,6 +1028,12 @@ class RefactoredOrchestrator:
             streamed_deltas = False
             
             async for chunk in response.stream_response(user_message, context=context, tool_context=tool_context):
+                # Check for barge-in during response streaming
+                if self._barge_in_triggered:
+                    print("\n⚡ Barge-in triggered - cancelling response generation")
+                    barge_in_during_response = True
+                    break
+                
                 if chunk.content:
                     if chunk.is_complete:
                         # Final complete chunk contains the FULL text
@@ -992,6 +1057,27 @@ class RefactoredOrchestrator:
             
             print()  # Newline after response
             
+            # Handle barge-in during response generation
+            if barge_in_during_response:
+                # Capture audio for transcription prefill
+                if self._barge_in_detector:
+                    self._barge_in_audio = self._barge_in_detector.get_captured_audio_bytes()
+                    if self._barge_in_audio:
+                        duration = len(self._barge_in_audio) / 2 / 16000
+                        print(f"📼 Barge-in audio captured: {duration:.2f}s ({len(self._barge_in_audio)} bytes)")
+                    else:
+                        print("⚠️  No barge-in audio captured (detector returned None)")
+                    await self._barge_in_detector.stop()
+                    self._barge_in_detector = None
+                else:
+                    print("⚠️  Barge-in detector was None when trying to capture audio")
+                
+                # Add partial response to context if any
+                if self._context and full_response:
+                    self._context.add_message("assistant", full_response + " [interrupted]")
+                
+                return None  # Signal that response was interrupted
+            
             # Capture composition API token usage (from tool decisions and final answer composition)
             if self._recorder and hasattr(response, 'get_composition_token_usage'):
                 comp_usage = response.get_composition_token_usage()
@@ -1010,10 +1096,24 @@ class RefactoredOrchestrator:
             if full_response:
                 log_assistant_response(full_response)  # 📡 Remote console log
             
+            # Cleanup barge-in detector (if not already cleaned up)
+            if self._barge_in_detector:
+                await self._barge_in_detector.stop()
+                self._barge_in_detector = None
+            
             return full_response if full_response else None
             
         except Exception as e:
             print(f"❌ Response generation error: {e}")
+            
+            # Cleanup barge-in detector on error
+            if self._barge_in_detector:
+                try:
+                    await self._barge_in_detector.stop()
+                except Exception:
+                    pass
+                self._barge_in_detector = None
+            
             error = ComponentError(
                 component="response",
                 severity=ErrorSeverity.RECOVERABLE,
@@ -1112,16 +1212,23 @@ class RefactoredOrchestrator:
             # Use pre-initialized provider
             tts = self._tts
             
+            # Check for streaming support (preferred - lowest latency)
+            # Streaming plays audio as it arrives from the API
+            use_streaming = hasattr(tts, 'synthesize_and_play_streaming')
+            
             # Check if text is long enough to benefit from chunked synthesis
             # Chunked synthesis reduces perceived latency by playing first chunk
-            # while synthesizing the rest
+            # while synthesizing the rest (fallback for non-streaming providers)
             use_chunked = (
+                not use_streaming and
                 self._chunked_synthesis_threshold > 0 and
                 len(text) > self._chunked_synthesis_threshold and 
                 hasattr(tts, 'synthesize_and_play_chunked')
             )
             
-            if use_chunked:
+            if use_streaming:
+                print(f"🔊 Using streaming synthesis...")
+            elif use_chunked:
                 print(f"🔊 Using chunked synthesis for {len(text)} chars...")
             else:
                 # Synthesize audio first (for short messages)
@@ -1187,7 +1294,10 @@ class RefactoredOrchestrator:
             print("🔊 Speaking...")
             
             # Run playback as task so we can interrupt for termination
-            if use_chunked:
+            if use_streaming:
+                # Streaming: synthesize and play in one step with lowest latency
+                playback_task = asyncio.create_task(tts.synthesize_and_play_streaming(text))
+            elif use_chunked:
                 playback_task = asyncio.create_task(tts.synthesize_and_play_chunked(text))
             else:
                 playback_task = asyncio.create_task(tts.play_audio_async(audio))
@@ -1332,9 +1442,17 @@ class RefactoredOrchestrator:
                     self._context.get_vector_memory_context(query_for_vector)
                 )
             
-            # Get context (runs in parallel with vector query)
-            context = self._context.get_recent_for_response() if self._context else None
-            tool_context = self._context.get_tool_context() if self._context else None
+            # Get unified context bundle (single pass over conversation history)
+            context = None
+            tool_context = None
+            if self._context:
+                if hasattr(self._context, 'get_context_bundle'):
+                    bundle = self._context.get_context_bundle()
+                    context = bundle.response_context
+                    tool_context = bundle.tool_context
+                else:
+                    context = self._context.get_recent_for_response()
+                    tool_context = self._context.get_tool_context()
             
             # Wait for vector memory query (parallelized with context prep above)
             vector_context = ""
@@ -1364,17 +1482,26 @@ class RefactoredOrchestrator:
                     vector_context=vector_context
                 )
             
-            # Prepare barge-in detection (but don't start yet - wait until audio begins)
+            # Prepare barge-in detection
             barge_in_callback = None
+            barge_in_started_during_processing = False
             if enable_barge_in and self._barge_in_enabled:
                 bt_mode = " [Bluetooth/Meta]" if self._barge_in_is_bluetooth else ""
-                print(f"👂 Barge-in will be enabled for streaming TTS{bt_mode}")
+                
+                # Determine cooldown: shorter during processing (no TTS feedback), longer during TTS
+                initial_cooldown = (
+                    self._barge_in_processing_cooldown 
+                    if self._barge_in_during_processing 
+                    else self._barge_in_cooldown_after_tts_start
+                )
+                
+                print(f"👂 Barge-in will be enabled{bt_mode}")
                 self._barge_in_detector = BargeInDetector(
                     config=BargeInConfig(
                         mode=BargeInMode.ENERGY,
                         energy_threshold=self._barge_in_energy_threshold,
                         min_speech_duration=self._barge_in_min_speech_duration,
-                        cooldown_after_tts_start=self._barge_in_cooldown_after_tts_start,
+                        cooldown_after_tts_start=initial_cooldown,
                         sample_rate=self._barge_in_sample_rate,
                         chunk_size=self._barge_in_chunk_size,
                         buffer_seconds=self._barge_in_buffer_seconds,
@@ -1389,14 +1516,15 @@ class RefactoredOrchestrator:
                     "🔧 Barge-in config: "
                     f"threshold={self._barge_in_energy_threshold}, "
                     f"min_speech={self._barge_in_min_speech_duration}s, "
-                    f"cooldown={self._barge_in_cooldown_after_tts_start}s"
+                    f"cooldown={initial_cooldown}s"
                 )
                 
                 def on_barge_in():
-                    print("🎤 BARGE-IN: Interrupting streaming speech!")
+                    print("🎤 BARGE-IN: Interrupting!")
                     self._barge_in_triggered = True
                     
                     # Check if this is an early barge-in (within threshold)
+                    # Only applies if playback has started
                     if self._playback_start_time:
                         elapsed = asyncio.get_event_loop().time() - self._playback_start_time
                         if elapsed < self._early_barge_in_threshold:
@@ -1404,12 +1532,21 @@ class RefactoredOrchestrator:
                             print(f"⚡ Early barge-in ({elapsed:.1f}s < {self._early_barge_in_threshold}s) - will append next message")
                         else:
                             print(f"⏱️  Late barge-in ({elapsed:.1f}s >= {self._early_barge_in_threshold}s) - new message")
+                    else:
+                        # Barge-in during processing (before TTS started)
+                        self._early_barge_in = True
+                        print("⚡ Barge-in during response generation - will append next message")
                     
                     if tts and hasattr(tts, 'stop_audio'):
                         tts.stop_audio()
                 
                 barge_in_callback = on_barge_in
-                # NOTE: Barge-in detector will be STARTED later, right before audio playback begins
+                
+                # START barge-in immediately if enabled during processing phase
+                if self._barge_in_during_processing:
+                    await self._barge_in_detector.start(on_barge_in=barge_in_callback)
+                    barge_in_started_during_processing = True
+                    print(f"👂 Barge-in detection started during processing (cooldown: {initial_cooldown}s)")
             
             # Pre-connect transcription WebSocket
             if self._transcription and hasattr(self._transcription, 'preconnect'):
@@ -1464,6 +1601,21 @@ class RefactoredOrchestrator:
                 
                 print(f"\n[DEBUG] Generator complete. Total chunks: {chunk_count}, streamed_any: {streamed_any}")
             
+            # Check if barge-in occurred during processing (before TTS starts)
+            if self._barge_in_triggered:
+                print("⚡ Barge-in triggered during response generation - skipping TTS")
+                # Capture audio for transcription prefill
+                if self._barge_in_detector:
+                    self._barge_in_audio = self._barge_in_detector.get_captured_audio_bytes()
+                    if self._barge_in_audio:
+                        duration = len(self._barge_in_audio) / 2 / 16000
+                        print(f"📼 Captured {duration:.2f}s of barge-in audio")
+                    await self._barge_in_detector.stop()
+                # Add partial response to context if any was generated
+                if self._context and full_response:
+                    self._context.add_message("assistant", full_response + " [interrupted]")
+                return full_response, True  # was_interrupted=True
+            
             # Transition to TTS state
             await self._transition(
                 AudioState.SYNTHESIZING,
@@ -1476,12 +1628,17 @@ class RefactoredOrchestrator:
                 )
             )
             
-            # NOW start barge-in detection (right before audio playback)
-            # This ensures the cooldown timer starts when audio actually begins
+            # Handle barge-in detection for TTS phase
             if self._barge_in_detector and barge_in_callback:
-                await self._barge_in_detector.start(on_barge_in=barge_in_callback)
-                self._playback_start_time = asyncio.get_event_loop().time()
-                print(f"👂 Barge-in detection started (cooldown: {self._barge_in_cooldown_after_tts_start}s)")
+                if barge_in_started_during_processing:
+                    # Barge-in already running - just mark playback start time
+                    self._playback_start_time = asyncio.get_event_loop().time()
+                    print("👂 Barge-in detection continuing for TTS playback")
+                else:
+                    # Start barge-in now (fallback when processing barge-in disabled)
+                    await self._barge_in_detector.start(on_barge_in=barge_in_callback)
+                    self._playback_start_time = asyncio.get_event_loop().time()
+                    print(f"👂 Barge-in detection started (cooldown: {self._barge_in_cooldown_after_tts_start}s)")
             
             # Stream TTS with sentence buffering
             print("🔊 Starting streaming TTS...")
@@ -1843,6 +2000,10 @@ class RefactoredOrchestrator:
                 if self._context:
                     self._context.reset()
                     print("🧠 Conversation context reset for new session")
+                
+                # Clear any stale barge-in state from previous conversation
+                self._barge_in_audio = None
+                self._barge_in_triggered = False
 
                 # Proactively announce pending briefings
                 # If briefing_wake_words is configured, only announce for those wake words
@@ -1994,7 +2155,7 @@ class RefactoredOrchestrator:
                             await self._record_tool_calls()
                     else:
                         # Traditional mode: generate full response, then speak
-                        assistant_text = await self.run_response(user_text)
+                        assistant_text = await self.run_response(user_text, enable_barge_in=True)
                         
                         # Check for termination during response generation
                         if self._termination_detected:
@@ -2002,7 +2163,27 @@ class RefactoredOrchestrator:
                             conversation_active = False
                             break
                         
-                        if not assistant_text:
+                        # Check if response was interrupted by barge-in
+                        if self._barge_in_triggered and not assistant_text:
+                            print("⚡ Response interrupted by barge-in - skipping TTS")
+                            # User spoke during response generation
+                            # Mark as barge-in so we continue to transcription
+                            speech_completed = False
+                            self._barge_in_triggered = False  # Reset flag
+                            # Transition to IDLE before transcription
+                            if self.state_machine.current_state != AudioState.IDLE:
+                                await self._transition(
+                                    AudioState.IDLE,
+                                    component=None,
+                                    ctx=TransitionContext(
+                                        reason=TransitionReason.TTS_BARGE_IN,
+                                        initiated_by="user",
+                                        conversation_id=self._get_conversation_id(),
+                                        extra={"interrupted_during": "response_generation"},
+                                    )
+                                )
+                            # Skip to barge-in handling (will start transcription with prefill)
+                        elif not assistant_text:
                             print("⚠️  No response generated")
                             # Transition to IDLE before continuing (state may be stuck in PROCESSING_RESPONSE)
                             if self.state_machine.current_state != AudioState.IDLE:
@@ -2016,31 +2197,31 @@ class RefactoredOrchestrator:
                                     )
                                 )
                             continue  # Try next question
-                        
-                        print(f"\n🤖 Assistant: {assistant_text}\n")
-                        
-                        # Record assistant message
-                        if self._recorder and self._recorder.current_session_id:
-                            await self._recorder.record_message("assistant", assistant_text)
-                            # Record tool calls used to generate this response
-                            await self._record_tool_calls()
-                        
-                        # Update state before TTS
-                        self._update_termination_state("SYNTHESIZING")
-                        
-                        # Speak response with barge-in enabled
-                        # If user interrupts, we'll immediately start transcribing
-                        speech_completed = await self.run_tts(
-                            assistant_text, 
-                            transition_to_idle=False,  # Don't auto-transition, we handle it
-                            enable_barge_in=True
-                        )
-                        
-                        # Check for termination during TTS
-                        if self._termination_detected:
-                            print("🛑 Termination detected during TTS")
-                            conversation_active = False
-                            break
+                        else:
+                            print(f"\n🤖 Assistant: {assistant_text}\n")
+                            
+                            # Record assistant message
+                            if self._recorder and self._recorder.current_session_id:
+                                await self._recorder.record_message("assistant", assistant_text)
+                                # Record tool calls used to generate this response
+                                await self._record_tool_calls()
+                            
+                            # Update state before TTS
+                            self._update_termination_state("SYNTHESIZING")
+                            
+                            # Speak response with barge-in enabled
+                            # If user interrupts, we'll immediately start transcribing
+                            speech_completed = await self.run_tts(
+                                assistant_text, 
+                                transition_to_idle=False,  # Don't auto-transition, we handle it
+                                enable_barge_in=True
+                            )
+                            
+                            # Check for termination during TTS
+                            if self._termination_detected:
+                                print("🛑 Termination detected during TTS")
+                                conversation_active = False
+                                break
                     
                     if speech_completed:
                         # Normal completion - transition to IDLE then back to transcription
@@ -2063,12 +2244,12 @@ class RefactoredOrchestrator:
                         # The captured audio will be prefilled to transcription
                         if self._barge_in_audio:
                             duration = len(self._barge_in_audio) / 2 / 16000
-                            print(f"⚡ Barge-in: {duration:.2f}s of audio captured, feeding to transcription...")
+                            print(f"⚡ Barge-in: {duration:.2f}s ({len(self._barge_in_audio)} bytes) will be fed to transcription")
                         else:
-                            print("⚡ Barge-in: Going directly to transcription...")
+                            print("⚡ Barge-in: No prefill audio available, going directly to transcription")
                         # Small delay for audio device handoff
                         await asyncio.sleep(self._barge_in_resume_delay)
-                        print("🎤 Listening (prefill audio will be processed first)...\n")
+                        print("🎤 Listening (continuing barge-in conversation)...\n")
                         # Continue the loop - next iteration will run transcription
                 
                 # Log if terminated by phrase detection (vs other reasons)

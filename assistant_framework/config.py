@@ -87,7 +87,7 @@ _configure_google_credentials()
 
 TRANSCRIPTION_PROVIDER = "assemblyai"
 RESPONSE_PROVIDER = "openai_websocket"
-TTS_PROVIDER = "piper"  # Options: "google_tts", "local_tts", "chatterbox", "piper"
+TTS_PROVIDER = "openai_tts"  # Options: "google_tts", "local_tts", "chatterbox", "piper", "openai_tts"
 CONTEXT_PROVIDER = "unified"
 WAKEWORD_PROVIDER = "openwakeword"
 
@@ -527,6 +527,22 @@ PIPER_TTS_CONFIG = {
 # Chunked synthesis: For longer messages, splits text into sentences and plays
 # the first chunk while synthesizing the rest. Reduces perceived wait time.
 
+# OpenAI TTS configuration (cloud-based, requires API key)
+# Supports true streaming for lowest perceived latency - audio plays as it arrives
+# Install: pip install openai
+OPENAI_TTS_CONFIG = {
+    "api_key": os.getenv("OPENAI_API_KEY"),  # OpenAI API key (required)
+    "model": "gpt-4o-mini-tts",               # "tts-1" (fast), "tts-1-hd" (high quality), or "gpt-4o-mini-tts" (latest)
+    "voice": "echo",                         # Voice: alloy, echo, fable, onyx, nova, shimmer
+    "speed": 1.5,                             # Speed modifier (0.25-4.0)
+    "response_format": "mp3",                 # Output format: mp3, opus, aac, flac, wav, pcm
+    "stream_chunk_size": 4096,                # Bytes per streaming chunk (lower = more responsive, higher = less overhead)
+}
+# Available voices: alloy (neutral), echo (male), fable (expressive), 
+#                   onyx (deep male), nova (female), shimmer (soft female)
+# Streaming: Uses ffplay for true streaming playback. Falls back to buffered mode if unavailable.
+# Note: OpenAI TTS does not support pitch adjustment
+
 
 # =============================================================================
 # SECTION 6: WAKE WORD CONFIGURATION
@@ -539,14 +555,26 @@ WAKEWORD_CONFIG = {
     # - If briefing_wake_words is empty: ALL wake words announce briefings (default)
     # - If briefing_wake_words is configured: only those wake words announce briefings
     # Example: ["hey_honey_whats_new"] → only "hey_honey_whats_new" triggers briefings
-    "model_names": ["hey_honey_v2", "hey_jarvis"],  # Add second model name here when ready
-    "briefing_wake_words": ["hey_jarvis"],  # Empty = always announce briefings; set to specific wake words to be selective
+    "model_names": ["hey_honey_v2", "sol"],  # Add second model name here when ready
+    "briefing_wake_words": ["sol"],  # Empty = always announce briefings; set to specific wake words to be selective
     "sample_rate": 16000,
     "chunk": 1280,
-    "threshold": 0.2,
+    "threshold": 0.2,  # Default threshold for models not specified in model_thresholds
+    # Per-model activation thresholds (model_name → threshold)
+    # Models not listed here use the default "threshold" value above
+    # Lower threshold = more sensitive (more detections, potential false positives)
+    # Higher threshold = less sensitive (fewer false positives, may miss quiet speech)
+    "model_thresholds": {
+        "hey_honey_v2": 0.4,
+        "sol": 0.15,
+         "alexa_v0.1": 0.5,
+        # "hey_jarvis": 0.3,
+    },
     "cooldown_seconds": 2.0,
     "min_playback_interval": 0.5,
     "input_device_index": None,  # None = use default device, populated at runtime
+    "latency": "high",           # 'high' = larger buffer, prevents overflow
+    "suppress_overflow_warnings": False,  # Occasional overflow is harmless for wake word
     "verbose": True
 }
 
@@ -881,13 +909,16 @@ SUPABASE_CONFIG = {
 BARGE_IN_CONFIG = {
     "sample_rate": 16000,
     "chunk_size": 1024,                 # Default; auto-adjusted if Ray-Bans detected
-    "energy_threshold": 0.09,           # Voice energy threshold for detection (lower = more sensitive)
+    "energy_threshold": 0.04,           # Voice energy threshold for detection (lower = more sensitive)
     "bluetooth_energy_threshold": 0.03, # Much lower threshold for Bluetooth (mic quality drops during playback)
     "early_barge_in_threshold": 3.0,    # Seconds - if barge-in within this time, append to previous message
     "min_speech_duration": 0.2,         # Seconds of speech before triggering
     "cooldown_after_tts_start": 0.5,    # Ignore speech for first 0.5s after TTS starts (avoid self-trigger)
-    "pre_barge_in_buffer_duration": 0.3,  # Seconds of audio to buffer before barge-in (captures speech onset)
-    "post_barge_in_capture_duration": 0.2  # Extra capture after detection
+    "pre_barge_in_buffer_duration": 0.6,  # Seconds of audio to buffer BEFORE barge-in (captures speech onset)
+    "post_barge_in_capture_duration": 0.5,  # Extra capture AFTER detection (captures speech tail)
+    # Processing-phase barge-in: allows interrupting during response generation (before TTS)
+    "enable_during_processing": True,   # Allow barge-in during response generation
+    "processing_cooldown": 0.1,         # Minimal cooldown for processing phase (no TTS feedback to avoid)
 }
 
 
@@ -948,6 +979,8 @@ def get_framework_config() -> Dict[str, Any]:
         tts_config = CHATTERBOX_TTS_CONFIG
     elif TTS_PROVIDER == "piper":
         tts_config = PIPER_TTS_CONFIG
+    elif TTS_PROVIDER == "openai_tts":
+        tts_config = OPENAI_TTS_CONFIG
     else:
         tts_config = LOCAL_TTS_CONFIG
     

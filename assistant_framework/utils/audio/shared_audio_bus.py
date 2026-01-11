@@ -84,14 +84,22 @@ class RingBuffer:
             
             # Calculate how many chunks we need
             chunks_needed = int(seconds * self._sample_rate / self._chunk_size)
-            chunks_to_get = min(chunks_needed, len(self._buffer))
+            chunks_available = len(self._buffer)
+            chunks_to_get = min(chunks_needed, chunks_available)
             
             if chunks_to_get == 0:
                 return None
             
             # Get the most recent chunks
             recent_chunks = list(self._buffer)[-chunks_to_get:]
-            return np.concatenate(recent_chunks)
+            result = np.concatenate(recent_chunks)
+            
+            # Log if we couldn't provide all requested audio
+            if chunks_to_get < chunks_needed:
+                actual_seconds = chunks_to_get * self._chunk_size / self._sample_rate
+                print(f"⚠️  Ring buffer only has {actual_seconds:.2f}s of {seconds:.2f}s requested")
+            
+            return result
     
     def get_last_bytes(self, seconds: float) -> Optional[bytes]:
         """

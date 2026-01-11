@@ -183,6 +183,34 @@ class ConversationMessage:
 
 
 # =============================================================================
+# CONTEXT BUNDLE
+# =============================================================================
+
+@dataclass
+class ContextBundle:
+    """
+    Unified context bundle for response generation.
+    
+    Contains all context needed for a response in a single structure,
+    eliminating redundant iteration over conversation history.
+    
+    Attributes:
+        response_context: Full context for response generation (system + recent messages)
+        tool_context: Compact context for tool selection (system + fewer messages)
+        system_content: The combined system prompt content (for structured assembly)
+    """
+    response_context: List[Dict[str, Any]]
+    tool_context: List[Dict[str, Any]]
+    system_content: Optional[str] = None
+    
+    @property
+    def has_system_message(self) -> bool:
+        """Check if context includes a system message."""
+        return bool(self.response_context and 
+                   self.response_context[0].get("role") == "system")
+
+
+# =============================================================================
 # STATE TRANSITION TYPES
 # =============================================================================
 

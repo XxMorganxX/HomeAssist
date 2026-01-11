@@ -78,7 +78,7 @@ Create a `.env` file in the project root with your API keys.
 
 #### Required Variables
 
-- `OPENAI_API_KEY` — OpenAI API key (LLM responses, some scheduled jobs)
+- `OPENAI_API_KEY` — OpenAI API key (LLM responses, OpenAI TTS if enabled, some scheduled jobs)
 - `ASSEMBLYAI_API_KEY` — AssemblyAI key (real-time transcription)
 - `GEMINI_API_KEY` — Gemini API key (email summarization + optional conversation summarization)
 - `SUPABASE_URL` — Supabase project URL (vector memory, conversation recording, notifications)
@@ -143,7 +143,7 @@ Choose which implementation to use for each component:
 ```python
 TRANSCRIPTION_PROVIDER = "assemblyai"      # "assemblyai" or "openai_whisper"
 RESPONSE_PROVIDER = "openai_websocket"     # LLM backend
-TTS_PROVIDER = "local_tts"                 # "google_tts" or "local_tts"
+TTS_PROVIDER = "piper"                     # "google_tts", "local_tts", "piper", "chatterbox", "openai_tts"
 WAKEWORD_PROVIDER = "openwakeword"         # Wake word engine
 ```
 
@@ -173,6 +173,86 @@ OPENAI_WHISPER_CONFIG = {
 ```
 
 > 💡 **Tip:** AssemblyAI has lower latency (true streaming). Whisper is useful if you already have OpenAI credentials and don't want another API key.
+
+#### Text-to-Speech Providers
+
+**Piper TTS** (recommended) — Fast local neural TTS using ONNX:
+
+```python
+PIPER_TTS_CONFIG = {
+    "voice": "en_US-lessac-high",         # Voice model name
+    "model_dir": "./audio_data/piper_models",  # Auto-downloads models
+    "speed": 1.2,                            # Speech rate (0.5-2.0)
+    "chunked_synthesis_threshold": 150,      # Enable chunked synthesis for text > N chars
+    "chunk_max_length": 150,                 # Max chars per chunk
+}
+```
+
+Available voices: `en_US-lessac-high`, `en_US-lessac-medium`, `en_US-ryan-medium`, `en_US-amy-medium`, `en_GB-alan-medium`, `en_GB-jenny_dioco-medium`
+
+> 💡 **Benefits:** Very fast (~50x realtime), small models (15-100MB), runs entirely on CPU, no API costs.
+
+**OpenAI TTS** — Cloud-based with true streaming for lowest latency:
+
+```python
+OPENAI_TTS_CONFIG = {
+    "api_key": os.getenv("OPENAI_API_KEY"),  # Required
+    "model": "gpt-4o-mini-tts",               # "tts-1" (fast), "tts-1-hd" (high quality), or "gpt-4o-mini-tts" (latest)
+    "voice": "alloy",                         # alloy, echo, fable, onyx, nova, shimmer
+    "speed": 1.0,                             # Speed modifier (0.25-4.0)
+    "response_format": "mp3",                 # mp3, opus, aac, flac, wav, pcm
+    "stream_chunk_size": 4096,                # Bytes per streaming chunk
+}
+```
+
+Available models: `tts-1` (fast, low latency), `tts-1-hd` (higher quality), `gpt-4o-mini-tts` (latest multimodal model)
+
+Available voices: `alloy` (neutral), `echo` (male), `fable` (expressive), `onyx` (deep male), `nova` (female), `shimmer` (soft female)
+
+> 💡 **Streaming:** Audio playback begins as soon as the first chunks arrive from OpenAI, dramatically reducing perceived latency. Requires `ffplay` (from ffmpeg) for true streaming; falls back to buffered playback if unavailable.
+
+> ⚠️ **Note:** OpenAI TTS does not support pitch adjustment. Requires API key and internet connection.
+
+**Google Cloud TTS** — Premium cloud TTS with HD voices:
+
+```python
+GOOGLE_TTS_CONFIG = {
+    "voice": "en-US-Chirp3-HD-Sadachbia",
+    "speed": 1.9,
+    "pitch": -2.1,                           # Pitch adjustment in semitones
+    "language_code": "en-US",
+    "audio_encoding": "MP3"
+}
+```
+
+> 💡 **Requires:** `GOOGLE_APPLICATION_CREDENTIALS` environment variable pointing to service account JSON.
+
+**Local TTS** — macOS native TTS:
+
+```python
+LOCAL_TTS_CONFIG = {
+    "voice_id": 132,    # Samantha (US English female)
+    "rate": 199,        # Words per minute
+    "volume": 0.9       # Volume 0.0 to 1.0
+}
+```
+
+> 💡 **Note:** macOS only, uses the built-in `say` command.
+
+**Chatterbox TTS** — Local neural TTS with paralinguistic features:
+
+```python
+CHATTERBOX_TTS_CONFIG = {
+    "model_type": "turbo",          # "turbo" (fast) or "standard" (creative)
+    "model_dir": "./audio_data/chatterbox_models",
+    "device": "auto",               # "auto", "mps" (Apple Silicon), "cuda", "cpu"
+    "voice_prompt_path": None,      # Optional voice cloning
+}
+```
+
+Supports paralinguistic tags: `[chuckle]`, `[laugh]`, `[sigh]`, `[cough]`, `[sniffle]`, `[groan]`, `[yawn]`, `[gasp]`
+
+> 💡 **Install:** `pip install chatterbox-tts torchaudio` and run `huggingface-cli login` on first use.
 
 #### Wake Word Settings
 

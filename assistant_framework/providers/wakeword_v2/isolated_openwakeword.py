@@ -66,7 +66,8 @@ def _wake_word_worker(
     # Extract config
     sample_rate = config['sample_rate']
     chunk = config['chunk']
-    threshold = config['threshold']
+    default_threshold = config['threshold']
+    model_thresholds = config.get('model_thresholds', {})  # Per-model thresholds
     cooldown_seconds = config['cooldown_seconds']
     # Support multiple models
     model_paths = config.get('model_paths', [config['model_path']])
@@ -94,6 +95,14 @@ def _wake_word_worker(
         
         model = Model(**model_kwargs)
         wprint(f"✅ [Worker] {len(model_paths)} model(s) initialized")
+        
+        # Log per-model thresholds
+        if model_thresholds:
+            wprint(f"🎚️  [Worker] Per-model thresholds:")
+            for m_name in model.prediction_buffer.keys():
+                t = model_thresholds.get(m_name, default_threshold)
+                is_custom = m_name in model_thresholds
+                wprint(f"   - {m_name}: {t} {'(custom)' if is_custom else '(default)'}")
         
         # Detection state
         last_detection = {}
@@ -227,8 +236,11 @@ def _wake_word_worker(
                     
                     score = scores[-1]
                     
+                    # Get model-specific threshold, fall back to default
+                    threshold = model_thresholds.get(model_name, default_threshold)
+                    
                     if debug_verbose and score > 0.05:
-                        wprint(f"[Worker] {model_name}: {score:.3f}")
+                        wprint(f"[Worker] {model_name}: {score:.3f} (threshold: {threshold})")
                     
                     # Check threshold and cooldown
                     if score > threshold:

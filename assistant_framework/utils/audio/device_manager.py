@@ -134,8 +134,8 @@ def get_emeet_config(device_index: int) -> AudioDeviceConfig:
         sample_rate=16000,
         channels=1,
         dtype='int16',
-        blocksize=3200,          # 200ms at 16kHz (USB is reliable)
-        latency='low',           # USB is stable, use low latency
+        blocksize=1280,          # 80ms at 16kHz (smaller = faster processing loop)
+        latency='high',          # High latency = larger buffer, prevents overflow
         is_bluetooth=False
     )
 
@@ -152,8 +152,8 @@ def get_default_config() -> AudioDeviceConfig:
         sample_rate=16000,
         channels=1,
         dtype='int16',
-        blocksize=3200,          # 200ms at 16kHz
-        latency='low',
+        blocksize=1280,          # 80ms at 16kHz (smaller = faster processing loop)
+        latency='high',          # High latency = larger buffer, prevents overflow
         is_bluetooth=False
     )
 

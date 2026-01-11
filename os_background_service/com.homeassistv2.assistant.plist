@@ -1,0 +1,59 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+    <!-- Service identifier -->
+    <key>Label</key>
+    <string>com.homeassistv2.assistant</string>
+
+    <!-- Script to run -->
+    <key>ProgramArguments</key>
+    <array>
+        <string>/bin/bash</string>
+        <string>/Users/morgannstuart/Desktop/HomeAssistV2/os_background_service/run_assistant.sh</string>
+    </array>
+
+    <!-- Working directory -->
+    <key>WorkingDirectory</key>
+    <string>/Users/morgannstuart/Desktop/HomeAssistV2</string>
+
+    <!-- Start on login -->
+    <key>RunAtLoad</key>
+    <true/>
+
+    <!-- Auto-restart if it crashes -->
+    <key>KeepAlive</key>
+    <dict>
+        <!-- Only restart on non-zero exit (crash) -->
+        <key>SuccessfulExit</key>
+        <false/>
+    </dict>
+
+    <!-- Throttle restarts to prevent rapid loops (wait 10 seconds) -->
+    <key>ThrottleInterval</key>
+    <integer>10</integer>
+
+    <!-- Log output -->
+    <key>StandardOutPath</key>
+    <string>/Users/morgannstuart/Desktop/HomeAssistV2/logs/assistant_stdout.log</string>
+    <key>StandardErrorPath</key>
+    <string>/Users/morgannstuart/Desktop/HomeAssistV2/logs/assistant_stderr.log</string>
+
+    <!-- Environment variables (basic ones - rest come from .env) -->
+    <key>EnvironmentVariables</key>
+    <dict>
+        <key>PATH</key>
+        <string>/usr/local/bin:/usr/bin:/bin:/opt/homebrew/bin</string>
+        <key>HOME</key>
+        <string>/Users/morgannstuart</string>
+    </dict>
+
+    <!-- Nice priority (lower = higher priority, 0 = normal) -->
+    <key>Nice</key>
+    <integer>0</integer>
+
+    <!-- Process type for macOS resource management -->
+    <key>ProcessType</key>
+    <string>Interactive</string>
+</dict>
+</plist>

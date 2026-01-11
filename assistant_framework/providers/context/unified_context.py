@@ -9,7 +9,7 @@ import tiktoken
 try:
     # Try relative imports first (when used as package)
     from ...interfaces.context import ContextInterface
-    from ...models.data_models import ConversationMessage, MessageRole
+    from ...models.data_models import ConversationMessage, MessageRole, ContextBundle
     from ...utils.memory.conversation_summarizer import ConversationSummarizer
     from ...utils.memory.persistent_memory import PersistentMemoryManager
     from ...utils.memory.vector_memory import VectorMemoryManager
@@ -19,7 +19,7 @@ except ImportError:
     from pathlib import Path
     sys.path.append(str(Path(__file__).parent.parent.parent))
     from interfaces.context import ContextInterface
-    from models.data_models import ConversationMessage, MessageRole
+    from models.data_models import ConversationMessage, MessageRole, ContextBundle
     from utils.memory.conversation_summarizer import ConversationSummarizer
     from utils.memory.persistent_memory import PersistentMemoryManager
     from utils.memory.vector_memory import VectorMemoryManager
@@ -221,6 +221,67 @@ class UnifiedContextProvider(ContextInterface):
         # Sort again globally by original index to strictly preserve chronology
         selected_sorted = sorted(selected, key=lambda x: x[0])
         return [msg.to_dict() for (_, msg) in selected_sorted]
+    
+    def get_context_bundle(self, max_user: int = 3, max_assistant: int = 2) -> ContextBundle:
+        """
+        Get unified context bundle in a single pass over conversation history.
+        
+        This eliminates redundant iteration by computing both response_context
+        and tool_context together.
+        
+        Args:
+            max_user: Max user messages for tool context (default 3)
+            max_assistant: Max assistant messages for tool context (default 2)
+            
+        Returns:
+            ContextBundle with response_context, tool_context, and system_content
+        """
+        if not self.conversation_history:
+            return ContextBundle(
+                response_context=[],
+                tool_context=[],
+                system_content=None
+            )
+        
+        # Check for system message
+        has_system = (self.conversation_history[0].role == MessageRole.SYSTEM)
+        start_idx = 1 if has_system else 0
+        
+        # System content (for structured instructions)
+        system_content = self.conversation_history[0].content if has_system else None
+        system_dict = [self.conversation_history[0].to_dict()] if has_system else []
+        
+        # Get all non-system messages
+        non_system_msgs = self.conversation_history[start_idx:]
+        
+        # Response context: system + last N messages
+        recent_for_response = non_system_msgs[-self.response_recent_messages:]
+        response_context = system_dict + [msg.to_dict() for msg in recent_for_response]
+        
+        # Tool context: system + last max_user users + last max_assistant assistants
+        # Single pass from end to collect both
+        user_msgs: List[tuple[int, ConversationMessage]] = []
+        assistant_msgs: List[tuple[int, ConversationMessage]] = []
+        
+        for idx in range(len(non_system_msgs) - 1, -1, -1):
+            msg = non_system_msgs[idx]
+            if msg.role == MessageRole.USER and len(user_msgs) < max_user:
+                user_msgs.append((idx, msg))
+            elif msg.role == MessageRole.ASSISTANT and len(assistant_msgs) < max_assistant:
+                assistant_msgs.append((idx, msg))
+            # Stop early if we have all needed
+            if len(user_msgs) >= max_user and len(assistant_msgs) >= max_assistant:
+                break
+        
+        # Merge and sort by original index for chronological order
+        tool_entries = sorted(user_msgs + assistant_msgs, key=lambda x: x[0])
+        tool_context = system_dict + [msg.to_dict() for (_, msg) in tool_entries]
+        
+        return ContextBundle(
+            response_context=response_context,
+            tool_context=tool_context,
+            system_content=system_content
+        )
     
     def trim_history(self, max_messages: int) -> None:
         """Trim conversation history to a maximum number of messages."""

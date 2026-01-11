@@ -84,6 +84,7 @@ class AudioStateMachine:
             ],
             AudioState.PROCESSING_RESPONSE: [
                 AudioState.SYNTHESIZING,
+                AudioState.TRANSCRIBING,  # Allow barge-in: interrupt processing to start new transcription
                 AudioState.IDLE,
                 AudioState.ERROR
             ],
