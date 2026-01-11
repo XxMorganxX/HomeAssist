@@ -185,7 +185,7 @@ def create_location_briefing(
     Create a briefing announcement for a single location.
     
     Args:
-        location_name: Name of the location (e.g., "Ithaca")
+        location_name: Name of the location (e.g., "North Sea, New York")
         alerts: List of WeatherAlert objects for this location
         user_id: Target user ID
         analyzer: WeatherAnalyzer instance for formatting
@@ -199,19 +199,17 @@ def create_location_briefing(
     # Prioritize and format alerts
     sorted_alerts = analyzer.prioritize_alerts(alerts)
     
-    # Build location-prefixed message
+    # Build message - use original alert messages (they already have "Today:", "Tomorrow:", etc.)
+    # Just strip the day prefix since this is a single-location briefing
     formatted_messages = []
     for alert in sorted_alerts:
         msg = alert.message
-        # Replace "Today:" with location name
-        if msg.startswith("Today:"):
-            msg = msg.replace("Today:", f"{location_name}:", 1)
-        elif msg.startswith("Tomorrow:"):
-            msg = msg.replace("Tomorrow:", f"{location_name} tomorrow:", 1)
-        else:
-            msg = f"{location_name}: {msg}"
+        # Remove "Today: " prefix for cleaner reading (it's implied for weather briefings)
+        if msg.startswith("Today: "):
+            msg = msg[7:]  # Remove "Today: "
         formatted_messages.append(msg)
     
+    # Combine messages naturally
     message = " ".join(formatted_messages)
     
     # Determine priority
@@ -222,17 +220,16 @@ def create_location_briefing(
     # Get alert types for metadata
     alert_types = list(set(a.alert_type.value for a in alerts))
     
-    # Create briefing ID with location slug: weather_{location}_{date}_{uuid}
-    location_slug = location_name.lower().replace(" ", "_")
+    # Create briefing ID: weather_{date}_{uuid}
     today = datetime.now().strftime("%Y-%m-%d")
-    briefing_id = f"weather_{location_slug}_{today}_{uuid.uuid4()}"
+    briefing_id = f"weather_{today}_{uuid.uuid4()}"
     
     return {
         "id": briefing_id,
         "user_id": user_id,
         "content": {
             "message": message,
-            "llm_instructions": f"Present this {location_name} weather update naturally and briefly. Focus on actionable advice.",
+            "llm_instructions": "Present this weather update naturally and briefly. Focus on actionable advice.",
             "meta": {
                 "source": "weather_briefing",
                 "location": location_name,
