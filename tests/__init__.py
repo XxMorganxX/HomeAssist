@@ -1,2 +1,2 @@
-"""Test suite for HomeAssist V2."""
+"""Test suite for HomeAssist V3."""
 

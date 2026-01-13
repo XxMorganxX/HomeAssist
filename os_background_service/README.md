@@ -1,6 +1,6 @@
 # Background Service Setup
 
-Run HomeAssistV2 as a macOS background service with persistent operation, automatic recovery, and sleep prevention.
+Run HomeAssist as a macOS background service with persistent operation, automatic recovery, and sleep prevention.
 
 ## Quick Start
 
@@ -52,8 +52,8 @@ The installer will:
 | `configure_power.sh` | System power settings utility |
 | `install.sh` | Installs all services |
 | `uninstall.sh` | Removes all services |
-| `com.homeassistv2.assistant.plist` | Main service launchd config |
-| `com.homeassistv2.watchdog.plist` | Watchdog launchd config |
+| `com.homeassist.assistant.plist` | Main service launchd config |
+| `com.homeassist.watchdog.plist` | Watchdog launchd config |
 
 ## Useful Commands
 
@@ -65,51 +65,51 @@ launchctl list | grep homeassist
 
 # Expected output when running:
 # PID   Status  Label
-# 1234  0       com.homeassistv2.assistant
-# 5678  0       com.homeassistv2.watchdog
+# 1234  0       com.homeassist.assistant
+# 5678  0       com.homeassist.watchdog
 ```
 
 ### View Logs
 
 ```bash
 # Main assistant output
-tail -f ~/Desktop/HomeAssistV2/logs/assistant_stdout.log
+tail -f ~/Desktop/HomeAssistV3/logs/assistant_stdout.log
 
 # Main assistant errors
-tail -f ~/Desktop/HomeAssistV2/logs/assistant_stderr.log
+tail -f ~/Desktop/HomeAssistV3/logs/assistant_stderr.log
 
 # Watchdog activity
-tail -f ~/Desktop/HomeAssistV2/logs/watchdog.log
+tail -f ~/Desktop/HomeAssistV3/logs/watchdog.log
 ```
 
 ### Restart Services
 
 ```bash
 # Restart main assistant (recommended method)
-launchctl kickstart -k gui/$(id -u)/com.homeassistv2.assistant
+launchctl kickstart -k gui/$(id -u)/com.homeassist.assistant
 
 # Restart watchdog
-launchctl kickstart -k gui/$(id -u)/com.homeassistv2.watchdog
+launchctl kickstart -k gui/$(id -u)/com.homeassist.watchdog
 ```
 
 ### Stop Services Temporarily
 
 ```bash
 # Stop main assistant
-launchctl unload ~/Library/LaunchAgents/com.homeassistv2.assistant.plist
+launchctl unload ~/Library/LaunchAgents/com.homeassist.assistant.plist
 
 # Stop watchdog
-launchctl unload ~/Library/LaunchAgents/com.homeassistv2.watchdog.plist
+launchctl unload ~/Library/LaunchAgents/com.homeassist.watchdog.plist
 ```
 
 ### Start Services
 
 ```bash
 # Start main assistant
-launchctl load ~/Library/LaunchAgents/com.homeassistv2.assistant.plist
+launchctl load ~/Library/LaunchAgents/com.homeassist.assistant.plist
 
 # Start watchdog
-launchctl load ~/Library/LaunchAgents/com.homeassistv2.watchdog.plist
+launchctl load ~/Library/LaunchAgents/com.homeassist.watchdog.plist
 ```
 
 ## Power Management
@@ -187,13 +187,13 @@ Bluetooth connections persist through sleep on modern macOS, but audio processin
 
 ```bash
 # Check for errors
-cat ~/Desktop/HomeAssistV2/logs/assistant_stderr.log | tail -20
+cat ~/Desktop/HomeAssistV3/logs/assistant_stderr.log | tail -20
 
 # Verify .env file exists
-ls -la ~/Desktop/HomeAssistV2/.env
+ls -la ~/Desktop/HomeAssistV3/.env
 
 # Verify Python venv
-~/Desktop/HomeAssistV2/venv/bin/python --version
+~/Desktop/HomeAssistV3/venv/bin/python --version
 ```
 
 ### Service keeps restarting
@@ -204,7 +204,7 @@ launchctl list | grep homeassist
 # Non-zero status means the process crashed
 
 # Look for Python errors
-grep -i error ~/Desktop/HomeAssistV2/logs/assistant_stderr.log | tail -20
+grep -i error ~/Desktop/HomeAssistV3/logs/assistant_stderr.log | tail -20
 ```
 
 ### System still sleeps
@@ -231,10 +231,10 @@ pmset -g
 
 ```bash
 # Check watchdog log
-cat ~/Desktop/HomeAssistV2/logs/watchdog.log | tail -30
+cat ~/Desktop/HomeAssistV3/logs/watchdog.log | tail -30
 
 # Manually trigger restart
-launchctl kickstart -k gui/$(id -u)/com.homeassistv2.assistant
+launchctl kickstart -k gui/$(id -u)/com.homeassist.assistant
 ```
 
 ## Code Updates
@@ -242,7 +242,7 @@ launchctl kickstart -k gui/$(id -u)/com.homeassistv2.assistant
 The service always runs the latest code from your project directory. After making code changes, restart the service:
 
 ```bash
-launchctl kickstart -k gui/$(id -u)/com.homeassistv2.assistant
+launchctl kickstart -k gui/$(id -u)/com.homeassist.assistant
 ```
 
 ## Service Behavior Summary

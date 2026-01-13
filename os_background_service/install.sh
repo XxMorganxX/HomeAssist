@@ -1,21 +1,21 @@
 #!/bin/bash
 # ==============================================
-# Install HomeAssistV2 as a launchd service
+# Install HomeAssist as a launchd service
 # ==============================================
 # This script installs both the main assistant service and
 # the watchdog service, with optional power management configuration.
 
 set -e
 
-PROJECT_DIR="/Users/morgannstuart/Desktop/HomeAssistV2"
+PROJECT_DIR="/Users/morgannstuart/Desktop/HomeAssistV3"
 SERVICE_DIR="${PROJECT_DIR}/os_background_service"
 LAUNCH_AGENTS_DIR="$HOME/Library/LaunchAgents"
 
 # Service files
-MAIN_PLIST="com.homeassistv2.assistant.plist"
-WATCHDOG_PLIST="com.homeassistv2.watchdog.plist"
+MAIN_PLIST="com.homeassist.assistant.plist"
+WATCHDOG_PLIST="com.homeassist.watchdog.plist"
 
-echo "🏠 HomeAssistV2 Service Installer"
+echo "🏠 HomeAssist Service Installer"
 echo "=================================="
 echo ""
 
@@ -134,8 +134,8 @@ echo "🔍 Verifying installation..."
 
 sleep 2  # Give services time to start
 
-MAIN_STATUS=$(launchctl list | grep "com.homeassistv2.assistant" || echo "NOT FOUND")
-WATCHDOG_STATUS=$(launchctl list | grep "com.homeassistv2.watchdog" || echo "NOT FOUND")
+MAIN_STATUS=$(launchctl list | grep "com.homeassist.assistant" || echo "NOT FOUND")
+WATCHDOG_STATUS=$(launchctl list | grep "com.homeassist.watchdog" || echo "NOT FOUND")
 
 echo "   Main service:     $MAIN_STATUS"
 echo "   Watchdog service: $WATCHDOG_STATUS"
@@ -165,7 +165,7 @@ echo "    tail -f ${PROJECT_DIR}/logs/assistant_stdout.log"
 echo "    tail -f ${PROJECT_DIR}/logs/watchdog.log"
 echo ""
 echo "  Restart services:"
-echo "    launchctl kickstart -k gui/\$(id -u)/com.homeassistv2.assistant"
+echo "    launchctl kickstart -k gui/\$(id -u)/com.homeassist.assistant"
 echo ""
 echo "  Configure power (if skipped):"
 echo "    sudo ${SERVICE_DIR}/configure_power.sh enable"

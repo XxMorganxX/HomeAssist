@@ -4,18 +4,18 @@
 <dict>
     <!-- Service identifier -->
     <key>Label</key>
-    <string>com.homeassistv2.assistant</string>
+    <string>com.homeassist.assistant</string>
 
     <!-- Script to run -->
     <key>ProgramArguments</key>
     <array>
         <string>/bin/bash</string>
-        <string>/Users/morgannstuart/Desktop/HomeAssistV2/os_background_service/run_assistant.sh</string>
+        <string>/Users/morgannstuart/Desktop/HomeAssistV3/os_background_service/run_assistant.sh</string>
     </array>
 
     <!-- Working directory -->
     <key>WorkingDirectory</key>
-    <string>/Users/morgannstuart/Desktop/HomeAssistV2</string>
+    <string>/Users/morgannstuart/Desktop/HomeAssistV3</string>
 
     <!-- Start on login -->
     <key>RunAtLoad</key>
@@ -36,9 +36,9 @@
 
     <!-- Log output -->
     <key>StandardOutPath</key>
-    <string>/Users/morgannstuart/Desktop/HomeAssistV2/logs/assistant_stdout.log</string>
+    <string>/Users/morgannstuart/Desktop/HomeAssistV3/logs/assistant_stdout.log</string>
     <key>StandardErrorPath</key>
-    <string>/Users/morgannstuart/Desktop/HomeAssistV2/logs/assistant_stderr.log</string>
+    <string>/Users/morgannstuart/Desktop/HomeAssistV3/logs/assistant_stderr.log</string>
 
     <!-- Environment variables (basic ones - rest come from .env) -->
     <key>EnvironmentVariables</key>

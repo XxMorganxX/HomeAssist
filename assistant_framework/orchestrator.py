@@ -33,8 +33,8 @@ try:
         log_user_message, log_assistant_response, log_tool_call,
         log_termination_detected
     )
-    from .providers.wakeword_v2 import IsolatedOpenWakeWordProvider
-    from .providers.transcription_v2 import AssemblyAIAsyncProvider
+    from .providers.wakeword import IsolatedOpenWakeWordProvider
+    from .providers.transcription import AssemblyAIAsyncProvider
     from .providers.context import UnifiedContextProvider
     from .providers.termination import IsolatedTerminationProvider
     from .utils.briefing.briefing_manager import BriefingManager
@@ -63,8 +63,8 @@ except ImportError:
         log_user_message, log_assistant_response, log_tool_call,
         log_termination_detected
     )
-    from assistant_framework.providers.wakeword_v2 import IsolatedOpenWakeWordProvider
-    from assistant_framework.providers.transcription_v2 import AssemblyAIAsyncProvider
+    from assistant_framework.providers.wakeword import IsolatedOpenWakeWordProvider
+    from assistant_framework.providers.transcription import AssemblyAIAsyncProvider
     from assistant_framework.providers.context import UnifiedContextProvider
     from assistant_framework.providers.termination import IsolatedTerminationProvider
     from assistant_framework.utils.briefing.briefing_manager import BriefingManager
@@ -78,7 +78,7 @@ class RefactoredOrchestrator:
     - State machine for lifecycle management
     - Structured error handling
     - Simplified pipeline execution
-    - V2 providers (process-isolated, fully async)
+    - Providers (process-isolated, fully async)
     """
     
     def __init__(self, config: Dict[str, Any]):

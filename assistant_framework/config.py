@@ -843,18 +843,18 @@ _mcp_paths = _detect_mcp_paths()
 MCP_SERVER_PATH = _mcp_paths['server_path']
 MCP_VENV_PYTHON = _mcp_paths['venv_python']
 
-# Override: Prefer HomeAssistV2 MCP server if available
-_homeassistv2_mcp = Path(__file__).parent.parent / "mcp_server" / "server.py"
-_homeassistv2_venv = Path(__file__).parent.parent / "venv" / "bin" / "python"
+# Override: Prefer HomeAssist MCP server if available
+_homeassist_mcp = Path(__file__).parent.parent / "mcp_server" / "server.py"
+_homeassist_venv = Path(__file__).parent.parent / "venv" / "bin" / "python"
 
-if _homeassistv2_mcp.exists():
-    MCP_SERVER_PATH = str(_homeassistv2_mcp)
-    print(f"🔧 Using HomeAssistV2 MCP server: {MCP_SERVER_PATH}")
-    
-if _homeassistv2_venv.exists():
-    MCP_VENV_PYTHON = str(_homeassistv2_venv)
-    print(f"🔧 Using HomeAssistV2 venv: {MCP_VENV_PYTHON}")
-elif _homeassistv2_mcp.exists():
+if _homeassist_mcp.exists():
+    MCP_SERVER_PATH = str(_homeassist_mcp)
+    print(f"🔧 Using HomeAssist MCP server: {MCP_SERVER_PATH}")
+
+if _homeassist_venv.exists():
+    MCP_VENV_PYTHON = str(_homeassist_venv)
+    print(f"🔧 Using HomeAssist venv: {MCP_VENV_PYTHON}")
+elif _homeassist_mcp.exists():
     MCP_VENV_PYTHON = sys.executable
     print(f"🔧 Using current Python (no venv found): {MCP_VENV_PYTHON}")
 

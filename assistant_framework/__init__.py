@@ -9,8 +9,8 @@ This framework provides a clean abstraction layer for:
 - Wake word detection (OpenWakeWord)
 - Barge-in interruption support
 
-Usage (v2 - recommended):
-    from assistant_framework.orchestrator_v2 import RefactoredOrchestrator
+Usage:
+    from assistant_framework.orchestrator import RefactoredOrchestrator
     from assistant_framework.config import get_framework_config
     
     config = get_framework_config()
@@ -19,7 +19,7 @@ Usage (v2 - recommended):
     await orchestrator.run_continuous_loop()
 """
 
-from .orchestrator_v2 import RefactoredOrchestrator
+from .orchestrator import RefactoredOrchestrator
 from .factory import ProviderFactory
 from .config import get_framework_config
 from . import interfaces

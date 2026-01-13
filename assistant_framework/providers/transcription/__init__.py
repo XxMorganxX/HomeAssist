@@ -1,5 +1,5 @@
 """
-Fully async transcription providers (v2).
+Fully async transcription providers.
 """
 
 from .assemblyai_async import AssemblyAIAsyncProvider

@@ -1,21 +1,21 @@
 #!/bin/bash
 # ==============================================
-# Uninstall HomeAssistV2 launchd services
+# Uninstall HomeAssist launchd services
 # ==============================================
 # This script removes both the main assistant service and
 # the watchdog service, with optional power settings restoration.
 
 set -e
 
-PROJECT_DIR="/Users/morgannstuart/Desktop/HomeAssistV2"
+PROJECT_DIR="/Users/morgannstuart/Desktop/HomeAssistV3"
 SERVICE_DIR="${PROJECT_DIR}/os_background_service"
 LAUNCH_AGENTS_DIR="$HOME/Library/LaunchAgents"
 
 # Service files
-MAIN_PLIST="com.homeassistv2.assistant.plist"
-WATCHDOG_PLIST="com.homeassistv2.watchdog.plist"
+MAIN_PLIST="com.homeassist.assistant.plist"
+WATCHDOG_PLIST="com.homeassist.watchdog.plist"
 
-echo "🏠 HomeAssistV2 Service Uninstaller"
+echo "🏠 HomeAssist Service Uninstaller"
 echo "===================================="
 echo ""
 
@@ -25,7 +25,7 @@ echo ""
 
 echo "🐕 Removing watchdog service..."
 
-if launchctl list | grep -q "com.homeassistv2.watchdog"; then
+if launchctl list | grep -q "com.homeassist.watchdog"; then
     launchctl unload "${LAUNCH_AGENTS_DIR}/${WATCHDOG_PLIST}" 2>/dev/null || true
     echo "   ✓ Stopped watchdog service"
 else
@@ -46,7 +46,7 @@ fi
 echo ""
 echo "🤖 Removing main assistant service..."
 
-if launchctl list | grep -q "com.homeassistv2.assistant"; then
+if launchctl list | grep -q "com.homeassist.assistant"; then
     launchctl unload "${LAUNCH_AGENTS_DIR}/${MAIN_PLIST}" 2>/dev/null || true
     echo "   ✓ Stopped main assistant service"
 else
@@ -107,7 +107,7 @@ fi
 # Cleanup backup file
 # ==============================================
 
-BACKUP_FILE="$HOME/.homeassistv2_power_backup.txt"
+BACKUP_FILE="$HOME/.homeassist_power_backup.txt"
 if [ -f "$BACKUP_FILE" ]; then
     echo ""
     read -p "Remove power settings backup file? (y/N) " -n 1 -r
@@ -128,7 +128,7 @@ echo "🎉 Uninstallation complete!"
 echo "=========================================="
 echo ""
 echo "The assistant services have been removed."
-echo "Your Mac will no longer run HomeAssistV2 in the background."
+echo "Your Mac will no longer run HomeAssist in the background."
 echo ""
 echo "Note: Log files were preserved at ${PROJECT_DIR}/logs/"
 echo "      You can delete them manually if desired."

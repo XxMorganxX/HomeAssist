@@ -2,7 +2,9 @@
 
 Voice Controlled Personal AI infrastructure. Always listening. Low latency. Actually useful.
 
-HomeAssist is a voice-first assistant tailored to my life, workflows, and data—modular, agentic, and built to feel like a real companion/mentor (not a reactive chatbot). It doesn’t just answer: it **proactively** surfaces what matters, delivers briefings, and nudges me at the right moment.
+HomeAssist V3 is a voice-first assistant tailored to my life, workflows, and data—modular, agentic, and built to feel like a real companion/mentor (not a reactive chatbot). It doesn't just answer: it **proactively** surfaces what matters, delivers briefings, and nudges me at the right moment.
+
+**V3 improvements:** Dramatically faster response times and proactive jump-in briefings that speak immediately on wake word detection.
 
 Say the wake word and speak naturally—HomeAssist handles lights, music, calendar, questions, and more. The first steps on the road to building a real-life Jarvis.
 
@@ -123,13 +125,13 @@ The assistant recognizes this needs multiple tools (search → SMS), executes th
 ```
 HomeAssist/
 ├── assistant_framework/       # Core voice assistant
-│   ├── orchestrator_v2.py     # Main coordination logic
+│   ├── orchestrator.py     # Main coordination logic
 │   ├── config.py              # All configuration
 │   ├── providers/             # Pluggable implementations
-│   │   ├── transcription_v2/  # Speech-to-text
+│   │   ├── transcription/  # Speech-to-text
 │   │   ├── response/          # LLM responses
 │   │   ├── tts/               # Text-to-speech
-│   │   ├── wakeword_v2/       # Wake word detection
+│   │   ├── wakeword/       # Wake word detection
 │   │   ├── termination/       # Fast termination detection ("over out")
 │   │   └── context/           # Conversation history
 │   ├── utils/                 # Shared utilities
@@ -191,7 +193,7 @@ pip install -r requirements.txt
 ### 3. Run
 
 ```bash
-python3 -m assistant_framework.main_v2 continuous
+python3 -m assistant_framework.main continuous
 ```
 
 ### 4. Interact

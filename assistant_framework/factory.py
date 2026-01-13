@@ -15,11 +15,11 @@ try:
         WakeWordInterface,
         TerminationInterface
     )
-    from .providers.transcription_v2 import AssemblyAIAsyncProvider, OpenAIWhisperProvider
+    from .providers.transcription import AssemblyAIAsyncProvider, OpenAIWhisperProvider
     from .providers.response import OpenAIWebSocketResponseProvider
     from .providers.tts import GoogleTTSProvider, LocalTTSProvider, ChatterboxTTSProvider, PiperTTSProvider, OpenAITTSProvider
     from .providers.context import UnifiedContextProvider
-    from .providers.wakeword_v2 import IsolatedOpenWakeWordProvider
+    from .providers.wakeword import IsolatedOpenWakeWordProvider
     from .providers.termination import IsolatedTerminationProvider
 except ImportError:
     # Fall back to absolute imports (when run as module)
@@ -31,18 +31,18 @@ except ImportError:
         WakeWordInterface,
         TerminationInterface
     )
-    from assistant_framework.providers.transcription_v2 import AssemblyAIAsyncProvider, OpenAIWhisperProvider
+    from assistant_framework.providers.transcription import AssemblyAIAsyncProvider, OpenAIWhisperProvider
     from assistant_framework.providers.response import OpenAIWebSocketResponseProvider
     from assistant_framework.providers.tts import GoogleTTSProvider, LocalTTSProvider, ChatterboxTTSProvider, PiperTTSProvider, OpenAITTSProvider
     from assistant_framework.providers.context import UnifiedContextProvider
-    from assistant_framework.providers.wakeword_v2 import IsolatedOpenWakeWordProvider
+    from assistant_framework.providers.wakeword import IsolatedOpenWakeWordProvider
     from assistant_framework.providers.termination import IsolatedTerminationProvider
 
 
 class ProviderFactory:
     """Factory for creating provider instances."""
     
-    # Provider registries (v2 providers - segfault-safe)
+    # Provider registries (segfault-safe)
     TRANSCRIPTION_PROVIDERS = {
         'assemblyai': AssemblyAIAsyncProvider,
         'openai_whisper': OpenAIWhisperProvider,

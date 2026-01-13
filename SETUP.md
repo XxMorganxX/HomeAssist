@@ -2,6 +2,8 @@
 
 A modular voice assistant framework featuring wake word detection, real-time transcription, LLM-powered responses, persistent memory, and smart home integration.
 
+**V3 improvements:** Dramatically faster response times and proactive jump-in briefings that speak immediately on wake word detection.
+
 ---
 
 ## 📋 Overview
@@ -31,8 +33,8 @@ HomeAssist is a privacy-focused voice assistant that runs locally on your machin
 ### Step 1: Clone and Setup
 
 ```bash
-git clone https://github.com/YOUR_USERNAME/HomeAssistV2.git
-cd HomeAssistV2
+git clone https://github.com/YOUR_USERNAME/HomeAssistV3.git
+cd HomeAssistV3
 ```
 
 ### Step 2: Create Virtual Environment
@@ -60,10 +62,10 @@ Edit `.env` with your API keys (see Configuration section below).
 
 ```bash
 # Continuous conversation mode (recommended)
-python -m assistant_framework.main_v2 continuous
+python -m assistant_framework.main continuous
 
 # Single interaction mode
-python -m assistant_framework.main_v2 single
+python -m assistant_framework.main single
 ```
 
 > 💡 **Tip:** On first run, a configuration summary will print showing which components are active and any missing credentials.

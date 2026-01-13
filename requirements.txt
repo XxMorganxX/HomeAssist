@@ -1,4 +1,4 @@
-# HomeAssistV2 (root) dependencies
+# HomeAssistV3 (root) dependencies
 #
 # This is the "union" requirements file to run:
 # - The local voice assistant (`assistant_framework`)

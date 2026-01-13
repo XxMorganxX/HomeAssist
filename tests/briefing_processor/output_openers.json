@@ -1,7 +1,7 @@
 {
   "test_run": {
     "timestamp": "2026-01-04T01:02:50.859359",
-    "input_file": "/Users/morgannstuart/Desktop/HomeAssistV2/tests/briefing_processor/sample_briefings.json",
+    "input_file": "/Users/morgannstuart/Desktop/HomeAssistV3/tests/briefing_processor/sample_briefings.json",
     "briefing_count": 5,
     "model": "gpt-4o-mini",
     "temperature": 0.7

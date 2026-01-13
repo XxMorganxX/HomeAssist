@@ -13,7 +13,7 @@ assistant_framework/
 │   ├── context.py           # Context management interface
 │   └── wake_word.py         # Wake word detection interface
 ├── providers/           # Concrete implementations
-│   ├── transcription_v2/
+│   ├── transcription/
 │   │   ├── assemblyai_async.py   # AssemblyAI streaming (async)
 │   │   └── openai_whisper.py     # OpenAI Whisper API (chunked)
 │   ├── response/
@@ -25,16 +25,16 @@ assistant_framework/
 │   │   └── chatterbox_tts.py # Chatterbox local TTS
 │   ├── context/
 │   │   └── unified_context.py   # Token-aware context manager
-│   ├── wakeword_v2/
+│   ├── wakeword/
 │   │   └── isolated_openwakeword.py  # OpenWakeWord-based detection (isolated process)
 │   └── vector_store/
 │       └── supabase_pgvector.py  # Supabase/pgvector store for embeddings
 ├── models/              # Common data structures
 │   └── data_models.py       # TranscriptionResult, ResponseChunk, etc.
 ├── factory.py           # Provider instantiation
-├── orchestrator_v2.py   # Main pipeline orchestrator (v2)
-├── config.py            # Static configuration
-└── main_v2.py           # CLI entrypoint
+├── orchestrator.py   # Main pipeline orchestrator
+├── config.py         # Static configuration
+└── main.py           # CLI entrypoint
 ```
 
 ## Key Features
@@ -63,7 +63,7 @@ export GOOGLE_APPLICATION_CREDENTIALS="path/to/google/service/account.json"
 From the project root:
 
 ```bash
-python -m assistant_framework.main_v2 continuous
+python -m assistant_framework.main continuous
 ```
 
 ### 3. Individual Components

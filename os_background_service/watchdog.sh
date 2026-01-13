@@ -1,6 +1,6 @@
 #!/bin/bash
 # ==============================================
-# HomeAssistV2 Watchdog Service
+# HomeAssist Watchdog Service
 # ==============================================
 # Independent monitoring service that ensures the main assistant
 # stays running. Provides an additional layer of resilience.
@@ -13,10 +13,10 @@
 
 set -e
 
-PROJECT_DIR="/Users/morgannstuart/Desktop/HomeAssistV2"
+PROJECT_DIR="/Users/morgannstuart/Desktop/HomeAssistV3"
 LOG_DIR="${PROJECT_DIR}/logs"
 WATCHDOG_LOG="${LOG_DIR}/watchdog.log"
-SERVICE_LABEL="com.homeassistv2.assistant"
+SERVICE_LABEL="com.homeassist.assistant"
 CHECK_INTERVAL=30  # seconds between checks
 
 # PID for our caffeinate process
@@ -109,7 +109,7 @@ main() {
     mkdir -p "$LOG_DIR"
     
     log "=========================================="
-    log "HomeAssistV2 Watchdog Starting"
+    log "HomeAssist Watchdog Starting"
     log "=========================================="
     log "Monitoring service: $SERVICE_LABEL"
     log "Check interval: ${CHECK_INTERVAL}s"

@@ -1,6 +1,6 @@
 #!/bin/bash
 # ==============================================
-# Power Management Configuration for HomeAssistV2
+# Power Management Configuration for HomeAssist
 # ==============================================
 # This script configures macOS power settings to prevent
 # sleep and maximize uptime for the assistant.
@@ -15,7 +15,7 @@
 
 set -e
 
-BACKUP_FILE="$HOME/.homeassistv2_power_backup.txt"
+BACKUP_FILE="$HOME/.homeassist_power_backup.txt"
 
 # ==============================================
 # Functions

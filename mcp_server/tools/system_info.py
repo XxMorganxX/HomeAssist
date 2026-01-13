@@ -146,7 +146,8 @@ class SystemInfoTool(BaseTool):
     def _get_quick_summary(self) -> str:
         """Get a quick summary of the assistant."""
         return (
-            "HomeAssist V2 is a fully local, always-listening voice assistant built in Python. "
+            "HomeAssist V3 is a fully local, always-listening voice assistant built in Python. "
+            "V3 improvements include dramatically faster response times and proactive jump-in briefings.\n\n"
             "Key components:\n"
             "• Wake word detection (OpenWakeWord, process-isolated)\n"
             "• Real-time transcription (AssemblyAI or OpenAI Whisper)\n"

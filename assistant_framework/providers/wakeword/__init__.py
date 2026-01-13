@@ -1,5 +1,5 @@
 """
-Process-isolated wake word provider (v2).
+Process-isolated wake word provider.
 """
 
 from .isolated_openwakeword import IsolatedOpenWakeWordProvider

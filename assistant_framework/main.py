@@ -1,5 +1,5 @@
 """
-Simplified CLI for refactored assistant framework (v2).
+Simplified CLI for refactored assistant framework.
 """
 
 import asyncio
@@ -10,11 +10,11 @@ from pathlib import Path
 from datetime import datetime
 
 try:
-    from .orchestrator_v2 import RefactoredOrchestrator
+    from .orchestrator import RefactoredOrchestrator
     from .config import get_framework_config, print_config_summary
     from .utils.logging.logging_config import setup_logging
 except ImportError:
-    from assistant_framework.orchestrator_v2 import RefactoredOrchestrator
+    from assistant_framework.orchestrator import RefactoredOrchestrator
     from assistant_framework.config import get_framework_config, print_config_summary
     from assistant_framework.utils.logging.logging_config import setup_logging
 
@@ -197,7 +197,7 @@ def ensure_first_time_setup():
 def create_parser() -> argparse.ArgumentParser:
     """Create CLI argument parser."""
     parser = argparse.ArgumentParser(
-        description="Voice Assistant Framework (v2 - Refactored)",
+        description="Voice Assistant Framework",
         formatter_class=argparse.RawDescriptionHelpFormatter
     )
     

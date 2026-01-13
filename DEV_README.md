@@ -1,6 +1,8 @@
 # HomeAssist Developer Reference
 
-This document provides detailed implementation documentation for developers working on or extending the HomeAssist codebase.
+This document provides detailed implementation documentation for developers working on or extending the HomeAssist V3 codebase.
+
+**V3 improvements:** Dramatically faster response times and proactive jump-in briefings that speak immediately on wake word detection.
 
 ---
 
@@ -25,11 +27,11 @@ This document provides detailed implementation documentation for developers work
 ### Directory Structure
 
 ```
-HomeAssistV2/
+HomeAssistV3/
 ├── assistant_framework/          # Core voice assistant engine
 │   ├── __main__.py               # Package entry point
-│   ├── main_v2.py                # CLI and startup logic
-│   ├── orchestrator_v2.py        # Main coordination (1900 lines)
+│   ├── main.py                # CLI and startup logic
+│   ├── orchestrator.py        # Main coordination (1900 lines)
 │   ├── config.py                 # All configuration (1185 lines)
 │   ├── factory.py                # Provider instantiation
 │   ├── interfaces/               # Abstract base classes (ABCs)
@@ -42,10 +44,10 @@ HomeAssistV2/
 │   │   ├── embedding.py          # EmbeddingInterface
 │   │   └── vector_store.py       # VectorStoreInterface
 │   ├── providers/                # Concrete implementations
-│   │   ├── transcription_v2/     # AssemblyAI, OpenAI Whisper
+│   │   ├── transcription/     # AssemblyAI, OpenAI Whisper
 │   │   ├── response/             # OpenAI WebSocket
 │   │   ├── tts/                  # Piper, Google, Local, Chatterbox
-│   │   ├── wakeword_v2/          # OpenWakeWord (process-isolated)
+│   │   ├── wakeword/          # OpenWakeWord (process-isolated)
 │   │   ├── context/              # UnifiedContextProvider
 │   │   ├── termination/          # IsolatedTerminationProvider
 │   │   ├── embedding/            # OpenAI embeddings
@@ -126,9 +128,9 @@ HomeAssistV2/
 ### Execution Flow
 
 ```
-1. python -m assistant_framework.main_v2 continuous
+1. python -m assistant_framework.main continuous
 
-2. main_v2.py:
+2. main.py:
    └── ensure_first_time_setup()     # Interactive if app_state.json missing
    └── get_framework_config()         # Assemble all config
    └── RefactoredOrchestrator(config) # Create orchestrator
@@ -284,7 +286,7 @@ WAKEWORD_PROVIDER = "openwakeword"         # Only option currently
 
 ### RefactoredOrchestrator
 
-The orchestrator (`orchestrator_v2.py`, ~1900 lines) coordinates all components. Key responsibilities:
+The orchestrator (`orchestrator.py`, ~1900 lines) coordinates all components. Key responsibilities:
 
 - **Provider lifecycle** — Creates, initializes, and cleans up all providers
 - **State transitions** — Uses AudioStateMachine for safe component switching
@@ -783,7 +785,7 @@ class ToolRegistry:
 
 ### Composed Tool Calling
 
-Multi-step task execution (`orchestrator_v2.py`):
+Multi-step task execution (`orchestrator.py`):
 
 ```python
 async def _iterative_tool_execution(
@@ -1403,19 +1405,19 @@ except Exception as e:
 
 ```bash
 # Continuous mode (production)
-python -m assistant_framework.main_v2 continuous
+python -m assistant_framework.main continuous
 
 # Single conversation
-python -m assistant_framework.main_v2 single
+python -m assistant_framework.main single
 
 # Test wake word only
-python -m assistant_framework.main_v2 wakeword
+python -m assistant_framework.main wakeword
 
 # Test transcription only
-python -m assistant_framework.main_v2 transcribe
+python -m assistant_framework.main transcribe
 
 # Show config
-python -m assistant_framework.main_v2 config
+python -m assistant_framework.main config
 ```
 
 ### Running MCP Server Standalone
@@ -1599,5 +1601,5 @@ else:
 
 ---
 
-*Last updated: January 8, 2026*
+*Last updated: January 12, 2026*
 

@@ -1,6 +1,6 @@
 #!/bin/bash
 # ==============================================
-# HomeAssistV2 Background Service Runner
+# HomeAssist Background Service Runner
 # ==============================================
 # This script is called by launchd to run the assistant
 # It loads environment variables, prevents system sleep via
@@ -9,7 +9,7 @@
 set -e
 
 # Project paths
-PROJECT_DIR="/Users/morgannstuart/Desktop/HomeAssistV2"
+PROJECT_DIR="/Users/morgannstuart/Desktop/HomeAssistV3"
 VENV_PYTHON="${PROJECT_DIR}/venv/bin/python"
 ENV_FILE="${PROJECT_DIR}/.env"
 LOG_DIR="${PROJECT_DIR}/logs"
@@ -97,7 +97,7 @@ fi
 # ==============================================
 # Run the assistant
 # ==============================================
-echo "[$(date '+%Y-%m-%d %H:%M:%S')] Starting HomeAssistV2..."
+echo "[$(date '+%Y-%m-%d %H:%M:%S')] Starting HomeAssist..."
 
 # Run assistant in background so we can track its PID
 "$VENV_PYTHON" -m assistant_framework &
