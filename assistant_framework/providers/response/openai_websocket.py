@@ -711,14 +711,20 @@ class OpenAIWebSocketResponseProvider(ResponseInterface):
     
     async def execute_tool(self, tool_name: str, arguments: Dict[str, Any]) -> str:
         """Execute a tool/function call via MCP."""
+        import time
+        from assistant_framework.utils.logging import format_tool_call, format_tool_result, format_tool_error
+        
         if not self.mcp_session:
             return "Error: MCP not initialized"
         
         try:
-            print(f"🔧 Executing MCP tool: {tool_name} with args: {arguments}")
+            # Log the tool call with formatted output
+            print(format_tool_call(tool_name, arguments))
+            
+            # Execute and time the tool
+            start_time = time.time()
             result = await self.mcp_session.call_tool(tool_name, arguments)
-            print(f"📥 Tool result type: {type(result)}")
-            print(f"📥 Tool result: {result}")
+            execution_time_ms = (time.time() - start_time) * 1000
             
             # Extract text content from result
             if hasattr(result, 'content') and result.content:
@@ -729,7 +735,9 @@ class OpenAIWebSocketResponseProvider(ResponseInterface):
                     else:
                         content_parts.append(str(content_item))
                 result_text = '\n'.join(content_parts)
-                print(f"📥 Extracted result text: {result_text}")
+                
+                # Log formatted result
+                print(format_tool_result(tool_name, result_text, execution_time_ms=execution_time_ms))
                 
                 # Play audio feedback based on result
                 self._play_tool_feedback(result_text)
@@ -737,7 +745,9 @@ class OpenAIWebSocketResponseProvider(ResponseInterface):
                 return result_text
             else:
                 result_text = str(result)
-                print(f"📥 Converted result to string: {result_text}")
+                
+                # Log formatted result
+                print(format_tool_result(tool_name, result_text, execution_time_ms=execution_time_ms))
                 
                 # Play audio feedback based on result
                 self._play_tool_feedback(result_text)
@@ -745,10 +755,12 @@ class OpenAIWebSocketResponseProvider(ResponseInterface):
                 return result_text
                 
         except Exception as e:
-            error_msg = f"Error calling tool {tool_name}: {e}"
-            print(f"❌ Tool execution error: {error_msg}")
             import traceback
-            traceback.print_exc()
+            error_msg = f"Error calling tool {tool_name}: {e}"
+            tb_str = traceback.format_exc()
+            
+            # Log formatted error
+            print(format_tool_error(tool_name, str(e), tb_str))
             
             # Play failure sound for exceptions
             from assistant_framework.utils.audio.tones import beep_tool_failure

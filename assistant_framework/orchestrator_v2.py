@@ -887,13 +887,15 @@ class RefactoredOrchestrator:
         # The finally block was causing double cleanup (here + state machine)
         # which led to segmentation faults
     
-    async def run_response(self, user_message: str, enable_barge_in: bool = True) -> Optional[str]:
+    async def run_response(self, user_message: str, enable_barge_in: bool = True, skip_vector_memory: bool = False, skip_conversation_context: bool = False) -> Optional[str]:
         """
         Generate response for user message with conversation context.
         
         Args:
             user_message: The user's message to respond to
             enable_barge_in: If True, allows user to interrupt during response generation
+            skip_vector_memory: If True, skip vector memory context (for opener synthesis)
+            skip_conversation_context: If True, skip conversation history (for opener synthesis)
             
         Returns:
             The assistant's response, or None if interrupted/failed
@@ -939,17 +941,19 @@ class RefactoredOrchestrator:
                 return None
             
             # Start vector memory query in parallel (before context preparation)
+            # Skip for opener synthesis to avoid irrelevant past conversation context
             vector_task = None
-            if self._context and hasattr(self._context, 'get_vector_memory_context'):
+            if not skip_vector_memory and self._context and hasattr(self._context, 'get_vector_memory_context'):
                 query_for_vector = getattr(self, '_vector_query_override', None) or user_message
                 vector_task = asyncio.create_task(
                     self._context.get_vector_memory_context(query_for_vector)
                 )
             
             # Get unified context bundle (single pass over conversation history)
+            # Skip for opener synthesis - briefings should be self-contained
             context = None
             tool_context = None
-            if self._context:
+            if self._context and not skip_conversation_context:
                 # Use unified method for efficiency (computes both in one pass)
                 if hasattr(self._context, 'get_context_bundle'):
                     bundle = self._context.get_context_bundle()
@@ -1853,9 +1857,30 @@ class RefactoredOrchestrator:
             if opener:
                 print(f"📢 Speaking pre-generated opener for {len(briefings_with_opener)} briefing(s)")
                 await self.run_tts(opener, transition_to_idle=False, enable_barge_in=False)
-                # Add opener to conversation context so follow-up responses have context
+                
+                # Inject briefing info into conversation context so follow-ups have context
                 if self._context:
+                    # Extract raw messages from briefings for context
+                    raw_messages = []
+                    for briefing in briefings_with_opener:
+                        content = briefing.get("content") or {}
+                        if isinstance(content, str):
+                            try:
+                                import json
+                                content = json.loads(content)
+                            except (json.JSONDecodeError, TypeError):
+                                content = {"message": content}
+                        message = content.get("message") or content.get("fact", "")
+                        if message:
+                            raw_messages.append(message)
+                    
+                    # Add system note about what was briefed
+                    if raw_messages:
+                        briefing_summary = "Briefings delivered: " + "; ".join(raw_messages)
+                        self._context.add_message("system", f"[Context: {briefing_summary}]")
+                    # Add the assistant's spoken response
                     self._context.add_message("assistant", opener)
+                
                 ids = [b.get("id") for b in briefings_with_opener if b.get("id")]
                 try:
                     await self._briefing_manager.mark_delivered(ids)
@@ -1874,9 +1899,11 @@ class RefactoredOrchestrator:
             return
 
         # Generate opener via LLM (slower path, for backwards compatibility)
+        # Skip vector memory and conversation context - openers should be self-contained
         print("⚠️  Briefings without pre-generated openers, falling back to LLM generation")
         
         briefing_lines: List[str] = []
+        raw_messages: List[str] = []  # Store raw briefing messages for context injection
         for idx, briefing in enumerate(pending, 1):
             content = briefing.get("content") or {}
             # Handle content as string (JSON) or dict
@@ -1900,6 +1927,7 @@ class RefactoredOrchestrator:
 
             # Support both 'message' and legacy 'fact' key
             message = content.get('message') or content.get('fact', '')
+            raw_messages.append(message)
             line = f"{idx}. {message}{meta_str}"
             if instructions:
                 line += f" [llm_instructions: {instructions}]"
@@ -1912,9 +1940,18 @@ class RefactoredOrchestrator:
             "Pending briefings to announce:\n" + "\n".join(briefing_lines)
         )
 
-        response = await self.run_response(briefing_prompt)
+        response = await self.run_response(briefing_prompt, skip_vector_memory=True, skip_conversation_context=True)
         if response:
             await self.run_tts(response, transition_to_idle=False, enable_barge_in=False)
+            
+            # Inject briefing info into conversation context so follow-ups have context
+            if self._context:
+                # Add a system note about what was briefed
+                briefing_summary = "Briefings delivered: " + "; ".join(raw_messages)
+                self._context.add_message("system", f"[Context: {briefing_summary}]")
+                # Add the assistant's spoken response
+                self._context.add_message("assistant", response)
+            
             ids = [b.get("id") for b in pending if b.get("id")]
             try:
                 await self._briefing_manager.mark_delivered(ids)

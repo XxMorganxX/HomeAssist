@@ -1,5 +1,5 @@
 # Logging utilities package
-# Console logging, logging configuration, metrics, and conversation recording
+# Console logging, logging configuration, metrics, conversation recording, and tool formatting
 
 from .console_logger import (
     console_log,
@@ -17,6 +17,12 @@ from .console_logger import (
 from .logging_config import setup_logging, vprint, eprint
 from .metrics import InMemoryMetrics, ComponentMetrics, Timer, MetricNames
 from .conversation_recorder import ConversationRecorder
+from .tool_formatter import (
+    format_tool_call,
+    format_tool_result,
+    format_tool_error,
+    format_tool_summary,
+)
 
 __all__ = [
     # console_logger
@@ -42,5 +48,10 @@ __all__ = [
     "MetricNames",
     # conversation_recorder
     "ConversationRecorder",
+    # tool_formatter
+    "format_tool_call",
+    "format_tool_result",
+    "format_tool_error",
+    "format_tool_summary",
 ]
 

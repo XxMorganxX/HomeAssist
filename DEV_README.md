@@ -85,6 +85,7 @@ HomeAssistV2/
 │   ├── tools/                    # Tool implementations
 │   │   ├── weather.py            # Weather forecasts
 │   │   ├── calendar.py           # Google Calendar
+│   │   ├── briefing.py           # Create/manage briefing announcements
 │   │   ├── spotify.py            # Music control
 │   │   ├── kasa_lighting.py      # Smart lights
 │   │   ├── sms.py                # macOS Messages
@@ -1264,13 +1265,37 @@ def main():
 
 ### Calendar Briefing
 
-`scripts/scheduled/calendar_briefing/`:
+Calendar briefings are created in two ways, **both using the same AI-powered analysis system**:
 
+**1. Scheduled Job** (`scripts/scheduled/calendar_briefing/`):
 1. Fetches 7 days of calendar events
 2. Filters already-processed (via `calendar_event_cache` table)
 3. AI analyzes optimal reminder timing
 4. Creates `briefing_announcements` with pre-generated openers
 5. Uses `{{TIME_UNTIL_EVENT}}` placeholder for dynamic timing
+
+**2. Automatic on Event Creation** (`mcp_server/tools/calendar.py`):
+When creating events via the calendar tool, smart briefings are auto-created using the **exact same `ReminderAnalyzer` and `BriefingCreator` classes** from the scheduled job:
+
+```python
+# Calendar tool imports from scheduled scripts
+from analyzer import ReminderAnalyzer
+from briefing_creator import BriefingCreator
+
+# Uses identical AI analysis
+analyzer = ReminderAnalyzer()  # Gemini AI or heuristic fallback
+analyses = analyzer.analyze_events([formatted_event], calendar_user)
+briefings = briefing_creator.create_briefings_from_suggestions({user: analyses})
+```
+
+**AI Analysis Considers:**
+- Event type (meeting, appointment, deadline, travel, social, etc.)
+- Location/travel time needed
+- Preparation requirements  
+- Event importance/priority
+- Time of day
+
+**Disable with:** `create_briefing: false` in the calendar command
 
 ### Weather Briefing
 

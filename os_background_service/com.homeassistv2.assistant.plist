@@ -21,17 +21,18 @@
     <key>RunAtLoad</key>
     <true/>
 
-    <!-- Auto-restart if it crashes -->
+    <!-- Unconditional keep alive - always restart regardless of exit code -->
     <key>KeepAlive</key>
-    <dict>
-        <!-- Only restart on non-zero exit (crash) -->
-        <key>SuccessfulExit</key>
-        <false/>
-    </dict>
+    <true/>
 
-    <!-- Throttle restarts to prevent rapid loops (wait 10 seconds) -->
+    <!-- Reduced throttle interval for faster recovery (5 seconds) -->
     <key>ThrottleInterval</key>
-    <integer>10</integer>
+    <integer>5</integer>
+
+    <!-- Fallback watchdog: also trigger every 60 seconds as a safety net -->
+    <!-- This ensures the service starts even if KeepAlive somehow fails -->
+    <key>StartInterval</key>
+    <integer>60</integer>
 
     <!-- Log output -->
     <key>StandardOutPath</key>
@@ -48,12 +49,21 @@
         <string>/Users/morgannstuart</string>
     </dict>
 
-    <!-- Nice priority (lower = higher priority, 0 = normal) -->
+    <!-- Nice priority (0 = normal, negative = higher priority) -->
     <key>Nice</key>
-    <integer>0</integer>
+    <integer>-5</integer>
 
     <!-- Process type for macOS resource management -->
+    <!-- Interactive ensures the process gets CPU/memory priority -->
     <key>ProcessType</key>
     <string>Interactive</string>
+
+    <!-- Ensure I/O operations are not deprioritized -->
+    <key>LowPriorityIO</key>
+    <false/>
+
+    <!-- Prevent launchd from killing on memory pressure -->
+    <key>AbandonProcessGroup</key>
+    <false/>
 </dict>
 </plist>

@@ -115,19 +115,7 @@ class BaseTool(ABC):
                     if param_name not in filtered_params and default_val is not None:
                         filtered_params[param_name] = default_val
 
-                # Always log tool calls for visibility
-                import json
-                print(f"🔧 MCP TOOL CALL → {self.name}: {json.dumps(filtered_params, ensure_ascii=False, indent=None)[:200]}")
-
-                # Additional dev mode logging if needed
-                try:
-                    from assistant_framework.config import get_active_preset
-                    if get_active_preset().lower().startswith("dev"):
-                        print(f"[DEV] Full params: {json.dumps(filtered_params, ensure_ascii=False, indent=2)}")
-                except Exception:
-                    pass
-
-                # Execute the tool
+                # Execute the tool (logging is handled by the response provider)
                 result = self.execute(filtered_params)
                 return result
 

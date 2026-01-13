@@ -1,6 +1,6 @@
 # Background Service Setup
 
-Run HomeAssistV2 as a macOS background service that starts automatically and runs discretely.
+Run HomeAssistV2 as a macOS background service with persistent operation, automatic recovery, and sleep prevention.
 
 ## Quick Start
 
@@ -11,7 +11,10 @@ cd os_background_service
 ./install.sh
 ```
 
-The assistant will now start automatically on login and restart if it crashes.
+The installer will:
+1. Install the main assistant service
+2. Install the watchdog monitoring service
+3. Optionally configure power settings for always-on operation
 
 ### Uninstall
 
@@ -19,65 +22,237 @@ The assistant will now start automatically on login and restart if it crashes.
 ./uninstall.sh
 ```
 
+## Architecture
+
+```
+┌─────────────────────────────────────────────────────────────┐
+│                        launchd                              │
+│  ┌──────────────────────┐    ┌──────────────────────────┐  │
+│  │  Main Assistant      │    │  Watchdog Service        │  │
+│  │  - Runs assistant    │◄───│  - Monitors main service │  │
+│  │  - caffeinate -isdm  │    │  - Restarts if needed    │  │
+│  │  - KeepAlive: true   │    │  - Own caffeinate        │  │
+│  └──────────────────────┘    └──────────────────────────┘  │
+└─────────────────────────────────────────────────────────────┘
+                              │
+                              ▼
+┌─────────────────────────────────────────────────────────────┐
+│                   Power Management                          │
+│  - caffeinate prevents idle/system/display sleep            │
+│  - pmset configures system-wide sleep behavior              │
+└─────────────────────────────────────────────────────────────┘
+```
+
+## Files
+
+| File | Purpose |
+|------|---------|
+| `run_assistant.sh` | Main runner with caffeinate integration |
+| `watchdog.sh` | Independent monitoring service |
+| `configure_power.sh` | System power settings utility |
+| `install.sh` | Installs all services |
+| `uninstall.sh` | Removes all services |
+| `com.homeassistv2.assistant.plist` | Main service launchd config |
+| `com.homeassistv2.watchdog.plist` | Watchdog launchd config |
+
 ## Useful Commands
 
 ### Check Status
 
 ```bash
+# See both services
 launchctl list | grep homeassist
+
+# Expected output when running:
+# PID   Status  Label
+# 1234  0       com.homeassistv2.assistant
+# 5678  0       com.homeassistv2.watchdog
 ```
 
 ### View Logs
 
 ```bash
-# Live stdout
+# Main assistant output
 tail -f ~/Desktop/HomeAssistV2/logs/assistant_stdout.log
 
-# Live stderr
+# Main assistant errors
 tail -f ~/Desktop/HomeAssistV2/logs/assistant_stderr.log
+
+# Watchdog activity
+tail -f ~/Desktop/HomeAssistV2/logs/watchdog.log
 ```
 
-### Stop Service
+### Restart Services
 
 ```bash
+# Restart main assistant (recommended method)
+launchctl kickstart -k gui/$(id -u)/com.homeassistv2.assistant
+
+# Restart watchdog
+launchctl kickstart -k gui/$(id -u)/com.homeassistv2.watchdog
+```
+
+### Stop Services Temporarily
+
+```bash
+# Stop main assistant
 launchctl unload ~/Library/LaunchAgents/com.homeassistv2.assistant.plist
+
+# Stop watchdog
+launchctl unload ~/Library/LaunchAgents/com.homeassistv2.watchdog.plist
 ```
 
-### Start Service
+### Start Services
 
 ```bash
+# Start main assistant
 launchctl load ~/Library/LaunchAgents/com.homeassistv2.assistant.plist
+
+# Start watchdog
+launchctl load ~/Library/LaunchAgents/com.homeassistv2.watchdog.plist
 ```
 
-### Restart Service (after code changes)
+## Power Management
+
+### Caffeinate (Automatic)
+
+The runner script automatically uses `caffeinate` with these flags:
+- `-i` : Prevent idle sleep
+- `-s` : Prevent system sleep (effective on AC power)
+- `-d` : Prevent display sleep
+- `-m` : Prevent disk sleep
+
+### System Power Settings (Optional)
+
+For more aggressive sleep prevention, configure system-wide settings:
 
 ```bash
+# Enable always-on settings (requires sudo)
+sudo ./configure_power.sh enable
+
+# Check current settings
+./configure_power.sh status
+
+# Restore defaults
+sudo ./configure_power.sh disable
+```
+
+**What `enable` does:**
+- Disables sleep on AC power
+- Sets 30-minute sleep timeout on battery
+- Disables hibernation (RAM stays powered)
+- Disables standby and auto power off
+- Disables Power Nap
+
+## Running with Lid Closed (Clamshell Mode)
+
+### On AC Power
+
+With the software configuration above, the assistant should run reliably with the lid closed when connected to external power.
+
+### On Battery (Headless)
+
+**This is the most challenging configuration.** macOS is designed to sleep when the lid closes without an external display, regardless of software settings. The system may still enforce sleep due to thermal management.
+
+**Recommendations for battery operation:**
+1. Keep the lid slightly open (even 1cm helps)
+2. Use the software sleep prevention (caffeinate + pmset)
+3. Accept that macOS may still force sleep after extended periods
+
+### Guaranteed Headless Operation
+
+For truly reliable headless operation with the lid closed, use a **Headless Display Adapter**:
+
+- **What it is:** A small HDMI/DisplayPort dongle that emulates a display
+- **Why it works:** macOS thinks a monitor is connected, enabling full clamshell mode
+- **Cost:** ~$10-15 on Amazon
+- **Search for:** "HDMI headless display adapter" or "HDMI dummy plug 4K"
+
+This is the gold standard for headless Mac servers and the most reliable solution.
+
+## Bluetooth Audio
+
+For Bluetooth audio devices to work with the lid closed:
+
+1. **Pair the device** before closing the lid
+2. **Ensure sleep is prevented** (the assistant handles this via caffeinate)
+3. **Connect power** for reliable operation
+4. **Consider a headless adapter** for guaranteed uptime
+
+Bluetooth connections persist through sleep on modern macOS, but audio processing requires the system to be awake.
+
+## Troubleshooting
+
+### Service won't start
+
+```bash
+# Check for errors
+cat ~/Desktop/HomeAssistV2/logs/assistant_stderr.log | tail -20
+
+# Verify .env file exists
+ls -la ~/Desktop/HomeAssistV2/.env
+
+# Verify Python venv
+~/Desktop/HomeAssistV2/venv/bin/python --version
+```
+
+### Service keeps restarting
+
+```bash
+# Check exit codes
+launchctl list | grep homeassist
+# Non-zero status means the process crashed
+
+# Look for Python errors
+grep -i error ~/Desktop/HomeAssistV2/logs/assistant_stderr.log | tail -20
+```
+
+### System still sleeps
+
+```bash
+# Check current assertions
+pmset -g assertions
+
+# Verify caffeinate is running
+pgrep -fl caffeinate
+
+# Check power settings
+pmset -g
+```
+
+### Bluetooth disconnects
+
+1. Ensure the system isn't sleeping (check caffeinate)
+2. Keep the Mac on AC power
+3. Consider a headless display adapter
+4. Check System Preferences > Bluetooth for connection status
+
+### Watchdog not restarting assistant
+
+```bash
+# Check watchdog log
+cat ~/Desktop/HomeAssistV2/logs/watchdog.log | tail -30
+
+# Manually trigger restart
 launchctl kickstart -k gui/$(id -u)/com.homeassistv2.assistant
 ```
-
-## How It Works
-
-**launchd** is macOS's native service manager. This setup:
-
-1. **`run_assistant.sh`** — Wrapper script that loads `.env` and runs the assistant
-2. **`com.homeassistv2.assistant.plist`** — launchd configuration file
-3. **`install.sh`** — Copies the plist to `~/Library/LaunchAgents` and loads it
-4. **Logs** — Output written to `logs/assistant_stdout.log` and `logs/assistant_stderr.log`
-
-The service will:
-- Auto-start on login
-- Auto-restart if it crashes (after 10 second throttle)
-- Stop gracefully on logout
-- Run in the background (no terminal window)
 
 ## Code Updates
 
-**Yes, the service always runs the latest code** from your project directory. Python loads modules at runtime from `/Users/morgannstuart/Desktop/HomeAssistV2`.
-
-However, you must **restart the service** after making code changes:
+The service always runs the latest code from your project directory. After making code changes, restart the service:
 
 ```bash
 launchctl kickstart -k gui/$(id -u)/com.homeassistv2.assistant
 ```
 
-This kills the current process and immediately starts a new one with your updated code.
+## Service Behavior Summary
+
+| Scenario | Behavior |
+|----------|----------|
+| Login | Services auto-start |
+| Logout | Services stop gracefully |
+| Crash | Auto-restart within 5 seconds |
+| System sleep attempt | Blocked by caffeinate |
+| Lid close (AC power) | Continues running |
+| Lid close (battery) | May sleep after timeout |
+| Code changes | Requires manual restart |
