@@ -164,23 +164,68 @@ class CursorComposerTool(BaseTool):
             )
             
             # Step 2: Use AppleScript with safeguards
+            # - Activate Cursor using basic activate (works with Electron apps)
+            # - Use System Events exclusively for window focusing (AXRaise via accessibility API)
             # - First press Escape to ensure no dialogs interfere
             # - Use Cmd+Shift+I which opens Composer in a NEW pane (doesn't toggle existing)
             # - Add delays and verify Cursor is frontmost before continuing
             script = '''
--- Activate Cursor and ensure it's frontmost
+-- Basic activation (works with all apps including Electron)
 tell application "Cursor" to activate
-delay 0.4
 
--- Verify Cursor is now the frontmost app
+-- Give macOS time to complete the app switch
+delay 0.5
+
+-- Use System Events for all window manipulation (works with Electron apps)
+tell application "System Events"
+    tell process "Cursor"
+        set frontmost to true
+        
+        -- Try to raise the first window using accessibility API
+        -- This is wrapped in try block since it may fail on some apps
+        try
+            if (count of windows) > 0 then
+                perform action "AXRaise" of window 1
+            end if
+        end try
+    end tell
+end tell
+
+delay 0.3
+
+-- Verify Cursor is now the frontmost app and retry if needed
+repeat 3 times
+    tell application "System Events"
+        set frontApp to name of first application process whose frontmost is true
+    end tell
+    
+    if frontApp is "Cursor" then
+        exit repeat
+    else
+        -- Retry activation
+        tell application "Cursor" to activate
+        delay 0.2
+        tell application "System Events"
+            tell process "Cursor"
+                set frontmost to true
+                try
+                    if (count of windows) > 0 then
+                        perform action "AXRaise" of window 1
+                    end if
+                end try
+            end tell
+        end tell
+        delay 0.3
+    end if
+end repeat
+
+-- Final check - if still not frontmost, abort with error
 tell application "System Events"
     set frontApp to name of first application process whose frontmost is true
 end tell
 
 if frontApp is not "Cursor" then
-    -- Try activating again if first attempt didn't work
-    tell application "Cursor" to activate
-    delay 0.4
+    return "error: Could not bring Cursor to front. Current app: " & frontApp
 end if
 
 tell application "System Events"
@@ -196,10 +241,10 @@ tell application "System Events"
         -- Open Composer with Cmd+Shift+I (opens NEW pane, doesn't toggle)
         -- This is more reliable than Cmd+I which toggles existing Composer
         keystroke "i" using {command down, shift down}
-        delay 0.5
+        delay 0.6
         
         -- Wait a bit more for the Composer input to be ready
-        delay 0.2
+        delay 0.3
         
         -- Paste from clipboard
         keystroke "v" using command down
@@ -221,11 +266,18 @@ return "success"
                     check=True,
                     capture_output=True,
                     text=True,
-                    timeout=15
+                    timeout=20  # Increased timeout for app switching
                 )
                 
+                output = result.stdout.strip().lower()
+                
+                # Check for activation failure
+                if "error:" in output:
+                    self.logger.error(f"AppleScript activation failed: {result.stdout.strip()}")
+                    return False
+                
                 # Verify the script completed successfully
-                if "success" in result.stdout.strip().lower():
+                if "success" in output:
                     self.logger.info("Prompt sent to Cursor Composer successfully")
                     return True
                 else:
