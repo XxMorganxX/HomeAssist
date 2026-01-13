@@ -33,8 +33,9 @@ class GoogleSearchTool(BaseTool):
 
     name = "google_search"
     description = (
-        "Search the web for up-to-date information. Supports different query types: "
-        "'general' for informational queries, 'link' for when user wants a specific URL/link, "
+        "Search the web for up-to-date information. IMPORTANT: Only call this tool ONCE per user request. "
+        "Combine all aspects of the user's question into a single comprehensive search query. "
+        "Supports different query types: 'general' for informational queries, 'link' for when user wants a specific URL/link, "
         "'directions' for navigation/directions queries. "
         "Returns concise, direct answers. For link/directions queries, returns just the relevant link. "
         "Present only the answer - no preamble or fluff."

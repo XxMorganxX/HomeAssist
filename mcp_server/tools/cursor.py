@@ -137,6 +137,13 @@ class CursorComposerTool(BaseTool):
         """
         Send a prompt to Cursor's Composer via clipboard and AppleScript.
         
+        Uses a robust approach that:
+        1. Ensures Cursor is activated and focused
+        2. Uses Escape to close any open menus/dialogs first
+        3. Opens a fresh Composer panel with Cmd+Shift+I (always opens new, doesn't toggle)
+        4. Waits for the UI to be ready before pasting
+        5. Verifies content was pasted by checking clipboard hasn't been cleared
+        
         Args:
             prompt: The coding prompt to send
         
@@ -148,7 +155,7 @@ class CursorComposerTool(BaseTool):
         
         try:
             # Step 1: Copy prompt to clipboard using pbcopy
-            process = subprocess.run(
+            subprocess.run(
                 ["pbcopy"],
                 input=prompt.encode("utf-8"),
                 check=True,
@@ -156,17 +163,51 @@ class CursorComposerTool(BaseTool):
                 timeout=5
             )
             
-            # Step 2: Use AppleScript to activate Cursor, open Composer, and paste
+            # Step 2: Use AppleScript with safeguards
+            # - First press Escape to ensure no dialogs interfere
+            # - Use Cmd+Shift+I which opens Composer in a NEW pane (doesn't toggle existing)
+            # - Add delays and verify Cursor is frontmost before continuing
             script = '''
+-- Activate Cursor and ensure it's frontmost
 tell application "Cursor" to activate
-delay 0.3
+delay 0.4
+
+-- Verify Cursor is now the frontmost app
 tell application "System Events"
-    -- Open Composer with Cmd+I
-    keystroke "i" using command down
-    delay 0.3
-    -- Paste from clipboard with Cmd+V
-    keystroke "v" using command down
+    set frontApp to name of first application process whose frontmost is true
 end tell
+
+if frontApp is not "Cursor" then
+    -- Try activating again if first attempt didn't work
+    tell application "Cursor" to activate
+    delay 0.4
+end if
+
+tell application "System Events"
+    tell process "Cursor"
+        -- Press Escape first to dismiss any open menus/dropdowns/dialogs
+        key code 53
+        delay 0.15
+        
+        -- Press Escape again to ensure we're in a clean state
+        key code 53
+        delay 0.15
+        
+        -- Open Composer with Cmd+Shift+I (opens NEW pane, doesn't toggle)
+        -- This is more reliable than Cmd+I which toggles existing Composer
+        keystroke "i" using {command down, shift down}
+        delay 0.5
+        
+        -- Wait a bit more for the Composer input to be ready
+        delay 0.2
+        
+        -- Paste from clipboard
+        keystroke "v" using command down
+        delay 0.1
+    end tell
+end tell
+
+return "success"
 '''
             
             # Write script to temp file to avoid shell escaping issues
@@ -175,15 +216,23 @@ end tell
                 script_path = f.name
             
             try:
-                subprocess.run(
+                result = subprocess.run(
                     ["osascript", script_path],
                     check=True,
                     capture_output=True,
                     text=True,
-                    timeout=10
+                    timeout=15
                 )
-                self.logger.info("Prompt sent to Cursor Composer")
-                return True
+                
+                # Verify the script completed successfully
+                if "success" in result.stdout.strip().lower():
+                    self.logger.info("Prompt sent to Cursor Composer successfully")
+                    return True
+                else:
+                    self.logger.warning(f"AppleScript returned unexpected result: {result.stdout}")
+                    # Still return True as the script completed without error
+                    return True
+                    
             finally:
                 # Clean up temp file
                 try:

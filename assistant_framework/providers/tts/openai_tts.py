@@ -6,6 +6,7 @@ arrive, significantly reducing perceived latency.
 """
 
 import asyncio
+import re
 import subprocess
 import tempfile
 import time
@@ -103,6 +104,40 @@ class OpenAITTSProvider(TextToSpeechInterface):
             print(f"Failed to initialize OpenAI TTS provider: {e}")
             return False
     
+    def _sanitize_text_for_tts(self, raw: str) -> str:
+        """Remove or normalize ASCII markup so it isn't read literally.
+        
+        - Remove URLs (http://, https://, www., etc.)
+        - Remove markdown links [text](url) - replace with just the text
+        - Remove asterisks used for bullets/markdown emphasis
+        - Strip backticks and code fences
+        - Collapse excessive whitespace
+        """
+        try:
+            text = raw
+            
+            # Remove markdown links [text](url) - replace with just the text
+            # Do this FIRST before removing bare URLs
+            text = re.sub(r'\[([^\]]+)\]\([^\)]+\)', r'\1', text)
+            
+            # Remove URLs - more comprehensive patterns
+            # Match http:// and https:// URLs (including those in parentheses)
+            text = re.sub(r'\(?https?://[^\s\)]+\)?', '', text)
+            # Match www. URLs
+            text = re.sub(r'\(?www\.[^\s\)]+\)?', '', text)
+            # Match common domain patterns (domain.tld paths)
+            text = re.sub(r'\b\w+\.(com|org|net|edu|gov|io|ai|co|app|dev|xyz|me|us|uk|ca)[^\s]*', '', text, flags=re.IGNORECASE)
+            
+            # Remove code fences/backticks
+            text = text.replace("```", " ").replace("`", "")
+            # Remove asterisks
+            text = text.replace("*", "")
+            # Normalize multiple spaces
+            text = re.sub(r"\s+", " ", text).strip()
+            return text
+        except Exception:
+            return raw
+    
     def _get_audio_format(self) -> AudioFormat:
         """Get the AudioFormat enum for the current response format."""
         format_map = {
@@ -142,6 +177,9 @@ class OpenAITTSProvider(TextToSpeechInterface):
         if not self._client:
             raise RuntimeError("OpenAI TTS provider not initialized")
         
+        # Sanitize text to remove URLs, markdown, etc.
+        sanitized_text = self._sanitize_text_for_tts(text)
+        
         voice_name = voice or self.voice
         speed_rate = speed or self.speed
         
@@ -154,7 +192,7 @@ class OpenAITTSProvider(TextToSpeechInterface):
             response = await self._client.audio.speech.create(
                 model=self.model,
                 voice=voice_name,
-                input=text,
+                input=sanitized_text,
                 speed=speed_rate,
                 response_format=self.response_format
             )
@@ -202,6 +240,9 @@ class OpenAITTSProvider(TextToSpeechInterface):
         if not self._client:
             raise RuntimeError("OpenAI TTS provider not initialized")
         
+        # Sanitize text to remove URLs, markdown, etc.
+        sanitized_text = self._sanitize_text_for_tts(text)
+        
         voice_name = voice or self.voice
         speed_rate = speed or self.speed
         
@@ -215,7 +256,7 @@ class OpenAITTSProvider(TextToSpeechInterface):
             async with self._client.audio.speech.with_streaming_response.create(
                 model=self.model,
                 voice=voice_name,
-                input=text,
+                input=sanitized_text,
                 speed=speed_rate,
                 response_format=self.response_format
             ) as response:
@@ -263,6 +304,9 @@ class OpenAITTSProvider(TextToSpeechInterface):
             voice: Optional voice identifier
             speed: Optional speed modifier
         """
+        # Sanitize text to remove URLs, markdown, etc.
+        sanitized_text = self._sanitize_text_for_tts(text)
+        
         async with self._playback_lock:
             self._is_playing = True
             self._stop_playback = False
@@ -280,11 +324,11 @@ class OpenAITTSProvider(TextToSpeechInterface):
             
             try:
                 # Try streaming playback with ffplay first
-                if await self._try_streaming_playback(text, voice_name, speed_rate):
+                if await self._try_streaming_playback(sanitized_text, voice_name, speed_rate):
                     return
                 
                 # Fallback: buffer and play with afplay
-                await self._fallback_buffered_playback(text, voice_name, speed_rate)
+                await self._fallback_buffered_playback(sanitized_text, voice_name, speed_rate)
                 
             except Exception as e:
                 print(f"❌ Streaming TTS error: {e}")

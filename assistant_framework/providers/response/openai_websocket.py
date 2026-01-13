@@ -525,6 +525,8 @@ class OpenAIWebSocketResponseProvider(ResponseInterface):
                             if function_calls:
                                 # Filter: only ONE calendar_data write per request to prevent duplicate events
                                 function_calls = self._filter_duplicate_calendar_writes(function_calls)
+                                # Filter: only ONE google_search per request to prevent redundant searches
+                                function_calls = self._filter_duplicate_searches(function_calls)
                                 
                                 # Execute all tool calls in parallel for better performance
                                 async def execute_one(fc):
@@ -1018,6 +1020,41 @@ class OpenAIWebSocketResponseProvider(ResponseInterface):
                         return True
         return False
     
+    def _filter_duplicate_searches(self, function_calls: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
+        """
+        Filter out duplicate google_search calls.
+        Only ONE google_search call is allowed per user request.
+        The first search is kept; subsequent searches are blocked.
+        
+        Args:
+            function_calls: List of function calls with 'name' and 'arguments' keys
+            
+        Returns:
+            Filtered list with only ONE google_search allowed
+        """
+        filtered = []
+        search_seen = False
+        
+        for fc in function_calls:
+            name = fc.get("name", "")
+            
+            if name == "google_search":
+                if search_seen:
+                    print(f"🚫 Blocking duplicate google_search - only one search per request allowed")
+                    continue
+                search_seen = True
+            
+            filtered.append(fc)
+        
+        return filtered
+    
+    def _has_google_search(self, tool_calls: List[ToolCall]) -> bool:
+        """Check if any of the tool calls include a google_search operation."""
+        for tc in tool_calls:
+            if tc and tc.name == "google_search":
+                return True
+        return False
+    
     async def _check_for_additional_tools(
         self,
         user_message: str,
@@ -1133,6 +1170,8 @@ class OpenAIWebSocketResponseProvider(ResponseInterface):
                 
                 # Check if a calendar write was already executed - block any further calendar writes
                 calendar_write_already_done = self._has_calendar_write(tool_calls_so_far)
+                # Check if a google_search was already executed - block any further searches
+                search_already_done = self._has_google_search(tool_calls_so_far)
                 
                 for tc in choice.message.tool_calls:
                     try:
@@ -1157,6 +1196,11 @@ class OpenAIWebSocketResponseProvider(ResponseInterface):
                         if is_write:
                             print(f"🚫 Blocking calendar write - event already created in this request")
                             continue
+                    
+                    # Block additional google_search if one was already executed
+                    if tc.function.name == "google_search" and search_already_done:
+                        print(f"🚫 Blocking google_search - search already completed in this request")
+                        continue
                     
                     additional_tools.append({
                         "name": tc.function.name,

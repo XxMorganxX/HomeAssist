@@ -259,6 +259,10 @@ def build_system_prompt(config: dict) -> str:
             lines.append(f"- DON'T USE for: {', '.join(tools['dont_use_when'])}")
         if "rule" in tools:
             lines.append(f"- {tools['rule']}")
+        if "informational_rule" in tools:
+            lines.append(f"- {tools['informational_rule']}")
+        if "search_rule" in tools:
+            lines.append(f"- {tools['search_rule']}")
         sections.append("\n".join(lines))
     
     # Behavior rules
@@ -410,6 +414,11 @@ SYSTEM_PROMPT_CONFIG = {
       "For informational tool calls (news, email, weather, calendar), "
       "deliver the information straight to the point. No preamble, no fluff. "
       "Just the facts the user asked for."
+    ),
+    "search_rule": (
+      "IMPORTANT: Call google_search at most ONCE per user request. "
+      "Combine multiple aspects of a question into a single comprehensive search query. "
+      "Do NOT call google_search multiple times for different aspects of the same question."
     )
   },
 
