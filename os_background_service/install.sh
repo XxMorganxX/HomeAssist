@@ -13,7 +13,6 @@ LAUNCH_AGENTS_DIR="$HOME/Library/LaunchAgents"
 
 # Service files
 MAIN_PLIST="com.homeassist.assistant.plist"
-WATCHDOG_PLIST="com.homeassist.watchdog.plist"
 BLUETOOTH_PLIST="com.homeassist.bluetooth.plist"
 TERMINAL_PLIST="com.homeassist.terminal.plist"
 MCP_PLIST="com.homeassist.mcp.plist"
@@ -79,12 +78,11 @@ mkdir -p "${PROJECT_DIR}/logs"
 echo "   ✓ Created logs directory"
 
 # Make scripts executable
-chmod +x "${SERVICE_DIR}/run_assistant.sh"
-chmod +x "${SERVICE_DIR}/watchdog.sh"
 chmod +x "${SERVICE_DIR}/configure_power.sh"
 chmod +x "${SERVICE_DIR}/uninstall.sh"
-chmod +x "${SERVICE_DIR}/bluetooth_connector.sh"
 chmod +x "${SERVICE_DIR}/show_logs.command"
+chmod +x "${SERVICE_DIR}/test_bluetooth_reconnect.sh"
+chmod +x "${SERVICE_DIR}/test_bluetooth_simple.sh"
 chmod +x "${PROJECT_DIR}/homeassist"
 echo "   ✓ Made scripts executable"
 
@@ -141,39 +139,6 @@ echo "   ✓ Copied ${MAIN_PLIST}"
 # Load the service
 launchctl load "${LAUNCH_AGENTS_DIR}/${MAIN_PLIST}"
 echo "   ✓ Loaded main assistant service"
-
-# ==============================================
-# Install watchdog service (OPTIONAL - can cause duplicates)
-# ==============================================
-
-echo ""
-echo "🐕 Watchdog service (optional)"
-echo ""
-echo "⚠️  Note: The watchdog can sometimes cause duplicate processes."
-echo "   The main service already has built-in restart logic."
-echo ""
-read -p "Install watchdog service? (y/N) " -n 1 -r
-echo
-
-if [[ $REPLY =~ ^[Yy]$ ]]; then
-    echo ""
-    echo "🐕 Installing watchdog service..."
-
-    # Unload if already loaded (ignore errors)
-    launchctl unload "${LAUNCH_AGENTS_DIR}/${WATCHDOG_PLIST}" 2>/dev/null || true
-
-    # Copy plist to LaunchAgents
-    cp "${SERVICE_DIR}/${WATCHDOG_PLIST}" "${LAUNCH_AGENTS_DIR}/"
-    echo "   ✓ Copied ${WATCHDOG_PLIST}"
-
-    # Load the service
-    launchctl load "${LAUNCH_AGENTS_DIR}/${WATCHDOG_PLIST}"
-    echo "   ✓ Loaded watchdog service"
-else
-    echo ""
-    echo "ℹ️  Skipped watchdog installation."
-    echo "   The main service has built-in restart and recovery."
-fi
 
 # ==============================================
 # Install Bluetooth connector service
@@ -261,13 +226,11 @@ sleep 2  # Give services time to start
 
 MCP_STATUS=$(launchctl list | grep "com.homeassist.mcp" || echo "NOT FOUND")
 MAIN_STATUS=$(launchctl list | grep "com.homeassist.assistant" || echo "NOT FOUND")
-WATCHDOG_STATUS=$(launchctl list | grep "com.homeassist.watchdog" || echo "NOT FOUND")
 BLUETOOTH_STATUS=$(launchctl list | grep "com.homeassist.bluetooth" || echo "NOT FOUND")
 TERMINAL_STATUS=$(launchctl list | grep "com.homeassist.terminal" || echo "NOT FOUND")
 
 echo "   MCP server:        $MCP_STATUS"
-echo "   Main service:      $MAIN_STATUS"
-echo "   Watchdog service:  $WATCHDOG_STATUS"
+echo "   Main launcher:     $MAIN_STATUS"
 echo "   Bluetooth service: $BLUETOOTH_STATUS"
 echo "   Terminal viewer:   $TERMINAL_STATUS"
 
@@ -281,12 +244,10 @@ echo "🎉 Installation complete!"
 echo "=========================================="
 echo ""
 echo "The assistant will now:"
-echo "  • Start automatically when you log in"
-echo "  • Restart automatically if it crashes"
-echo "  • Be monitored by the watchdog service"
-echo "  • Prevent system sleep via caffeinate"
+echo "  • Start automatically when you log in (Terminal window opens)"
+echo "  • Run 'homeassist run' with full Bluetooth management"
+echo "  • Restart automatically on Bluetooth disconnect or PaMacCore errors"
 echo "  • Aggressively maintain Bluetooth connection to Meta Glasses"
-echo "  • Open a Terminal window with live logs on login"
 echo "  • Use persistent MCP server for ~2s faster boot"
 echo ""
 echo "📋 Useful commands:"
@@ -304,10 +265,8 @@ echo "    launchctl list | grep homeassist"
 echo ""
 echo "  View logs:"
 echo "    homeassist logs      - Live log viewer"
-echo "    tail -f ${PROJECT_DIR}/logs/assistant_output.log"
-echo "    tail -f ${PROJECT_DIR}/logs/assistant_runner.log"
-echo "    tail -f ${PROJECT_DIR}/logs/watchdog.log"
 echo "    tail -f ${PROJECT_DIR}/logs/bluetooth.log"
+echo "    tail -f ${PROJECT_DIR}/logs/mcp_server.log"
 echo ""
 echo "  Restart services:"
 echo "    homeassist restart"
