@@ -1,6 +1,6 @@
 # Background Service Setup
 
-Run HomeAssist as a macOS background service with persistent operation, automatic recovery, and sleep prevention.
+Run HomeAssist as a macOS background service with persistent operation, automatic recovery, and Bluetooth management.
 
 ## Quick Start
 
@@ -16,7 +16,7 @@ The installer will:
 2. Install all required dependencies
 3. Install the main assistant service
 4. Install the Bluetooth connector service
-5. Install the watchdog monitoring service
+5. Install the persistent MCP server service
 6. Install the Terminal log viewer (opens on login)
 7. Create the `homeassist` command for easy control
 
@@ -40,18 +40,24 @@ homeassist stop
 # Start all services
 homeassist start
 
-# Run in foreground (for testing)
+# Run in foreground with Bluetooth auto-connect
 homeassist run
+
+# Manage persistent MCP server
+homeassist mcp start    # Start MCP server in background
+homeassist mcp stop     # Stop MCP server
+homeassist mcp status   # Check MCP server status
+homeassist mcp logs     # View MCP server logs
 ```
 
 **Make command globally accessible:**
 ```bash
-sudo ln -sf ~/Desktop/HomeAssistV3/homeassist /usr/local/bin/homeassist
+sudo ln -sf $HOME/Desktop/HomeAssistV3/homeassist /usr/local/bin/homeassist
 ```
 
 Or use without sudo from project directory:
 ```bash
-cd ~/Desktop/HomeAssistV3
+cd $HOME/Desktop/HomeAssistV3
 ./homeassist status
 ```
 
@@ -64,98 +70,136 @@ cd ~/Desktop/HomeAssistV3
 ## Architecture
 
 ```
-┌─────────────────────────────────────────────────────────────┐
-│                        launchd                              │
-│  ┌──────────────────────┐    ┌──────────────────────────┐  │
-│  │  Main Assistant      │    │  Watchdog Service        │  │
-│  │  - Runs assistant    │◄───│  - Monitors main service │  │
-│  │  - caffeinate -isdm  │    │  - Restarts if needed    │  │
-│  │  - KeepAlive: true   │    │  - Own caffeinate        │  │
-│  └──────────────────────┘    └──────────────────────────┘  │
-└─────────────────────────────────────────────────────────────┘
+┌─────────────────────────────────────────────────────────────────┐
+│                          launchd                                │
+│  ┌──────────────────────┐    ┌──────────────────────────────┐  │
+│  │  Bluetooth Service   │    │  Persistent MCP Server       │  │
+│  │  - Auto-reconnect    │    │  - Tool server (SSE)         │  │
+│  │  - 2s poll interval  │    │  - Always running            │  │
+│  │  - KeepAlive: true   │    │  - Port 3000                 │  │
+│  └──────────────────────┘    └──────────────────────────────┘  │
+└─────────────────────────────────────────────────────────────────┘
                               │
                               ▼
-┌─────────────────────────────────────────────────────────────┐
-│                   Power Management                          │
-│  - caffeinate prevents idle/system/display sleep            │
-│  - pmset configures system-wide sleep behavior              │
-└─────────────────────────────────────────────────────────────┘
+┌─────────────────────────────────────────────────────────────────┐
+│               homeassist run (foreground)                       │
+│  - Waits for Bluetooth connection                               │
+│  - Monitors for PaMacCore errors                                │
+│  - Auto-restarts on disconnect                                  │
+│  - Connects to persistent MCP server                            │
+└─────────────────────────────────────────────────────────────────┘
 ```
 
 ## Files
 
 | File | Purpose |
 |------|---------|
-| `run_assistant.sh` | Main runner with caffeinate integration |
-| `watchdog.sh` | Independent monitoring service |
-| `configure_power.sh` | System power settings utility |
+| `homeassist` | Main control command (installed to `/usr/local/bin/`) |
+| `configure_power.sh` | System power settings utility (optional) |
 | `install.sh` | Installs all services |
 | `uninstall.sh` | Removes all services |
-| `com.homeassist.assistant.plist` | Main service launchd config |
-| `com.homeassist.watchdog.plist` | Watchdog launchd config |
+| `show_logs.command` | Log viewer executable |
+| `test_bluetooth_reconnect.sh` | Test Bluetooth reconnection |
+| `test_bluetooth_simple.sh` | Simple Bluetooth test |
+| `com.homeassist.assistant.plist` | Main assistant service config (not used in foreground mode) |
+| `com.homeassist.bluetooth.plist` | Bluetooth connector config |
+| `com.homeassist.mcp.plist` | Persistent MCP server config |
+| `com.homeassist.terminal.plist` | Terminal log viewer config |
 
 ## Useful Commands
 
 ### Check Status
 
 ```bash
-# See both services
+# See all services
 launchctl list | grep homeassist
 
 # Expected output when running:
 # PID   Status  Label
-# 1234  0       com.homeassist.assistant
-# 5678  0       com.homeassist.watchdog
+# 1234  0       com.homeassist.bluetooth
+# 5678  0       com.homeassist.mcp
+# 9012  0       com.homeassist.terminal
 ```
 
 ### View Logs
 
 ```bash
-# Main assistant output
-tail -f ~/Desktop/HomeAssistV3/logs/assistant_stdout.log
+# Bluetooth connector
+tail -f $HOME/Desktop/HomeAssistV3/logs/bluetooth.log
 
-# Main assistant errors
-tail -f ~/Desktop/HomeAssistV3/logs/assistant_stderr.log
+# MCP server
+tail -f $HOME/Desktop/HomeAssistV3/logs/mcp_server.log
 
-# Watchdog activity
-tail -f ~/Desktop/HomeAssistV3/logs/watchdog.log
+# Or use the command
+homeassist logs
 ```
 
 ### Restart Services
 
 ```bash
-# Restart main assistant (recommended method)
-launchctl kickstart -k gui/$(id -u)/com.homeassist.assistant
+# Restart Bluetooth connector
+launchctl kickstart -k gui/$(id -u)/com.homeassist.bluetooth
 
-# Restart watchdog
-launchctl kickstart -k gui/$(id -u)/com.homeassist.watchdog
+# Restart MCP server
+homeassist mcp restart
 ```
 
 ### Stop Services Temporarily
 
 ```bash
-# Stop main assistant
-launchctl unload ~/Library/LaunchAgents/com.homeassist.assistant.plist
+# Stop Bluetooth connector
+launchctl unload ~/Library/LaunchAgents/com.homeassist.bluetooth.plist
 
-# Stop watchdog
-launchctl unload ~/Library/LaunchAgents/com.homeassist.watchdog.plist
+# Stop MCP server
+homeassist mcp stop
 ```
 
 ### Start Services
 
 ```bash
-# Start main assistant
-launchctl load ~/Library/LaunchAgents/com.homeassist.assistant.plist
+# Start Bluetooth connector
+launchctl load ~/Library/LaunchAgents/com.homeassist.bluetooth.plist
 
-# Start watchdog
-launchctl load ~/Library/LaunchAgents/com.homeassist.watchdog.plist
+# Start MCP server
+homeassist mcp start
 ```
+
+## Bluetooth Management
+
+### Aggressive Auto-Reconnection
+
+The Bluetooth service (`com.homeassist.bluetooth.plist`) provides:
+- **Ultra-aggressive polling**: Checks connection every 2 seconds when connected, 0.5 seconds when disconnected
+- **Target reconnection time**: 3-5 seconds
+- **Automatic power-on**: Ensures Bluetooth is enabled
+- **Persistent connection**: Always tries to maintain connection to Meta Glasses
+
+### Manual Bluetooth Testing
+
+```bash
+# Test reconnection (automated)
+cd os_background_service
+./test_bluetooth_reconnect.sh
+
+# Simple connection test
+./test_bluetooth_simple.sh
+```
+
+## Persistent MCP Server
+
+The MCP (Model Context Protocol) server runs persistently in the background, providing:
+- **Fast boot times**: ~0.04s connection vs ~2s spawn time
+- **Tool availability**: Calendar, Gmail, Google Search, System Info, etc.
+- **SSE transport**: Server-Sent Events on port 3000
+- **Auto-restart**: Managed by launchd
+
+The assistant connects to this persistent server instead of spawning it each time.
 
 ## Power Management
 
 ### Caffeinate (Automatic)
 
-The runner script automatically uses `caffeinate` with these flags:
+The `homeassist run` command automatically uses `caffeinate` with these flags:
 - `-i` : Prevent idle sleep
 - `-s` : Prevent system sleep (effective on AC power)
 - `-d` : Prevent display sleep
@@ -225,25 +269,40 @@ Bluetooth connections persist through sleep on modern macOS, but audio processin
 ### Service won't start
 
 ```bash
-# Check for errors
-cat ~/Desktop/HomeAssistV3/logs/assistant_stderr.log | tail -20
+# Check for errors in logs
+cat $HOME/Desktop/HomeAssistV3/logs/bluetooth.log | tail -20
 
 # Verify .env file exists
-ls -la ~/Desktop/HomeAssistV3/.env
+ls -la $HOME/Desktop/HomeAssistV3/.env
 
 # Verify Python venv
-~/Desktop/HomeAssistV3/venv/bin/python --version
+$HOME/Desktop/HomeAssistV3/venv/bin/python --version
 ```
 
-### Service keeps restarting
+### Bluetooth disconnects frequently
 
 ```bash
-# Check exit codes
-launchctl list | grep homeassist
-# Non-zero status means the process crashed
+# Check Bluetooth service log
+tail -f $HOME/Desktop/HomeAssistV3/logs/bluetooth.log
 
-# Look for Python errors
-grep -i error ~/Desktop/HomeAssistV3/logs/assistant_stderr.log | tail -20
+# Verify blueutil is installed
+/opt/homebrew/bin/blueutil --version
+
+# Check if device is paired
+/opt/homebrew/bin/blueutil --paired
+```
+
+### MCP server not responding
+
+```bash
+# Check MCP server status
+homeassist mcp status
+
+# View MCP server logs
+homeassist mcp logs
+
+# Restart MCP server
+homeassist mcp restart
 ```
 
 ### System still sleeps
@@ -259,28 +318,26 @@ pgrep -fl caffeinate
 pmset -g
 ```
 
-### Bluetooth disconnects
+### PaMacCore error not detected
 
-1. Ensure the system isn't sleeping (check caffeinate)
-2. Keep the Mac on AC power
-3. Consider a headless display adapter
-4. Check System Preferences > Bluetooth for connection status
-
-### Watchdog not restarting assistant
+The `homeassist run` command monitors for `PaMacCore.*err='-50'` errors which indicate audio device disconnection. If this isn't working:
 
 ```bash
-# Check watchdog log
-cat ~/Desktop/HomeAssistV3/logs/watchdog.log | tail -30
+# Run in foreground to see all output
+homeassist run
 
-# Manually trigger restart
-launchctl kickstart -k gui/$(id -u)/com.homeassist.assistant
+# Check if error appears in output when glasses disconnect
 ```
 
 ## Code Updates
 
-The service always runs the latest code from your project directory. After making code changes, restart the service:
+The service always runs the latest code from your project directory. After making code changes, restart:
 
 ```bash
+# If using homeassist run (foreground)
+# Just Ctrl+C and restart
+
+# If using background services
 launchctl kickstart -k gui/$(id -u)/com.homeassist.assistant
 ```
 
@@ -288,10 +345,10 @@ launchctl kickstart -k gui/$(id -u)/com.homeassist.assistant
 
 | Scenario | Behavior |
 |----------|----------|
-| Login | Services auto-start |
+| Login | Bluetooth & MCP services auto-start |
 | Logout | Services stop gracefully |
-| Crash | Auto-restart within 5 seconds |
-| System sleep attempt | Blocked by caffeinate |
-| Lid close (AC power) | Continues running |
-| Lid close (battery) | May sleep after timeout |
+| Crash | Auto-restart within 1-2 seconds |
+| Bluetooth disconnect | Auto-reconnect within 3-5 seconds |
+| Audio error (PaMacCore) | Assistant restarts, returns to BT search |
+| Glasses off during boot | Waits for connection before starting |
 | Code changes | Requires manual restart |
