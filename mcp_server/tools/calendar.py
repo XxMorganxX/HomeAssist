@@ -67,6 +67,8 @@ class CalendarTool(BaseTool):
         # (which accesses self.description which needs _available_calendars)
         self.calendar_instances: Dict[str, CalendarComponent] = {}
         self._available_calendars = None
+        # NOTE: Canonical actions are "read" and "create_event".
+        # We also accept common aliases (e.g., "read_events") via normalization.
         self.available_actions = ["read", "create_event"]
         self.available_read_types = ["next_events", "day_summary", "week_summary", "specific_date"]
         
@@ -124,8 +126,13 @@ class CalendarTool(BaseTool):
                         "properties": {
                             "read_or_write": {
                                 "type": "string",
-                                "description": "'read' (default) for viewing events. 'create_event' only when user explicitly asks to add/create/schedule.",
-                                "enum": ["read", "create_event"],
+                                "description": (
+                                    "Action to perform. "
+                                    "'read' (default) to view events. "
+                                    "'create_event' ONLY when the user explicitly asks to add/create/schedule an event. "
+                                    "Alias accepted: 'read_events' (treated as 'read')."
+                                ),
+                                "enum": ["read", "read_events", "create_event"],
                                 "default": "read"
                             },
                             "calendar": {
@@ -165,11 +172,17 @@ class CalendarTool(BaseTool):
                             },
                             "start_time": {
                                 "type": "string",
-                                "description": "Start time (HH:MM or '3pm'). Required for create_event. CRITICAL: DO NOT provide this field unless the user explicitly stated a time. If user did not specify a time, OMIT this field entirely - the tool will return an error prompting you to ask the user."
+                                "description": (
+                                    "Event start time (e.g., '14:00', '2pm', '2:30pm', or an ISO datetime). "
+                                    "If the user did not specify a start time, OMIT this field and ask a follow-up after the tool responds with MISSING_INFO."
+                                )
                             },
                             "end_time": {
                                 "type": "string",
-                                "description": "End time (HH:MM or '4pm'). Required for create_event. CRITICAL: DO NOT provide this field unless the user explicitly stated an end time. If not specified, OMIT this field - the tool will prompt you to ask the user."
+                                "description": (
+                                    "Event end time (e.g., '15:00', '3pm', '3:30pm', or an ISO datetime). "
+                                    "If the user did not specify an end time, OMIT this field and ask a follow-up after the tool responds with MISSING_INFO."
+                                )
                             },
                             "location": {
                                 "type": "string",
@@ -902,6 +915,10 @@ class CalendarTool(BaseTool):
             # Normalize "write" to "create_event" (write is deprecated alias)
             if normalized.get("read_or_write") == "write":
                 normalized["read_or_write"] = "create_event"
+
+            # Normalize common alias "read_events" -> "read"
+            if normalized.get("read_or_write") == "read_events":
+                normalized["read_or_write"] = "read"
             
             # Default to 'read' unless explicitly creating an event (has event_title or write action)
             if not normalized.get("read_or_write"):
