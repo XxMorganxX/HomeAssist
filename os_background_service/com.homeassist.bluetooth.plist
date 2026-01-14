@@ -19,9 +19,9 @@ BLUEUTIL="/opt/homebrew/bin/blueutil"
 
 # ULTRA AGGRESSIVE - 3-5 second reconnection target
 CHECK_CONNECTED=2        # Check every 2 seconds when connected!
-CHECK_DISCONNECTED=0.5   # Check every 0.5 seconds when disconnected
+CHECK_DISCONNECTED=1.5   # Check every 1 second when disconnected
 MAX_BACKOFF=5            # Max 5 seconds between attempts
-BACKOFF=0.5              # Start with 0.5 second retry
+BACKOFF=1.0              # Start with 1 second retry
 FAILS=0
 
 mkdir -p "$(dirname "$LOG")"
@@ -48,7 +48,7 @@ do_conn() {
     if is_conn; then
         log "✅ Connected!"
         FAILS=0
-        BACKOFF=0.5
+        BACKOFF=1.5
         return 0
     fi
     return 1
@@ -62,7 +62,7 @@ while true; do
     if is_conn; then
         logq "✓ OK"
         FAILS=0
-        BACKOFF=0.5
+        BACKOFF=1.0
         sleep $CHECK_CONNECTED
     else
         FAILS=$((FAILS + 1))
