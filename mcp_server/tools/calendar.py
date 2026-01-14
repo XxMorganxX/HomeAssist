@@ -67,8 +67,6 @@ class CalendarTool(BaseTool):
         # (which accesses self.description which needs _available_calendars)
         self.calendar_instances: Dict[str, CalendarComponent] = {}
         self._available_calendars = None
-        # NOTE: Canonical actions are "read" and "create_event".
-        # We also accept common aliases (e.g., "read_events") via normalization.
         self.available_actions = ["read", "create_event"]
         self.available_read_types = ["next_events", "day_summary", "week_summary", "specific_date"]
         
@@ -76,19 +74,13 @@ class CalendarTool(BaseTool):
     
     @property
     def description(self) -> str:
-        """Dynamic description using configured default user."""
+        """Dynamic description for tool selection."""
         calendars = self.available_calendars
         return (
-            "Google Calendar tool (read events + create events). "
-            "Use ONLY when the user asks about their schedule/calendar OR explicitly asks to add/create/schedule an event. "
-            "Do NOT use for general conversation. "
-            f"Available calendars: {calendars}. "
-            "ONE tool call per user request (send exactly one command). "
-            "READ: returns events; reads across all calendars by default. "
-            "CREATE_EVENT: only when user explicitly wants an event created. "
-            "Never fabricate dates/times/locations/attendees. If the user did not provide start/end time, omit start_time/end_time and ask a follow-up after the tool response. "
-            "Multi-calendar write: provide a 'calendars' array to create the same event on multiple calendars in one call. "
-            "Optional: create_event can auto-create smart briefing reminders; set create_briefing=false to disable."
+            f"Google Calendar. Calendars: {calendars}. "
+            "USE FOR: schedule questions ('what's on my calendar'), event creation ('add meeting', 'schedule lunch'). "
+            "DO NOT USE FOR: general conversation, greetings, non-calendar topics. "
+            "CRITICAL: Never invent times. If user didn't say a time, omit start_time/end_time - tool will prompt for it."
         )
     
     @property
@@ -126,28 +118,24 @@ class CalendarTool(BaseTool):
                         "properties": {
                             "read_or_write": {
                                 "type": "string",
-                                "description": (
-                                    "Action to perform. "
-                                    "'read' (default) to view events. "
-                                    "'create_event' ONLY when the user explicitly asks to add/create/schedule an event. "
-                                    "Alias accepted: 'read_events' (treated as 'read')."
-                                ),
-                                "enum": ["read", "read_events", "create_event"],
+                                "description": "Action: 'read' to view events (default), 'create_event' only when user explicitly says add/create/schedule.",
+                                "enum": ["read", "create_event"],
                                 "default": "read"
                             },
                             "calendar": {
                                 "type": "string",
-                                "description": "READ: defaults to 'all'. WRITE: ignored (use 'calendars').",
-                                "enum": calendar_options
+                                "description": "For read only. Which calendar to read from. Default: 'all' (reads all calendars).",
+                                "enum": calendar_options,
+                                "default": "all"
                             },
                             "calendars": {
                                 "type": "array",
                                 "items": {"type": "string", "enum": self.available_calendars},
-                                "description": "WRITE only: calendars to add event to. Defaults to ['morgan_personal']. Use array to add same event to multiple calendars: ['morgan_personal', 'homeassist']"
+                                "description": "For create_event only. Which calendars to add event to. Example: ['morgan_personal'] or ['morgan_personal', 'homeassist'] for multiple."
                             },
                             "read_type": {
                                 "type": "string",
-                                "description": "For read: 'next_events' (default), 'day_summary', 'week_summary', 'specific_date'.",
+                                "description": "For read only. What to fetch: 'next_events' (upcoming), 'day_summary' (today), 'week_summary', 'specific_date'.",
                                 "enum": self.available_read_types,
                                 "default": "next_events"
                             },
@@ -155,47 +143,41 @@ class CalendarTool(BaseTool):
                                 "type": "integer",
                                 "minimum": 1,
                                 "maximum": 50,
-                                "description": "Max events to return. Default 10.",
+                                "description": "For read only. Max events to return (default: 10).",
                                 "default": 10
                             },
                             "date": {
                                 "type": "string",
-                                "description": "YYYY-MM-DD format. Required for 'specific_date' read and event creation. For create_event: ONLY provide if user specified a date. If user says 'today'/'tomorrow'/etc, convert to YYYY-MM-DD. If no date mentioned, OMIT this field."
+                                "description": "Format: YYYY-MM-DD. Required for 'specific_date' read. For create_event: convert 'today'/'tomorrow' to date, or OMIT if user didn't specify."
                             },
                             "event_title": {
                                 "type": "string",
-                                "description": "Event title. Required for create_event."
+                                "description": "For create_event. The event name/title. Required."
                             },
                             "event_description": {
                                 "type": "string",
-                                "description": "Event description. Optional."
+                                "description": "For create_event. Optional event details/notes."
                             },
                             "start_time": {
                                 "type": "string",
-                                "description": (
-                                    "Event start time (e.g., '14:00', '2pm', '2:30pm', or an ISO datetime). "
-                                    "If the user did not specify a start time, OMIT this field and ask a follow-up after the tool responds with MISSING_INFO."
-                                )
+                                "description": "For create_event. Format: 'HH:MM' or '3pm'. OMIT if user didn't specify a time - tool will prompt for it."
                             },
                             "end_time": {
                                 "type": "string",
-                                "description": (
-                                    "Event end time (e.g., '15:00', '3pm', '3:30pm', or an ISO datetime). "
-                                    "If the user did not specify an end time, OMIT this field and ask a follow-up after the tool responds with MISSING_INFO."
-                                )
+                                "description": "For create_event. Format: 'HH:MM' or '4pm'. OMIT if user didn't specify - tool will prompt."
                             },
                             "location": {
                                 "type": "string",
-                                "description": "Event location. Optional."
+                                "description": "For create_event. Optional location/address."
                             },
                             "attendees": {
                                 "type": "array",
                                 "items": {"type": "string"},
-                                "description": "Attendee emails. Optional."
+                                "description": "For create_event. Optional list of attendee email addresses."
                             },
                             "create_briefing": {
                                 "type": "boolean",
-                                "description": "For create_event: automatically create smart briefing reminders using AI analysis (same system as scheduled calendar briefings). AI determines optimal reminder times based on event type, location, preparation needs, and priority. Defaults to true.",
+                                "description": "For create_event. Auto-create smart reminder briefings (default: true). Set false to disable.",
                                 "default": True
                             }
                         },
@@ -915,10 +897,6 @@ class CalendarTool(BaseTool):
             # Normalize "write" to "create_event" (write is deprecated alias)
             if normalized.get("read_or_write") == "write":
                 normalized["read_or_write"] = "create_event"
-
-            # Normalize common alias "read_events" -> "read"
-            if normalized.get("read_or_write") == "read_events":
-                normalized["read_or_write"] = "read"
             
             # Default to 'read' unless explicitly creating an event (has event_title or write action)
             if not normalized.get("read_or_write"):
