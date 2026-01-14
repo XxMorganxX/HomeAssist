@@ -7,22 +7,70 @@
 
 set -e
 
-PROJECT_DIR="/Users/morgannstuart/Desktop/HomeAssistV3"
+PROJECT_DIR="$HOME/Desktop/HomeAssistV3"
 SERVICE_DIR="${PROJECT_DIR}/os_background_service"
 LAUNCH_AGENTS_DIR="$HOME/Library/LaunchAgents"
 
 # Service files
 MAIN_PLIST="com.homeassist.assistant.plist"
 WATCHDOG_PLIST="com.homeassist.watchdog.plist"
+BLUETOOTH_PLIST="com.homeassist.bluetooth.plist"
+TERMINAL_PLIST="com.homeassist.terminal.plist"
+MCP_PLIST="com.homeassist.mcp.plist"
 
 echo "🏠 HomeAssist Service Uninstaller"
 echo "===================================="
 echo ""
 
 # ==============================================
+# Stop and remove MCP server service
+# ==============================================
+
+echo "🔧 Removing MCP server service..."
+
+if launchctl list | grep -q "com.homeassist.mcp"; then
+    launchctl unload "${LAUNCH_AGENTS_DIR}/${MCP_PLIST}" 2>/dev/null || true
+    echo "   ✓ Stopped MCP server service"
+else
+    echo "   ℹ️  MCP server service was not running"
+fi
+
+if [ -f "${LAUNCH_AGENTS_DIR}/${MCP_PLIST}" ]; then
+    rm "${LAUNCH_AGENTS_DIR}/${MCP_PLIST}"
+    echo "   ✓ Removed MCP server plist"
+else
+    echo "   ℹ️  MCP server plist not found"
+fi
+
+# Also kill any running MCP processes
+pkill -f "mcp_server.server" 2>/dev/null || true
+
+# ==============================================
+# Stop and remove Bluetooth connector service
+# ==============================================
+
+echo ""
+echo "🔵 Removing Bluetooth connector service..."
+
+if launchctl list | grep -q "com.homeassist.bluetooth"; then
+    launchctl unload "${LAUNCH_AGENTS_DIR}/${BLUETOOTH_PLIST}" 2>/dev/null || true
+    echo "   ✓ Stopped Bluetooth connector service"
+else
+    echo "   ℹ️  Bluetooth connector service was not running"
+fi
+
+if [ -f "${LAUNCH_AGENTS_DIR}/${BLUETOOTH_PLIST}" ]; then
+    rm "${LAUNCH_AGENTS_DIR}/${BLUETOOTH_PLIST}"
+    echo "   ✓ Removed Bluetooth connector plist"
+else
+    echo "   ℹ️  Bluetooth connector plist not found"
+fi
+
+# ==============================================
 # Stop and remove watchdog service
 # ==============================================
 
+echo ""
 echo "🐕 Removing watchdog service..."
 
 if launchctl list | grep -q "com.homeassist.watchdog"; then
@@ -58,6 +106,27 @@ if [ -f "${LAUNCH_AGENTS_DIR}/${MAIN_PLIST}" ]; then
     echo "   ✓ Removed main assistant plist"
 else
     echo "   ℹ️  Main assistant plist not found"
+fi
+
+# ==============================================
+# Stop and remove Terminal log viewer service
+# ==============================================
+
+echo ""
+echo "🖥️  Removing Terminal log viewer..."
+
+if launchctl list | grep -q "com.homeassist.terminal"; then
+    launchctl unload "${LAUNCH_AGENTS_DIR}/${TERMINAL_PLIST}" 2>/dev/null || true
+    echo "   ✓ Stopped Terminal log viewer"
+else
+    echo "   ℹ️  Terminal log viewer was not running"
+fi
+
+if [ -f "${LAUNCH_AGENTS_DIR}/${TERMINAL_PLIST}" ]; then
+    rm "${LAUNCH_AGENTS_DIR}/${TERMINAL_PLIST}"
+    echo "   ✓ Removed Terminal log viewer plist"
+else
+    echo "   ℹ️  Terminal log viewer plist not found"
 fi
 
 # ==============================================

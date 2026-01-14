@@ -26,6 +26,9 @@ email_summaries.json.env
 # Legacy MCP state file (now uses state_management/app_state.json)
 .mcp_state.json
 
+# MCP server runtime PID file
+.mcp_server.pid
+
 # Python virtual environment
 venv/
 

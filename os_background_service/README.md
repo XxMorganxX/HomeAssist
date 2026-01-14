@@ -12,9 +12,48 @@ cd os_background_service
 ```
 
 The installer will:
-1. Install the main assistant service
-2. Install the watchdog monitoring service
-3. Optionally configure power settings for always-on operation
+1. Create Python virtual environment (if needed)
+2. Install all required dependencies
+3. Install the main assistant service
+4. Install the Bluetooth connector service
+5. Install the watchdog monitoring service
+6. Install the Terminal log viewer (opens on login)
+7. Create the `homeassist` command for easy control
+
+### Control Commands
+
+After installation, control HomeAssist from anywhere:
+
+```bash
+# Check if running
+homeassist status
+
+# Restart the assistant
+homeassist restart
+
+# View live logs
+homeassist logs
+
+# Stop all services
+homeassist stop
+
+# Start all services
+homeassist start
+
+# Run in foreground (for testing)
+homeassist run
+```
+
+**Make command globally accessible:**
+```bash
+sudo ln -sf ~/Desktop/HomeAssistV3/homeassist /usr/local/bin/homeassist
+```
+
+Or use without sudo from project directory:
+```bash
+cd ~/Desktop/HomeAssistV3
+./homeassist status
+```
 
 ### Uninstall
 

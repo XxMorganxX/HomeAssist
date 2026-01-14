@@ -48,10 +48,15 @@ def _wake_word_worker(
         resume_event: Event to signal worker to resume detection
         verbose: Whether to print detailed status messages
     """
+    # Force unbuffered output for subprocess
+    import sys
+    sys.stdout.reconfigure(line_buffering=True)
+    sys.stderr.reconfigure(line_buffering=True)
+    
     # Local verbose print for worker process
     def wprint(msg):
         if verbose:
-            print(msg)
+            print(msg, flush=True)  # Force flush for immediate output
     import numpy as np
     import sounddevice as sd
     from openwakeword.model import Model
@@ -173,7 +178,7 @@ def _wake_word_worker(
                     beep_wake_model_ready()  # 🔔 Wake word model ready sound
                     event_queue.put({'status': 'resumed'})
                 except Exception as e:
-                    print(f"❌ [Worker] Failed to resume audio stream: {e}")  # Always show errors
+                    print(f"❌ [Worker] Failed to resume audio stream: {e}", flush=True)  # Always show errors
                     event_queue.put({'error': f"Resume failed: {e}"})
                     break
                 continue
@@ -186,33 +191,49 @@ def _wake_word_worker(
             
             # Open audio stream if not already open (initial start)
             if stream is None:
-                try:
-                    bt_mode = " [Bluetooth mode]" if suppress_overflow else ""
-                    wprint(f"🎤 [Worker] Opening audio stream{bt_mode}")
-                    wprint(f"   Device: {input_device_index or 'default'}, Blocksize: {chunk}, Latency: '{latency}'")
-                    stream = sd.InputStream(
-                        samplerate=sample_rate,
-                        channels=1,
-                        dtype='int16',
-                        blocksize=chunk,
-                        device=input_device_index,
-                        latency=latency
-                    )
-                    stream.start()
-                    
-                    # Brief warmup: discard initial audio frames (may contain noise/transients)
-                    warmup_frames = 3  # ~60ms at 16kHz with 320 chunk
-                    for _ in range(warmup_frames):
-                        try:
-                            stream.read(chunk)
-                        except Exception:
-                            pass
-                    
-                    wprint(f"✅ [Worker] Audio stream started")
-                    beep_wake_model_ready()  # 🔔 Wake word model ready sound
-                except Exception as e:
-                    print(f"❌ [Worker] Failed to open audio stream: {e}")  # Always show errors
-                    event_queue.put({'error': str(e)})
+                bt_mode = " [Bluetooth mode]" if suppress_overflow else ""
+                max_retries = 5 if suppress_overflow else 1  # Retry for Bluetooth devices
+                
+                for attempt in range(max_retries):
+                    try:
+                        if attempt > 0:
+                            wprint(f"🔄 [Worker] Retry {attempt}/{max_retries-1}...")
+                            time.sleep(0.5)  # Wait before retry
+                        
+                        wprint(f"🎤 [Worker] Opening audio stream{bt_mode}")
+                        wprint(f"   Device: {input_device_index or 'default'}, Blocksize: {chunk}, Latency: '{latency}'")
+                        stream = sd.InputStream(
+                            samplerate=sample_rate,
+                            channels=1,
+                            dtype='int16',
+                            blocksize=chunk,
+                            device=input_device_index,
+                            latency=latency
+                        )
+                        stream.start()
+                        
+                        # Brief warmup: discard initial audio frames (may contain noise/transients)
+                        warmup_frames = 3  # ~60ms at 16kHz with 320 chunk
+                        for _ in range(warmup_frames):
+                            try:
+                                stream.read(chunk)
+                            except Exception:
+                                pass
+                        
+                        wprint(f"✅ [Worker] Audio stream started")
+                        beep_wake_model_ready()  # 🔔 Wake word model ready sound
+                        break  # Success, exit retry loop
+                        
+                    except Exception as e:
+                        if attempt < max_retries - 1:
+                            print(f"⚠️  [Worker] Audio stream failed (attempt {attempt+1}/{max_retries}): {e}")
+                        else:
+                            print(f"❌ [Worker] Failed to open audio stream after {max_retries} attempts: {e}", flush=True)
+                            event_queue.put({'error': str(e)})
+                            stream = None
+                
+                # If all retries failed, break out of main loop
+                if stream is None:
                     break
             
             # Normal detection loop
@@ -254,11 +275,11 @@ def _wake_word_worker(
                             }
                             event_queue.put(event_data)
                             last_detection[model_name] = current_time
-                            print(f"🔔 [Worker] Wake word detected: {model_name} ({score:.3f})")  # Always show
+                            print(f"🔔 [Worker] Wake word detected: {model_name} ({score:.3f})", flush=True)  # Always show
             
             except Exception as e:
                 if not stop_event.is_set() and not pause_event.is_set():
-                    print(f"❌ [Worker] Detection error: {e}")  # Always show errors
+                    print(f"❌ [Worker] Detection error: {e}", flush=True)  # Always show errors
         
         # Cleanup
         if stream:
@@ -267,7 +288,7 @@ def _wake_word_worker(
         wprint("✅ [Worker] Shutdown complete")
         
     except Exception as e:
-        print(f"❌ [Worker] Fatal error: {e}")  # Always show errors
+        print(f"❌ [Worker] Fatal error: {e}", flush=True)  # Always show errors
         import traceback
         traceback.print_exc()
         event_queue.put({'error': str(e)})
@@ -458,7 +479,7 @@ class IsolatedOpenWakeWordProvider(WakeWordInterface):
                     
                     # Check for error
                     if 'error' in event_data:
-                        print(f"❌ Worker error: {event_data['error']}")  # Always show errors
+                        print(f"❌ Worker error: {event_data['error']}", flush=True)  # Always show errors
                         break
                     
                     # Skip status messages (paused/resumed)

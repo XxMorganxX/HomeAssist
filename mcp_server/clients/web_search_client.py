@@ -7,9 +7,17 @@ Usage:
 
 # pip install google-search-results
 import os
+import sys
+import time
 from dotenv import load_dotenv
 from serpapi import GoogleSearch
 import requests
+
+# Timing logger for performance analysis - uses stderr to avoid MCP protocol interference
+def _log_timing(component: str, elapsed_ms: float, extra: str = ""):
+    """Log timing information for search components."""
+    extra_str = f" | {extra}" if extra else ""
+    print(f"⏱️  [{component}] {elapsed_ms:.0f}ms{extra_str}", file=sys.stderr)
 
 
 
@@ -24,61 +32,108 @@ class Websearch:
         self.location = location
 
     def get_ai_overview(self, query: str, *, hl: str = "en", gl: str = "us", location: str | None = None) -> dict | None:
-        """Run Google search and return AI Overview payload if available."""
-        # Step 1: run a normal Google Search
-        params = {
-            "engine": "google",
-            "q": query,
-            "hl": hl,
-            "gl": gl,
-            "google_domain": "google.com",
-            "device": "desktop",
-            "safe": "off",
-            "ai_overview": "true",  # hint to include AI Overview when available
-            "no_cache": "true",
-            "api_key": self.api_key,
-        }
+        """Run Google search and return AI Overview payload if available.
+        
+        OPTIMIZED: Tries direct AI Overview engine first (single call), 
+        then falls back to Google Search + page_token if needed.
+        """
+        total_start = time.perf_counter()
         loc = location or self.location
-        if loc:
-            params["location"] = loc
-        s1 = GoogleSearch(params).get_dict()
-
-        # If AI Overview is embedded, it's already under 'ai_overview'
-        ai = (
-            s1.get("ai_overview")
-            or s1.get("sg_results")
-            or s1.get("sge_summary")
-        )
-        if not ai:
-            # If AI Overview requires a separate request, the first call returns a page_token
-            token = (
-                (s1.get("ai_overview") or {}).get("page_token")
-                or s1.get("search_metadata", {}).get("ai_overview_page_token")
+        ai = None
+        
+        # === ATTEMPT 1: Direct AI Overview request (fastest path) ===
+        try:
+            direct_params = {
+                "engine": "google_ai_overview",
+                "q": query,
+                "hl": hl,
+                "gl": gl,
+                "api_key": self.api_key,
+            }
+            if loc:
+                direct_params["location"] = loc
+            
+            t1_start = time.perf_counter()
+            result = GoogleSearch(direct_params).get_dict()
+            t1_elapsed = (time.perf_counter() - t1_start) * 1000
+            
+            ai = result.get("ai_overview")
+            has_text = bool(ai.get("text_blocks")) if isinstance(ai, dict) else False
+            _log_timing("AI Overview - Direct Request", t1_elapsed, f"has_text_blocks={has_text}")
+            
+            if ai and has_text:
+                total_elapsed = (time.perf_counter() - total_start) * 1000
+                _log_timing("AI Overview - Content Found", total_elapsed, "from direct request ✨")
+                return ai
+                
+        except Exception as e:
+            _log_timing("AI Overview - Direct Request", 0, f"FAILED: {e}")
+        
+        # === ATTEMPT 2: Fall back to Google Search with ai_overview=true ===
+        # This might return content directly or give us a page_token
+        try:
+            search_params = {
+                "engine": "google",
+                "q": query,
+                "hl": hl,
+                "gl": gl,
+                "google_domain": "google.com",
+                "device": "desktop",
+                "safe": "off",
+                "ai_overview": "true",
+                "no_cache": "true",
+                "api_key": self.api_key,
+            }
+            if loc:
+                search_params["location"] = loc
+            
+            t2_start = time.perf_counter()
+            s2 = GoogleSearch(search_params).get_dict()
+            t2_elapsed = (time.perf_counter() - t2_start) * 1000
+            _log_timing("AI Overview - Google Search Fallback", t2_elapsed, "ai_overview=true")
+            
+            ai = (
+                s2.get("ai_overview")
+                or s2.get("sg_results")
+                or s2.get("sge_summary")
             )
-            if token:
-                s2 = GoogleSearch({
-                    "engine": "google_ai_overview",
-                    "page_token": token,
-                    "api_key": self.api_key,
-                }).get_dict()
-                ai = s2.get("ai_overview")
-            # Final fallback: attempt direct AI Overview request with the query
-            if not ai:
-                try:
-                    s3_params = {
+            
+            has_text = bool(ai.get("text_blocks")) if isinstance(ai, dict) else False
+            
+            if ai and has_text:
+                total_elapsed = (time.perf_counter() - total_start) * 1000
+                _log_timing("AI Overview - Content Found", total_elapsed, "from Google Search fallback")
+                return ai
+            
+            # Check for page_token to make one more request
+            if ai and not has_text:
+                token = ai.get("page_token") or s2.get("search_metadata", {}).get("ai_overview_page_token")
+                if token:
+                    _log_timing("AI Overview - Google Search", 0, f"got placeholder, using page_token")
+                    
+                    t3_start = time.perf_counter()
+                    s3 = GoogleSearch({
                         "engine": "google_ai_overview",
-                        "q": query,
-                        "hl": hl,
-                        "gl": gl,
+                        "page_token": token,
                         "api_key": self.api_key,
-                    }
-                    if loc:
-                        s3_params["location"] = loc
-                    s3 = GoogleSearch(s3_params).get_dict()
+                    }).get_dict()
+                    t3_elapsed = (time.perf_counter() - t3_start) * 1000
+                    _log_timing("AI Overview - Page Token Request", t3_elapsed)
+                    
                     ai = s3.get("ai_overview")
-                except Exception:
-                    pass
-        return ai
+                    has_text = bool(ai.get("text_blocks")) if isinstance(ai, dict) else False
+                    
+                    if ai and has_text:
+                        total_elapsed = (time.perf_counter() - total_start) * 1000
+                        _log_timing("AI Overview - Content Found", total_elapsed, "from page_token request")
+                        return ai
+                        
+        except Exception as e:
+            _log_timing("AI Overview - Google Search Fallback", 0, f"FAILED: {e}")
+        
+        total_elapsed = (time.perf_counter() - total_start) * 1000
+        _log_timing("AI Overview - NOT FOUND", total_elapsed, "no usable content")
+        return None
 
     def get_search_results(self, 
                            query: str, 
@@ -90,6 +145,8 @@ class Websearch:
         """Fetch standard Google search results (organic) as a fallback.
         Returns a list of dicts: {title, link, snippet}.
         """
+        t_start = time.perf_counter()
+        
         params = {
             "engine": "google",
             "q": query,
@@ -106,6 +163,9 @@ class Websearch:
         if loc:
             params["location"] = loc
         data = GoogleSearch(params).get_dict()
+        
+        api_elapsed = (time.perf_counter() - t_start) * 1000
+        
         organic = data.get("organic_results", []) or []
         results: list[dict] = []
         for r in organic[:num_results]:
@@ -119,6 +179,9 @@ class Websearch:
             snippet = snippet.strip() if isinstance(snippet, str) else ""
             if title or link or snippet:
                 results.append({"title": title, "link": link, "snippet": snippet})
+        
+        total_elapsed = (time.perf_counter() - t_start) * 1000
+        _log_timing("Organic Search Results", total_elapsed, f"found {len(results)} results (API: {api_elapsed:.0f}ms)")
         return results
 
     @staticmethod
@@ -185,9 +248,11 @@ class Websearch:
         """Summarize search results using Gemini 1.5 Flash, if available.
         Requires GOOGLE_API_KEY and google-generativeai package.
         """
+        t_start = time.perf_counter()
         try:
             api_key = os.getenv("GEMINI_API_KEY") or os.getenv("GOOGLE_API_KEY")
             if not api_key:
+                _log_timing("Gemini Standard Summary", 0, "SKIPPED (no API key)")
                 return None
             import google.generativeai as genai  # type: ignore
             genai.configure(api_key=api_key)
@@ -198,13 +263,16 @@ class Websearch:
                 "gemini-1.5-flash-latest",
             ]
             model = None
+            model_used = None
             for name in model_names:
                 try:
                     model = genai.GenerativeModel(name)
+                    model_used = name
                     break
                 except Exception:
                     model = None
             if model is None:
+                _log_timing("Gemini Standard Summary", 0, "SKIPPED (no model available)")
                 return None
 
             # Build a concise, citation-friendly prompt
@@ -225,7 +293,10 @@ class Websearch:
                 "Return only plain text."
             )
 
+            gen_start = time.perf_counter()
             resp = model.generate_content(prompt)
+            gen_elapsed = (time.perf_counter() - gen_start) * 1000
+            
             text = getattr(resp, "text", None)
             if not text and hasattr(resp, "candidates") and resp.candidates:
                 # Fallback: concatenate parts if text is missing
@@ -239,8 +310,17 @@ class Websearch:
                     text = "\n".join(parts)
                 except Exception:
                     text = None
-            return text.strip() if isinstance(text, str) and text.strip() else None
-        except Exception:
+            
+            total_elapsed = (time.perf_counter() - t_start) * 1000
+            if text and text.strip():
+                _log_timing("Gemini Standard Summary", total_elapsed, f"model={model_used} (generation: {gen_elapsed:.0f}ms)")
+                return text.strip()
+            else:
+                _log_timing("Gemini Standard Summary", total_elapsed, "FAILED (empty response)")
+                return None
+        except Exception as e:
+            total_elapsed = (time.perf_counter() - t_start) * 1000
+            _log_timing("Gemini Standard Summary", total_elapsed, f"FAILED: {e}")
             return None
 
     def get_best_answer(self, query: str, *, hl: str = "en", gl: str = "us", num_results: int = 8) -> tuple[str, str]:

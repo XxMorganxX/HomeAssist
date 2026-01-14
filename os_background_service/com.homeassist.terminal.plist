@@ -1,0 +1,27 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+    <key>Label</key>
+    <string>com.homeassist.terminal</string>
+
+    <key>ProgramArguments</key>
+    <array>
+        <string>/usr/bin/open</string>
+        <string>-a</string>
+        <string>Terminal</string>
+        <string>~/Desktop/HomeAssistV3/os_background_service/show_logs.command</string>
+    </array>
+
+    <key>RunAtLoad</key>
+    <true/>
+
+    <!-- One-shot - just opens Terminal on login -->
+    <key>KeepAlive</key>
+    <false/>
+
+    <!-- Wait 5 seconds after login for assistant to start -->
+    <key>StartInterval</key>
+    <integer>0</integer>
+</dict>
+</plist>

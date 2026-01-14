@@ -8,8 +8,16 @@ Supports different query types for optimized responses.
 
 import os
 import re
+import sys
+import time
 from typing import Dict, Any, Optional
 from mcp_server.base_tool import BaseTool
+
+# Timing logger for performance analysis - uses stderr to avoid MCP protocol interference
+def _log_timing(component: str, elapsed_ms: float, extra: str = ""):
+    """Log timing information for search components."""
+    extra_str = f" | {extra}" if extra else ""
+    print(f"⏱️  [{component}] {elapsed_ms:.0f}ms{extra_str}", file=sys.stderr)
 
 # Import web search with fallback
 _import_error = None
@@ -147,7 +155,10 @@ class GoogleSearchTool(BaseTool):
 
     def _succinct_summarize(self, query: str, results: list, query_type: str) -> Optional[str]:
         """Generate a succinct summary using Gemini with query-type-specific prompts."""
+        t_start = time.perf_counter()
+        
         if not self._gemini_model or not results:
+            _log_timing("Gemini Succinct Summary", 0, "SKIPPED (no model or results)")
             return None
         
         try:
@@ -186,16 +197,31 @@ class GoogleSearchTool(BaseTool):
                     f"Query: {query}\n\nSources:\n{sources_block}"
                 )
             
+            gen_start = time.perf_counter()
             resp = self._gemini_model.generate_content(prompt)
+            gen_elapsed = (time.perf_counter() - gen_start) * 1000
+            
             text = getattr(resp, "text", None)
+            total_elapsed = (time.perf_counter() - t_start) * 1000
+            
             if text:
+                _log_timing("Gemini Succinct Summary", total_elapsed, f"type={query_type} (generation: {gen_elapsed:.0f}ms)")
                 return text.strip()
+            else:
+                _log_timing("Gemini Succinct Summary", total_elapsed, "FAILED (empty response)")
         except Exception as e:
+            total_elapsed = (time.perf_counter() - t_start) * 1000
+            _log_timing("Gemini Succinct Summary", total_elapsed, f"FAILED: {e}")
             self.logger.warning(f"Gemini summarization failed: {e}")
         
         return None
 
     def execute(self, params: Dict[str, Any]) -> Dict[str, Any]:
+        total_start = time.perf_counter()
+        print("\n" + "="*60, file=sys.stderr)
+        print(f"🔍 GOOGLE SEARCH TIMING ANALYSIS", file=sys.stderr)
+        print("="*60, file=sys.stderr)
+        
         try:
             query: str = params.get("query", "").strip()
             query_type: str = params.get("query_type", "").strip().lower()
@@ -206,6 +232,10 @@ class GoogleSearchTool(BaseTool):
             # Auto-detect query type if not specified
             if not query_type or query_type not in ["general", "link", "directions"]:
                 query_type = self._detect_query_type(query)
+            
+            print(f"📝 Query: \"{query}\"", file=sys.stderr)
+            print(f"📋 Type: {query_type}", file=sys.stderr)
+            print("-"*60, file=sys.stderr)
 
             # Check if searcher is available
             if self.searcher is None:
@@ -221,6 +251,9 @@ class GoogleSearchTool(BaseTool):
             if query_type == "directions":
                 destination = self._extract_destination(query)
                 maps_link = self._generate_maps_link(destination)
+                total_elapsed = (time.perf_counter() - total_start) * 1000
+                _log_timing("TOTAL (directions)", total_elapsed, "instant maps link")
+                print("="*60 + "\n", file=sys.stderr)
                 return {
                     "result": maps_link,
                     "source": "Google Maps",
@@ -236,9 +269,15 @@ class GoogleSearchTool(BaseTool):
                     # Try Gemini to pick the best link
                     best_link = self._succinct_summarize(query, results, "link")
                     if best_link and best_link.startswith("http"):
+                        total_elapsed = (time.perf_counter() - total_start) * 1000
+                        _log_timing("TOTAL (link query)", total_elapsed, "Gemini picked link")
+                        print("="*60 + "\n", file=sys.stderr)
                         return {"result": best_link, "source": "Search", "success": True, "query_type": "link"}
                     # Fallback to first result
                     top_result = results[0]
+                    total_elapsed = (time.perf_counter() - total_start) * 1000
+                    _log_timing("TOTAL (link query)", total_elapsed, "first result fallback")
+                    print("="*60 + "\n", file=sys.stderr)
                     return {
                         "result": top_result.get("link", ""),
                         "source": "Search",
@@ -246,18 +285,32 @@ class GoogleSearchTool(BaseTool):
                         "query_type": "link",
                         "title": top_result.get("title", "")
                     }
+                total_elapsed = (time.perf_counter() - total_start) * 1000
+                _log_timing("TOTAL (link query)", total_elapsed, "no results")
+                print("="*60 + "\n", file=sys.stderr)
                 return {"result": "No relevant link found.", "source": "Search", "success": False}
 
             # General query: Try AI Overview first
+            print("\n--- PHASE 1: AI Overview ---", file=sys.stderr)
             ai = self.searcher.get_ai_overview(query)
             ai_text = self.searcher.flatten_ai_overview(ai)
+            
+            # Check result
             if ai_text:
+                total_elapsed = (time.perf_counter() - total_start) * 1000
+                print("-"*60, file=sys.stderr)
+                _log_timing("✅ TOTAL (general)", total_elapsed, "SUCCESS via AI Overview")
+                print("="*60 + "\n", file=sys.stderr)
                 return {"result": ai_text, "source": "AI Overview", "success": True, "query_type": "general"}
 
             # Fallback: Get results and summarize
+            print("\n--- PHASE 2: Organic Results ---", file=sys.stderr)
             results = self.searcher.get_search_results(query, num_results=8)
             
             if not results:
+                total_elapsed = (time.perf_counter() - total_start) * 1000
+                _log_timing("❌ TOTAL (general)", total_elapsed, "no results found")
+                print("="*60 + "\n", file=sys.stderr)
                 return {
                     "result": "No search results found for this query.",
                     "source": "Search",
@@ -265,26 +318,47 @@ class GoogleSearchTool(BaseTool):
                 }
             
             # Try succinct summarization
+            print("\n--- PHASE 3: Gemini Succinct ---", file=sys.stderr)
             summary = self._succinct_summarize(query, results, "general")
             if summary:
+                total_elapsed = (time.perf_counter() - total_start) * 1000
+                print("-"*60, file=sys.stderr)
+                _log_timing("✅ TOTAL (general)", total_elapsed, "SUCCESS via Gemini Succinct")
+                print("="*60 + "\n", file=sys.stderr)
                 return {"result": summary, "source": "Gemini", "success": True, "query_type": "general"}
             
             # Fallback to standard Gemini summarization
+            print("\n--- PHASE 4: Gemini Standard ---", file=sys.stderr)
             summary = self.searcher._summarize_with_gemini(query, results)
             if summary:
+                total_elapsed = (time.perf_counter() - total_start) * 1000
+                print("-"*60, file=sys.stderr)
+                _log_timing("✅ TOTAL (general)", total_elapsed, "SUCCESS via Gemini Standard")
+                print("="*60 + "\n", file=sys.stderr)
                 return {"result": summary, "source": "Gemini", "success": True, "query_type": "general"}
 
             # Last resort: format results directly
+            print("\n--- PHASE 5: Raw Results ---", file=sys.stderr)
             formatted = self.searcher.format_results(results)
             if formatted:
+                total_elapsed = (time.perf_counter() - total_start) * 1000
+                print("-"*60, file=sys.stderr)
+                _log_timing("✅ TOTAL (general)", total_elapsed, "SUCCESS via raw results")
+                print("="*60 + "\n", file=sys.stderr)
                 return {"result": formatted, "source": "Search results", "success": True}
 
+            total_elapsed = (time.perf_counter() - total_start) * 1000
+            _log_timing("❌ TOTAL (general)", total_elapsed, "all methods failed")
+            print("="*60 + "\n", file=sys.stderr)
             return {
                 "result": "Search completed but no summary available.",
                 "source": "Search",
                 "success": False
             }
         except Exception as e:
+            total_elapsed = (time.perf_counter() - total_start) * 1000
+            _log_timing("❌ TOTAL", total_elapsed, f"EXCEPTION: {e}")
+            print("="*60 + "\n", file=sys.stderr)
             self.logger.error(f"Google search failed: {e}")
             return {
                 "result": f"Search failed: {e}",

@@ -106,22 +106,28 @@ def main():
     parser = argparse.ArgumentParser(description="Smart Home MCP Server")
     parser.add_argument("--host", default="127.0.0.1", help="Host to bind to (default: 127.0.0.1)")
     parser.add_argument("--port", type=int, default=3000, help="Port to bind to (default: 3000)")
-    parser.add_argument("--transport", default="http", choices=["http", "stdio"], 
+    parser.add_argument("--transport", default="http", choices=["http", "stdio", "sse"], 
                        help="Transport method (default: http)")
+    parser.add_argument("--quiet", "-q", action="store_true",
+                       help="Minimal output (for background service)")
     
     args = parser.parse_args()
     
     try:
         # Create and configure MCP server
-        logger.info("Initializing MCP server...")
+        if not args.quiet:
+            logger.info("Initializing MCP server...")
         mcp, tool_registry = create_mcp_server(args.host, args.port)
         
-        # Display server information
-        get_server_info(mcp, tool_registry)
+        # Display server information (skip in quiet/stdio mode)
+        if not args.quiet and args.transport not in ["stdio"]:
+            get_server_info(mcp, tool_registry)
         
         # Start the server
-        logger.info(f"Starting MCP server on {args.host}:{args.port} using {args.transport} transport")
-        if args.transport != "stdio":
+        if not args.quiet:
+            logger.info(f"Starting MCP server on {args.host}:{args.port} using {args.transport} transport")
+        
+        if args.transport not in ["stdio"] and not args.quiet:
             print(f"\n=== Starting MCP Server ===")
             print(f"Host: {args.host}")
             print(f"Port: {args.port}")
@@ -131,17 +137,21 @@ def main():
         # Run the server with specified transport
         if args.transport == "http":
             mcp.run(transport="http", host=args.host, port=args.port)
+        elif args.transport == "sse":
+            # SSE transport for persistent background server
+            mcp.run(transport="sse", host=args.host, port=args.port)
         else:
             # In stdio mode, avoid stdout prints; FastMCP will use stdio for protocol
             mcp.run(transport="stdio")
             
     except KeyboardInterrupt:
-        logger.info("Server stopped by user")
-        if args.transport != "stdio":
-            print("\n\nMCP Server stopped.")
+        if not args.quiet:
+            logger.info("Server stopped by user")
+            if args.transport != "stdio":
+                print("\n\nMCP Server stopped.")
     except Exception as e:
         logger.error(f"Failed to start MCP server: {e}")
-        if args.transport != "stdio":
+        if args.transport != "stdio" and not args.quiet:
             print(f"\nError: {e}")
         sys.exit(1)
 

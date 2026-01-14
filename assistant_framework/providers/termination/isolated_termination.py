@@ -375,24 +375,27 @@ class IsolatedTerminationProvider(TerminationInterface):
             )
             self._process.start()
             
-            # Wait for ready signal
-            try:
-                loop = asyncio.get_event_loop()
-                event = await asyncio.wait_for(
-                    loop.run_in_executor(None, self._event_queue.get, True, 5.0),
-                    timeout=6.0
-                )
-                if event.get('status') == 'ready':
-                    vprint(f"✅ Termination detection ready (PID: {self._process.pid})")
-                    self._is_initialized = True
-                    self._is_paused = True  # Starts paused
-                    return True
-                elif 'error' in event:
-                    raise RuntimeError(event['error'])
-            except (asyncio.TimeoutError, queue.Empty):
-                print("❌ Termination process startup timed out")
-                await self._terminate_process()
-                return False
+            # Wait for ready signal using polling (works better with asyncio.gather)
+            import time
+            start_time = time.time()
+            timeout_seconds = 10.0  # Increased for parallel init
+            
+            while time.time() - start_time < timeout_seconds:
+                try:
+                    event = self._event_queue.get_nowait()
+                    if event.get('status') == 'ready':
+                        vprint(f"✅ Termination detection ready (PID: {self._process.pid})")
+                        self._is_initialized = True
+                        self._is_paused = True  # Starts paused
+                        return True
+                    elif 'error' in event:
+                        raise RuntimeError(event['error'])
+                except queue.Empty:
+                    await asyncio.sleep(0.1)  # Yield to other tasks
+            
+            print("❌ Termination process startup timed out")
+            await self._terminate_process()
+            return False
             
         except Exception as e:
             print(f"❌ Failed to initialize termination detection: {e}")

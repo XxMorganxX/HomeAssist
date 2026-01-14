@@ -1,0 +1,116 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+    <!-- Service identifier -->
+    <key>Label</key>
+    <string>com.homeassist.bluetooth</string>
+
+    <!-- Inline bash script - ultra-fast reconnection -->
+    <key>ProgramArguments</key>
+    <array>
+        <string>/bin/bash</string>
+        <string>-c</string>
+        <string>
+DEVICE_ADDRESS="98-59-49-bf-40-45"
+DEVICE_NAME="Meta Glasses"
+LOG="$HOME/Desktop/HomeAssistV3/logs/bluetooth.log"
+BLUEUTIL="/opt/homebrew/bin/blueutil"
+
+# ULTRA AGGRESSIVE - 3-5 second reconnection target
+CHECK_CONNECTED=2        # Check every 2 seconds when connected!
+CHECK_DISCONNECTED=0.5   # Check every 0.5 seconds when disconnected
+MAX_BACKOFF=5            # Max 5 seconds between attempts
+BACKOFF=0.5              # Start with 0.5 second retry
+FAILS=0
+
+mkdir -p "$(dirname "$LOG")"
+log() { echo "[$(date '+%Y-%m-%d %H:%M:%S')] $1" | tee -a "$LOG"; }
+logq() { echo "[$(date '+%Y-%m-%d %H:%M:%S')] $1" >> "$LOG"; }
+
+log "=========================================="
+log "Meta Glasses Bluetooth Connector Starting"
+log "=========================================="
+log "Device: $DEVICE_NAME ($DEVICE_ADDRESS)"
+log "Mode: ULTRA AGGRESSIVE (2s poll)"
+
+bt_on() { [ "$("$BLUEUTIL" --power)" != "1" ] &amp;&amp; { "$BLUEUTIL" --power 1; sleep 0.5; }; }
+is_conn() { [ "$("$BLUEUTIL" --is-connected "$DEVICE_ADDRESS" 2>/dev/null)" = "1" ]; }
+
+do_conn() {
+    # Ultra-fast connect
+    "$BLUEUTIL" --connect "$DEVICE_ADDRESS" &amp;
+    local pid=$!
+    sleep 2
+    kill $pid 2>/dev/null || true
+    wait $pid 2>/dev/null || true
+    
+    if is_conn; then
+        log "✅ Connected!"
+        FAILS=0
+        BACKOFF=0.5
+        return 0
+    fi
+    return 1
+}
+
+bt_on
+is_conn &amp;&amp; log "✅ Already connected" || { log "⚡ Connecting..."; do_conn; }
+
+while true; do
+    bt_on
+    if is_conn; then
+        logq "✓ OK"
+        FAILS=0
+        BACKOFF=0.5
+        sleep $CHECK_CONNECTED
+    else
+        FAILS=$((FAILS + 1))
+        log "⚠️  Disconnected - reconnecting..."
+        if do_conn; then
+            continue
+        fi
+        [ $FAILS -ge 10 ] &amp;&amp; {
+            BACKOFF=$((BACKOFF + 1))
+            [ $BACKOFF -gt $MAX_BACKOFF ] &amp;&amp; BACKOFF=$MAX_BACKOFF
+        }
+        sleep $BACKOFF
+    fi
+done
+        </string>
+    </array>
+
+    <!-- Start on login (boot) -->
+    <key>RunAtLoad</key>
+    <true/>
+
+    <!-- Keep alive -->
+    <key>KeepAlive</key>
+    <true/>
+
+    <!-- Instant restart -->
+    <key>ThrottleInterval</key>
+    <integer>1</integer>
+
+    <!-- Log output -->
+    <key>StandardOutPath</key>
+    <string>~/Desktop/HomeAssistV3/logs/bluetooth_stdout.log</string>
+    <key>StandardErrorPath</key>
+    <string>~/Desktop/HomeAssistV3/logs/bluetooth_stderr.log</string>
+
+    <!-- Environment -->
+    <key>EnvironmentVariables</key>
+    <dict>
+        <key>PATH</key>
+        <string>/opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin:/sbin:/usr/sbin</string>
+    </dict>
+
+    <!-- Highest priority -->
+    <key>Nice</key>
+    <integer>-10</integer>
+    <key>ProcessType</key>
+    <string>Interactive</string>
+    <key>LowPriorityIO</key>
+    <false/>
+</dict>
+</plist>

@@ -493,6 +493,7 @@ class CalendarTool(BaseTool):
         
         result = {
             "success": True,
+            "operation": "read",  # Explicit: this was a READ, not a create
             "command_index": cmd_index,
             "command": cmd,
             "read_type": read_type,
@@ -500,7 +501,8 @@ class CalendarTool(BaseTool):
             "event_count": len(limited_events),
             "total_events_found": len(all_events),
             "calendars_read": calendars_read,
-            "calendar": "all"
+            "calendar": "all",
+            "note": "This was a READ operation - no events were created."
         }
         
         if errors:
@@ -536,12 +538,14 @@ class CalendarTool(BaseTool):
                 
                 return {
                     "success": True,
+                    "operation": "read",
                     "command_index": cmd_index,
                     "command": cmd,
                     "read_type": read_type,
                     "events": events,
                     "event_count": len(events),
-                    "calendar": calendar
+                    "calendar": calendar,
+                    "note": "This was a READ operation - no events were created."
                 }
             
             elif read_type == "day_summary":
@@ -555,13 +559,15 @@ class CalendarTool(BaseTool):
                 
                 return {
                     "success": True,
+                    "operation": "read",
                     "command_index": cmd_index,
                     "command": cmd,
                     "read_type": read_type,
                     "date": target_date,
                     "events": events,
                     "event_count": len(events),
-                    "calendar": calendar
+                    "calendar": calendar,
+                    "note": "This was a READ operation - no events were created."
                 }
             
             elif read_type == "week_summary":
@@ -572,12 +578,14 @@ class CalendarTool(BaseTool):
                 
                 return {
                     "success": True,
+                    "operation": "read",
                     "command_index": cmd_index,
                     "command": cmd,
                     "read_type": read_type,
                     "events": events,
                     "event_count": len(events),
-                    "calendar": calendar
+                    "calendar": calendar,
+                    "note": "This was a READ operation - no events were created."
                 }
             
             elif read_type == "specific_date":
@@ -590,13 +598,15 @@ class CalendarTool(BaseTool):
                 
                 return {
                     "success": True,
+                    "operation": "read",
                     "command_index": cmd_index,
                     "command": cmd,
                     "read_type": read_type,
                     "date": target_date,
                     "events": events,
                     "event_count": len(events),
-                    "calendar": calendar
+                    "calendar": calendar,
+                    "note": "This was a READ operation - no events were created."
                 }
             
             else:
@@ -745,9 +755,35 @@ class CalendarTool(BaseTool):
         - Accept ISO datetimes in start_time/end_time and derive date/HH:MM
         - Accept HH:MM:SS by truncating to HH:MM
         - Accept 12h formats like '11pm'/'11:30am'
+        - Handle nested 'create_event' object format from AI
         """
         try:
             normalized = dict(cmd)
+            
+            # Handle nested 'create_event' object format (AI sometimes sends this)
+            # e.g. {"create_event": {"calendar": "...", "title": "...", ...}}
+            if "create_event" in normalized and isinstance(normalized["create_event"], dict):
+                create_obj = normalized.pop("create_event")
+                # Set the action
+                normalized["read_or_write"] = "create_event"
+                # Extract fields from the nested object
+                if "calendar" in create_obj:
+                    normalized["calendar"] = create_obj["calendar"]
+                    normalized["user"] = create_obj["calendar"]
+                if "title" in create_obj:
+                    normalized["event_title"] = create_obj["title"]
+                if "start_time" in create_obj:
+                    normalized["start_time"] = create_obj["start_time"]
+                if "end_time" in create_obj:
+                    normalized["end_time"] = create_obj["end_time"]
+                if "date" in create_obj:
+                    normalized["date"] = create_obj["date"]
+                if "description" in create_obj:
+                    normalized["event_description"] = create_obj["description"]
+                if "location" in create_obj:
+                    normalized["location"] = create_obj["location"]
+                if "attendees" in create_obj:
+                    normalized["attendees"] = create_obj["attendees"]
             
             # Handle 'calendar' and 'user' params - prefer 'calendar', fallback to 'user'
             # NOTE: Default calendar is set LATER based on read vs write operation

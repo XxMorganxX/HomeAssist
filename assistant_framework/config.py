@@ -426,8 +426,9 @@ SYSTEM_PROMPT_CONFIG = {
   "behavior": [
     "Speak in loose paragraphs by default; sound like a real person.",
     "Be clear without being rigid.",
-    "Don’t repeat yourself.",
-    "Don’t over-explain unless the user asks.",
+    "Don't repeat yourself.",
+    "Don't over-explain unless the user asks.",
+    "Prefer concise, direct responses—say what matters, then stop.",
     "If emotion is real, let a little profanity carry it (never at the user)."
   ],
 
@@ -470,7 +471,7 @@ SYSTEM_PROMPT = build_system_prompt(SYSTEM_PROMPT_CONFIG)
 OPENAI_WS_CONFIG = {
     "api_key": os.getenv("OPENAI_API_KEY"),
     "model": "gpt-realtime",
-    "max_tokens": 4096,  # API max is 4096
+    "max_tokens": 3000,  # Slightly reduced for more concise responses
     "temperature": 0.725,  # Higher for more natural, varied responses
     "recency_bias_prompt": (
         "Focus your answer on the user's latest message. Use prior conversation only to disambiguate if explicitly referenced. "
@@ -579,6 +580,16 @@ WAKEWORD_CONFIG = {
          "alexa_v0.1": 0.5,
         # "hey_jarvis": 0.3,
     },
+    # Bluetooth-specific thresholds (for Meta Ray-Bans and other BT devices)
+    # When a Bluetooth device is detected, these thresholds override model_thresholds
+    # Typically need to be more sensitive due to lower mic quality during BT transmission
+    "bluetooth_model_thresholds": {
+        "hey_honey_v2": 0.28,  # Lower than 0.4 (non-BT) - more sensitive for Ray-Bans
+        "sol": 0.12,          # Lower than 0.15 (non-BT) - more sensitive for Ray-Bans
+        "alexa_v0.1": 0.4,    # Lower than 0.5 (non-BT)
+        # Add more models as needed
+    },
+    "bluetooth_threshold": 0.15,  # Default BT threshold if model not in bluetooth_model_thresholds
     "cooldown_seconds": 2.0,
     "min_playback_interval": 0.5,
     "input_device_index": None,  # None = use default device, populated at runtime
@@ -1021,6 +1032,20 @@ def get_framework_config() -> Dict[str, Any]:
     wakeword_config["suppress_overflow_warnings"] = audio_config.is_bluetooth
     # Warm mode: keep subprocess alive between conversations for faster restart
     wakeword_config["warm_mode"] = TURNAROUND_CONFIG.get("wake_word_warm_mode", True)
+    
+    # Use Bluetooth-specific thresholds when Bluetooth device detected (e.g., Meta Ray-Bans)
+    if audio_config.is_bluetooth:
+        bluetooth_thresholds = WAKEWORD_CONFIG.get("bluetooth_model_thresholds", {})
+        if bluetooth_thresholds:
+            # Override model_thresholds with bluetooth_model_thresholds
+            wakeword_config["model_thresholds"] = bluetooth_thresholds.copy()
+            # Update default threshold for BT if specified
+            bt_default = WAKEWORD_CONFIG.get("bluetooth_threshold")
+            if bt_default is not None:
+                wakeword_config["threshold"] = bt_default
+            print(f"   Using Bluetooth wake word thresholds: {bluetooth_thresholds}")
+        else:
+            print(f"   ⚠️  Bluetooth device detected but no bluetooth_model_thresholds configured")
     
     # Update barge-in config with device-specific settings
     barge_in_config = BARGE_IN_CONFIG.copy()

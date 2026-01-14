@@ -3,7 +3,7 @@
 <plist version="1.0">
 <dict>
     <key>Label</key>
-    <string>com.homeassist.assistant</string>
+    <string>com.homeassist.mcp</string>
 
     <key>ProgramArguments</key>
     <array>
@@ -12,13 +12,6 @@
         <string>
 PROJECT_DIR="$HOME/Desktop/HomeAssistV3"
 VENV_PYTHON="${PROJECT_DIR}/venv/bin/python"
-BLUEUTIL="/opt/homebrew/bin/blueutil"
-DEVICE_ADDRESS="98-59-49-bf-40-45"
-
-is_bt() { [ "$("$BLUEUTIL" --is-connected "$DEVICE_ADDRESS" 2>/dev/null)" = "1" ]; }
-
-# Wait for Bluetooth connection
-while ! is_bt; do sleep 2; done
 
 cd "$PROJECT_DIR" || exit 1
 
@@ -27,32 +20,22 @@ if [ -f "${PROJECT_DIR}/.env" ]; then
     set -a; source "${PROJECT_DIR}/.env"; set +a
 fi
 
-# Prevent sleep
-caffeinate -i -s -d -m &amp;
-CAFF_PID=$!
-
-cleanup() {
-    [ -n "$CAFF_PID" ] &amp;&amp; kill $CAFF_PID 2>/dev/null
-    exit 0
-}
-trap cleanup SIGTERM SIGINT SIGHUP
-
-# Run assistant - exec replaces this shell with Python process
-exec "$VENV_PYTHON" -m assistant_framework.main continuous
+# Run MCP server with SSE transport
+exec "$VENV_PYTHON" -m mcp_server.server --transport sse --port 3000 --quiet
         </string>
     </array>
 
     <key>RunAtLoad</key>
     <true/>
 
-    <!-- Don't auto-restart - let user manually restart if needed -->
+    <!-- Keep MCP server running at all times -->
     <key>KeepAlive</key>
-    <false/>
+    <true/>
 
     <key>StandardOutPath</key>
-    <string>~/Desktop/HomeAssistV3/logs/assistant_stdout.log</string>
+    <string>/Users/morgannstuart/Desktop/HomeAssistV3/logs/mcp_server.log</string>
     <key>StandardErrorPath</key>
-    <string>~/Desktop/HomeAssistV3/logs/assistant_stderr.log</string>
+    <string>/Users/morgannstuart/Desktop/HomeAssistV3/logs/mcp_server.log</string>
 
     <key>EnvironmentVariables</key>
     <dict>
@@ -61,10 +44,8 @@ exec "$VENV_PYTHON" -m assistant_framework.main continuous
     </dict>
 
     <key>Nice</key>
-    <integer>-5</integer>
+    <integer>0</integer>
     <key>ProcessType</key>
-    <string>Interactive</string>
-    <key>LowPriorityIO</key>
-    <false/>
+    <string>Background</string>
 </dict>
 </plist>

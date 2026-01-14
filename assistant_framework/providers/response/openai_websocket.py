@@ -12,6 +12,7 @@ from typing import AsyncIterator, List, Dict, Optional, Any
 import aiohttp
 from mcp.client.session import ClientSession
 from mcp.client.stdio import StdioServerParameters, stdio_client
+from mcp.client.sse import sse_client
 
 try:
     # Try relative imports first (when used as package)
@@ -60,6 +61,8 @@ class OpenAIWebSocketResponseProvider(ResponseInterface):
         # MCP configuration
         self.mcp_server_path = config.get('mcp_server_path')
         self.mcp_venv_python = config.get('mcp_venv_python')
+        self.mcp_sse_url = config.get('mcp_sse_url', 'http://127.0.0.1:3000/sse')
+        self._mcp_sse_client = None  # Persistent SSE client context
         
         # Composed tool calling configuration
         self.composed_tool_calling_enabled = config.get('composed_tool_calling_enabled', True)
@@ -89,17 +92,22 @@ class OpenAIWebSocketResponseProvider(ResponseInterface):
             from openai import AsyncOpenAI
             self.openai_client = AsyncOpenAI(api_key=self.api_key)
             
-            # Initialize MCP connection if configured
-            if self.mcp_server_path:
-                await self._initialize_mcp()
+            # Run MCP init and WebSocket pre-connect in PARALLEL for faster boot
+            # These are independent operations that can run simultaneously
+            async def init_mcp():
+                if self.mcp_server_path:
+                    await self._initialize_mcp()
             
-            # Pre-establish persistent WebSocket connection for faster first response
-            try:
-                await self._ensure_ws_connected()
-                print("⚡ OpenAI Realtime WebSocket pre-connected on startup")
-            except Exception as e:
-                # Non-fatal: will connect on first request
-                print(f"⚠️  WebSocket pre-connect failed (will retry on first request): {e}")
+            async def init_ws():
+                try:
+                    await self._ensure_ws_connected()
+                    print("⚡ OpenAI Realtime WebSocket pre-connected on startup")
+                except Exception as e:
+                    # Non-fatal: will connect on first request
+                    print(f"⚠️  WebSocket pre-connect failed (will retry on first request): {e}")
+            
+            # Run both in parallel
+            await asyncio.gather(init_mcp(), init_ws(), return_exceptions=True)
             
             return True
         except Exception as e:
@@ -107,11 +115,70 @@ class OpenAIWebSocketResponseProvider(ResponseInterface):
             return False
     
     async def _initialize_mcp(self):
-        """Initialize MCP connection and discover tools."""
-        if not self.mcp_server_path:
+        """Initialize MCP connection and discover tools.
+        
+        Tries to connect to a persistent SSE server first (fast, ~50ms).
+        Falls back to spawning a stdio subprocess if SSE fails (~2s).
+        """
+        # Try SSE first (persistent background server)
+        if await self._try_mcp_sse():
             return
         
+        # Fall back to stdio subprocess
+        if self.mcp_server_path:
+            await self._try_mcp_stdio()
+    
+    async def _try_mcp_sse(self) -> bool:
+        """Try to connect to persistent MCP server via SSE."""
         try:
+            import time
+            start = time.time()
+            
+            # Try to connect to SSE server
+            self._mcp_sse_client = sse_client(self.mcp_sse_url, timeout=2.0)
+            read, write = await self._mcp_sse_client.__aenter__()
+            self.mcp_session = ClientSession(read, write)
+            await self.mcp_session.__aenter__()
+            
+            # Initialize MCP session
+            await self.mcp_session.initialize()
+            
+            # Discover available tools
+            await self._discover_mcp_tools()
+            
+            elapsed = time.time() - start
+            print(f"⚡ Connected to persistent MCP server via SSE ({elapsed:.2f}s)")
+            return True
+            
+        except Exception as e:
+            # Clean up partial SSE initialization
+            if self.mcp_session:
+                try:
+                    await self.mcp_session.__aexit__(None, None, None)
+                except Exception:
+                    pass
+                self.mcp_session = None
+            if self._mcp_sse_client:
+                try:
+                    await self._mcp_sse_client.__aexit__(None, None, None)
+                except Exception:
+                    pass
+                self._mcp_sse_client = None
+            
+            # SSE failed, will try stdio fallback
+            print(f"⚠️  SSE MCP connection failed: {e}")
+            print("   Falling back to subprocess mode...")
+            return False
+    
+    async def _try_mcp_stdio(self) -> bool:
+        """Fall back to spawning MCP server as subprocess."""
+        if not self.mcp_server_path:
+            return False
+        
+        try:
+            import time
+            start = time.time()
+            
             # Determine Python executable
             python_cmd = str(self.mcp_venv_python) if self.mcp_venv_python and Path(self.mcp_venv_python).exists() else sys.executable
             
@@ -133,23 +200,29 @@ class OpenAIWebSocketResponseProvider(ResponseInterface):
             
             # Discover available tools
             await self._discover_mcp_tools()
+            
+            elapsed = time.time() - start
+            print(f"🔧 Started MCP server subprocess ({elapsed:.1f}s)")
+            return True
+            
         except Exception as e:
             print(f"Warning: MCP initialization failed: {e}")
             # Clean up partial initialization
             if self.mcp_session:
                 try:
                     await self.mcp_session.__aexit__(None, None, None)
-                except e:
+                except Exception:
                     pass
                 self.mcp_session = None
             if self.stdio_client:
                 try:
                     await self.stdio_client.__aexit__(None, None, None)
-                except e:
+                except Exception:
                     pass
                 self.stdio_client = None
             # Don't fail the entire initialization if MCP fails
             print("Continuing without MCP tools...")
+            return False
     
     async def _ensure_ws_connected(self) -> aiohttp.ClientWebSocketResponse:
         """
@@ -758,17 +831,22 @@ class OpenAIWebSocketResponseProvider(ResponseInterface):
                 
         except Exception as e:
             import traceback
-            error_msg = f"Error calling tool {tool_name}: {e}"
+            from assistant_framework.utils.logging.console_logger import console_log_async
+            from assistant_framework.utils.audio.tones import beep_tool_failure
+            
             tb_str = traceback.format_exc()
             
-            # Log formatted error
+            # Log formatted error to local console
             print(format_tool_error(tool_name, str(e), tb_str))
             
-            # Play failure sound for exceptions
-            from assistant_framework.utils.audio.tones import beep_tool_failure
+            # Log detailed error to webconsole API
+            await console_log_async(f"Tool error [{tool_name}]: {e}", "command", is_positive=False)
+            
+            # Play failure sound
             beep_tool_failure()
             
-            return error_msg
+            # Return simple error message to model (details in webconsole)
+            return f"Error during {tool_name} tool call"
     
     def _play_tool_feedback(self, result_text: str) -> None:
         """Play audio feedback based on tool execution result."""
@@ -865,7 +943,7 @@ class OpenAIWebSocketResponseProvider(ResponseInterface):
                 model="gpt-4o-mini",
                 messages=messages,
                 temperature=0.6,
-                max_tokens=min(self.max_tokens, 800),
+                max_tokens=min(self.max_tokens, 750),
             )
             content = result.choices[0].message.content if result and result.choices else ""
             

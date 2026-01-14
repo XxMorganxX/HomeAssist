@@ -227,28 +227,56 @@ class RefactoredOrchestrator:
             print("🔧 Creating TTS provider...")
             self._tts = await self._create_tts_provider()
             
-            # Initialize termination detection (parallel "over out" detection)
-            if self._termination_enabled:
-                print("🔧 Creating termination detection provider...")
-                self._termination = await self._create_termination_provider()
+            # Run remaining initialization in PARALLEL for faster boot
+            # - Termination detection (~1-2s, loads ONNX model)
+            # - Conversation recorder (~0.1s)
+            # - Vector memory (~0.3s)
+            async def init_termination():
+                if self._termination_enabled:
+                    print("🔧 Creating termination detection provider...")
+                    return await self._create_termination_provider()
+                return None
             
-            # Initialize conversation recorder (Supabase)
-            if self._recording_enabled and self._supabase_url and self._supabase_key:
-                print("🔧 Initializing conversation recorder...")
-                self._recorder = ConversationRecorder(
-                    supabase_url=self._supabase_url,
-                    supabase_key=self._supabase_key
-                )
-                await self._recorder.initialize()
+            async def init_recorder():
+                if self._recording_enabled and self._supabase_url and self._supabase_key:
+                    print("🔧 Initializing conversation recorder...")
+                    recorder = ConversationRecorder(
+                        supabase_url=self._supabase_url,
+                        supabase_key=self._supabase_key
+                    )
+                    await recorder.initialize()
+                    return recorder
+                return None
             
-            # Initialize vector memory (semantic search of past conversations)
-            if self._context and hasattr(self._context, 'initialize_vector_memory'):
-                print("🔧 Initializing vector memory...")
-                vector_init_success = await self._context.initialize_vector_memory()
-                if vector_init_success:
-                    print("✅ Vector memory initialized")
-                else:
-                    print("⚠️  Vector memory initialization failed (continuing without)")
+            async def init_vector_memory():
+                if self._context and hasattr(self._context, 'initialize_vector_memory'):
+                    print("🔧 Initializing vector memory...")
+                    success = await self._context.initialize_vector_memory()
+                    if success:
+                        print("✅ Vector memory initialized")
+                    else:
+                        print("⚠️  Vector memory initialization failed (continuing without)")
+                    return success
+                return False
+            
+            # Run all three in parallel
+            termination_result, recorder_result, _ = await asyncio.gather(
+                init_termination(),
+                init_recorder(),
+                init_vector_memory(),
+                return_exceptions=True
+            )
+            
+            # Handle results
+            if isinstance(termination_result, Exception):
+                print(f"⚠️  Termination detection failed: {termination_result}")
+            else:
+                self._termination = termination_result
+            
+            if isinstance(recorder_result, Exception):
+                print(f"⚠️  Conversation recorder failed: {recorder_result}")
+            else:
+                self._recorder = recorder_result
             
             # Register cleanup handlers with state machine (CRITICAL for preventing segfaults)
             self._register_cleanup_handlers()
