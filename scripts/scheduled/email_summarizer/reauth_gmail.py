@@ -29,8 +29,8 @@ load_dotenv(PROJECT_ROOT / ".env")
 
 # Configuration
 SCOPES = ['https://www.googleapis.com/auth/gmail.readonly']
-TOKEN_FILE = PROJECT_ROOT / "google_creds" / "email_summarizer_token.json"
-CREDENTIALS_FILE = PROJECT_ROOT / "google_creds" / "email_summarizer_credentials.json"
+TOKEN_FILE = PROJECT_ROOT / "creds" / "email_summarizer_token.json"
+CREDENTIALS_FILE = PROJECT_ROOT / "creds" / "email_summarizer_credentials.json"
 ENV_FILE = PROJECT_ROOT / ".env"
 
 

@@ -81,7 +81,7 @@ SPOTIFY_USERS = {
 
 # Service Account credentials (recommended - never expires, no user interaction)
 # The same service account can access multiple calendars if each is shared with it
-_DEFAULT_SA_FILE = str(_PROJECT_ROOT / "google_creds" / "homeassist-google-service.json")
+_DEFAULT_SA_FILE = str(_PROJECT_ROOT / "creds" / "homeassist-google-service.json")
 GOOGLE_SERVICE_ACCOUNT_FILE = os.environ.get("GOOGLE_SERVICE_ACCOUNT_FILE", _DEFAULT_SA_FILE)
 
 # Calendar scopes

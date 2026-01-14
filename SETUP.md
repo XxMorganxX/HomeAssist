@@ -637,7 +637,7 @@ LIGHT_IPS = {
 
 #### Google Calendar
 
-Place credentials in `mcp_server/google_creds/`:
+Place credentials in `creds/`:
 
 - `google_creds_<user>.json` — OAuth client secrets
 - `token_<user>.json` — Access tokens (auto-generated on first auth)
@@ -1180,7 +1180,7 @@ python -c "from mcp_server.clients.calendar_client import CalendarComponent; c =
 
 2. Base64 encode your token:
 ```bash
-cat google_creds/token_morgan.json | base64
+cat creds/token_morgan.json | base64
 ```
 
 3. Add as GitHub secret: `GOOGLE_CALENDAR_TOKEN_JSON`

@@ -120,9 +120,10 @@ HomeAssistV3/
 │   ├── piper_models/             # Piper TTS .onnx files
 │   └── chatterbox_models/        # Chatterbox neural TTS
 │
-└── google_creds/                 # OAuth credentials
-    ├── google_creds_*.json       # Client secrets per user
-    └── token_*.json              # Access tokens per user
+└── creds/                        # OAuth credentials (Google, Spotify, etc.)
+    ├── google_creds_*.json       # Google client secrets per user
+    ├── token_*.json              # Access tokens per user
+    └── .spotify_cache            # Spotify OAuth tokens
 ```
 
 ### Execution Flow

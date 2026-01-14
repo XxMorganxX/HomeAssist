@@ -19,7 +19,7 @@ BLUEUTIL="/opt/homebrew/bin/blueutil"
 
 # ULTRA AGGRESSIVE - 3-5 second reconnection target
 CHECK_CONNECTED=2        # Check every 2 seconds when connected!
-CHECK_DISCONNECTED=1.5   # Check every 1 second when disconnected
+CHECK_DISCONNECTED=1.0  # Check every 1 second when disconnected
 MAX_BACKOFF=5            # Max 5 seconds between attempts
 BACKOFF=1.0              # Start with 1 second retry
 FAILS=0
@@ -48,7 +48,7 @@ do_conn() {
     if is_conn; then
         log "✅ Connected!"
         FAILS=0
-        BACKOFF=1.5
+        BACKOFF=1.0
         return 0
     fi
     return 1

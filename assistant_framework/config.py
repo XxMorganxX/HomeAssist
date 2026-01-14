@@ -64,9 +64,9 @@ def _configure_google_credentials():
     
     if needs_config:
         possible_creds = [
-            Path(__file__).parent / "google_creds" / "tts-qwiklab.json",
-            parent_dir / "google_creds" / "tts-qwiklab.json",
-            parent_dir / "assistant_framework" / "google_creds" / "tts-qwiklab.json",
+            Path(__file__).parent / "creds" / "tts-qwiklab.json",
+            parent_dir / "creds" / "tts-qwiklab.json",
+            parent_dir / "assistant_framework" / "creds" / "tts-qwiklab.json",
         ]
         for cred_path in possible_creds:
             if cred_path.exists():

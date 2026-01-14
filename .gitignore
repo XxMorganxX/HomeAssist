@@ -1,6 +1,6 @@
 .env
 __pycache__/
-google_creds/
+creds/
 logs/
 new_mail.json
 relevance_results.json

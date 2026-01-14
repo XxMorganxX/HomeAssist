@@ -12,8 +12,8 @@
 # GOOGLE API CREDENTIALS CONFIGURATION
 # =============================================================================
 # Configure the location of your Google API credential files
-GOOGLE_TOKEN_FILE = "google_creds/email_summarizer_token.json"                    # Google OAuth token file
-GOOGLE_CREDENTIALS_FILE = "google_creds/email_summarizer_credentials.json"  # Google service account credentials
+GOOGLE_TOKEN_FILE = "creds/email_summarizer_token.json"                    # Google OAuth token file
+GOOGLE_CREDENTIALS_FILE = "creds/email_summarizer_credentials.json"  # Google service account credentials
 EMAIL_SUMMARIZER_DIRECTORY = "scripts/scheduled/email_summarizer/"
 # =============================================================================
 
