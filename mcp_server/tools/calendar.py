@@ -76,7 +76,18 @@ class CalendarTool(BaseTool):
     def description(self) -> str:
         """Dynamic description using configured default user."""
         calendars = self.available_calendars
-        return f"Google Calendar access. ONE tool call per request. Calendars: {calendars}. READ: auto-reads from all. WRITE: 'calendars' array adds same event to multiple calendars in one call. IMPORTANT: For create_event, NEVER invent times - if user didn't specify start_time/end_time, OMIT those fields and the tool will tell you to ask the user. NEW: create_event auto-creates smart briefing reminders using AI analysis (same system as scheduled calendar briefings). Set create_briefing=false to disable."
+        return (
+            "Google Calendar tool (read events + create events). "
+            "Use ONLY when the user asks about their schedule/calendar OR explicitly asks to add/create/schedule an event. "
+            "Do NOT use for general conversation. "
+            f"Available calendars: {calendars}. "
+            "ONE tool call per user request (send exactly one command). "
+            "READ: returns events; reads across all calendars by default. "
+            "CREATE_EVENT: only when user explicitly wants an event created. "
+            "Never fabricate dates/times/locations/attendees. If the user did not provide start/end time, omit start_time/end_time and ask a follow-up after the tool response. "
+            "Multi-calendar write: provide a 'calendars' array to create the same event on multiple calendars in one call. "
+            "Optional: create_event can auto-create smart briefing reminders; set create_briefing=false to disable."
+        )
     
     @property
     def available_calendars(self) -> List[str]:
