@@ -7,64 +7,32 @@
 
     <key>ProgramArguments</key>
     <array>
-        <string>/bin/zsh</string>
-        <string>-c</string>
-        <string>
-PROJECT_DIR="$HOME/Desktop/HomeAssistV3"
-VENV_PYTHON="${PROJECT_DIR}/venv/bin/python"
-BLUEUTIL="/opt/homebrew/bin/blueutil"
-DEVICE_ADDRESS="98-59-49-bf-40-45"
-
-is_bt() { [ "$("$BLUEUTIL" --is-connected "$DEVICE_ADDRESS" 2>/dev/null)" = "1" ]; }
-
-# Wait for Bluetooth connection
-while ! is_bt; do sleep 2; done
-
-cd "$PROJECT_DIR" || exit 1
-
-# Load environment
-if [ -f "${PROJECT_DIR}/.env" ]; then
-    set -a; source "${PROJECT_DIR}/.env"; set +a
-fi
-
-# Prevent sleep
-caffeinate -i -s -d -m &amp;
-CAFF_PID=$!
-
-cleanup() {
-    [ -n "$CAFF_PID" ] &amp;&amp; kill $CAFF_PID 2>/dev/null
-    exit 0
-}
-trap cleanup SIGTERM SIGINT SIGHUP
-
-# Run assistant - exec replaces this shell with Python process
-exec "$VENV_PYTHON" -m assistant_framework.main continuous
-        </string>
+        <string>/usr/bin/osascript</string>
+        <string>-e</string>
+        <string>tell application "Terminal" to do script "cd $HOME/Desktop/HomeAssistV3 &amp;&amp; ./homeassist run"</string>
     </array>
 
+    <!-- Start on login -->
     <key>RunAtLoad</key>
     <true/>
 
-    <!-- Don't auto-restart - let user manually restart if needed -->
+    <!-- One-shot - homeassist run has its own restart loop -->
     <key>KeepAlive</key>
     <false/>
 
+    <!-- Wait a few seconds after login for system to settle -->
+    <key>StartInterval</key>
+    <integer>5</integer>
+
     <key>StandardOutPath</key>
-    <string>~/Desktop/HomeAssistV3/logs/assistant_stdout.log</string>
+    <string>~/Desktop/HomeAssistV3/logs/assistant_launcher.log</string>
     <key>StandardErrorPath</key>
-    <string>~/Desktop/HomeAssistV3/logs/assistant_stderr.log</string>
+    <string>~/Desktop/HomeAssistV3/logs/assistant_launcher.log</string>
 
     <key>EnvironmentVariables</key>
     <dict>
         <key>PATH</key>
         <string>/opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin:/sbin:/usr/sbin</string>
     </dict>
-
-    <key>Nice</key>
-    <integer>-5</integer>
-    <key>ProcessType</key>
-    <string>Interactive</string>
-    <key>LowPriorityIO</key>
-    <false/>
 </dict>
 </plist>

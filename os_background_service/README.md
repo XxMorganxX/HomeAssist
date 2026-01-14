@@ -78,15 +78,23 @@ cd $HOME/Desktop/HomeAssistV3
 │  │  - 2s poll interval  │    │  - Always running            │  │
 │  │  - KeepAlive: true   │    │  - Port 3000                 │  │
 │  └──────────────────────┘    └──────────────────────────────┘  │
+│                                                                  │
+│  ┌──────────────────────────────────────────────────────────┐  │
+│  │  Assistant Launcher (on boot)                            │  │
+│  │  - Opens Terminal window                                 │  │
+│  │  - Runs: homeassist run                                  │  │
+│  │  - One-shot startup                                      │  │
+│  └──────────────────────────────────────────────────────────┘  │
 └─────────────────────────────────────────────────────────────────┘
                               │
                               ▼
 ┌─────────────────────────────────────────────────────────────────┐
-│               homeassist run (foreground)                       │
+│               homeassist run (in Terminal)                      │
 │  - Waits for Bluetooth connection                               │
 │  - Monitors for PaMacCore errors                                │
 │  - Auto-restarts on disconnect                                  │
 │  - Connects to persistent MCP server                            │
+│  - Wake word Bluetooth verification                             │
 └─────────────────────────────────────────────────────────────────┘
 ```
 
@@ -101,7 +109,7 @@ cd $HOME/Desktop/HomeAssistV3
 | `show_logs.command` | Log viewer executable |
 | `test_bluetooth_reconnect.sh` | Test Bluetooth reconnection |
 | `test_bluetooth_simple.sh` | Simple Bluetooth test |
-| `com.homeassist.assistant.plist` | Main assistant service config (not used in foreground mode) |
+| `com.homeassist.assistant.plist` | Assistant launcher (opens Terminal with `homeassist run`) |
 | `com.homeassist.bluetooth.plist` | Bluetooth connector config |
 | `com.homeassist.mcp.plist` | Persistent MCP server config |
 | `com.homeassist.terminal.plist` | Terminal log viewer config |
@@ -194,6 +202,23 @@ The MCP (Model Context Protocol) server runs persistently in the background, pro
 - **Auto-restart**: Managed by launchd
 
 The assistant connects to this persistent server instead of spawning it each time.
+
+## Boot Behavior
+
+When you log in to macOS:
+
+1. **`com.homeassist.bluetooth.plist`** starts immediately, begins aggressive Bluetooth connection
+2. **`com.homeassist.mcp.plist`** starts the persistent MCP server on port 3000
+3. **`com.homeassist.terminal.plist`** opens a Terminal window with logs (optional)
+4. **`com.homeassist.assistant.plist`** (after 5 second delay) opens a NEW Terminal window and runs `homeassist run`
+
+The assistant Terminal window will show all Bluetooth connection attempts, boot progress, and runtime logs. You can close it anytime with Ctrl+C.
+
+**Why this design?**
+- ✅ Single source of truth: All logic lives in `homeassist run`
+- ✅ No duplication: Updates to `homeassist run` automatically apply to boot service
+- ✅ Visibility: Full console output for debugging
+- ✅ Control: Easy to stop/restart from the Terminal
 
 ## Power Management
 

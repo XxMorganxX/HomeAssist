@@ -1,0 +1,47 @@
+# Background Service Delegation Rule
+
+When modifying the OS background service logic (Bluetooth handling, error detection, restart behavior, etc.), ensure that:
+
+## Single Source of Truth
+
+The **`homeassist` script** is the single source of truth for all assistant runtime logic:
+- Bluetooth connection/reconnection logic
+- PaMacCore error detection
+- Wake word Bluetooth verification  
+- Restart behavior
+- Error handling
+
+## Background Service Simplicity
+
+The **`com.homeassist.assistant.plist`** launchd service should ONLY:
+1. Open a Terminal window on boot
+2. Execute `homeassist run`
+3. That's it - no inline logic duplication
+
+**DO NOT:**
+- ❌ Add Bluetooth logic to the plist
+- ❌ Add error detection to the plist
+- ❌ Add restart loops to the plist
+- ❌ Duplicate any logic that exists in `homeassist run`
+
+**Correct pattern:**
+```xml
+<!-- Good: Delegates to homeassist run -->
+<string>/usr/bin/osascript</string>
+<string>-e</string>
+<string>tell application "Terminal" to do script "cd $HOME/Desktop/HomeAssistV3 &amp;&amp; ./homeassist run"</string>
+```
+
+**Incorrect pattern:**
+```xml
+<!-- Bad: Inline logic that duplicates homeassist run -->
+<string>while true; do python -m assistant_framework.main continuous; done</string>
+```
+
+## Why This Matters
+
+When the user updates `homeassist run` with new features (like the recent PaMacCore error detection or Bluetooth verification), those changes should automatically apply to the boot service WITHOUT requiring plist updates.
+
+## Exception
+
+The only other plist services (`com.homeassist.bluetooth.plist`, `com.homeassist.mcp.plist`, `com.homeassist.terminal.plist`) have their own specific purposes and should maintain their own logic.
