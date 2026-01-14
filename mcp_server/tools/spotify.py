@@ -217,13 +217,16 @@ class SpotifyPlaybackTool(BaseTool):
             if not sp_client:
                 # Check for specific missing components to provide better error messages
                 import os as _os
-                cache_exists = _os.path.exists(".spotify_cache")
+                from pathlib import Path as _PathCheck
+                _project_root = _PathCheck(__file__).parent.parent.parent
+                _cache_file = _project_root / "creds" / ".spotify_cache"
+                cache_exists = _cache_file.exists()
                 has_credentials = bool(self.SPOTIPY_CLIENT_ID.get(user) and self.SPOTIPY_CLIENT_SECRET.get(user))
 
                 if not cache_exists:
                     error_msg = (
-                        "Spotify not authenticated. Please run 'python authenticate_spotify.py' "
-                        "or 'python auth_script.py' first to authorize Spotify access."
+                        "Spotify not authenticated. Please run 'python scripts/authenticate_spotify.py' "
+                        "first to authorize Spotify access."
                     )
                 elif not has_credentials:
                     error_msg = (
@@ -330,9 +333,9 @@ class SpotifyPlaybackTool(BaseTool):
             import json as _json
             from pathlib import Path as _Path
 
-            # Get the absolute path to the cache file in the project root
+            # Get the absolute path to the cache file in the creds directory
             project_root = _Path(__file__).parent.parent.parent
-            cache_path = str(project_root / ".spotify_cache")
+            cache_path = str(project_root / "creds" / ".spotify_cache")
 
             self.logger.info(f"🔍 Looking for cache at: {cache_path}")
 

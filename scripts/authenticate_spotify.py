@@ -39,8 +39,9 @@ CLIENT_SECRET = os.getenv("SPOTIFY_CLIENT_SECRET")
 REDIRECT_URI = os.getenv("SPOTIFY_REDIRECT_URI", "http://127.0.0.1:8888/callback")
 SCOPE = "user-read-playback-state user-modify-playback-state playlist-read-private"
 
-# Cache file location (project root)
-CACHE_PATH = Path(__file__).parent / ".spotify_cache"
+# Cache file location (creds directory)
+PROJECT_ROOT = Path(__file__).parent.parent
+CACHE_PATH = PROJECT_ROOT / "creds" / ".spotify_cache"
 
 
 def main():
