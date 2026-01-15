@@ -6,10 +6,15 @@ with enhanced parameter descriptions and detailed action specifications.
 """
 
 import os
+import platform
+import subprocess
+import tempfile
+import time
 import spotipy
 from spotipy.oauth2 import SpotifyOAuth
 from spotipy.cache_handler import CacheFileHandler
-from typing import Dict, Any, Optional, Literal, List
+from spotipy.exceptions import SpotifyException
+from typing import Dict, Any, Optional, List
 from mcp_server.base_tool import BaseTool
 from dotenv import load_dotenv
 from mcp_server.config import LOG_TOOLS
@@ -94,6 +99,14 @@ class SpotifyPlaybackTool(BaseTool):
         
         # Match the scope used by auth_script.py exactly
         self.SCOPE = "user-read-playback-state user-modify-playback-state playlist-read-private"
+        
+        # Target device ID for auto-activation (optional but recommended)
+        # User can find this by running the "devices" action while Spotify is playing
+        self.TARGET_DEVICE_ID = os.getenv("SPOTIFY_DEVICE_ID")
+        if self.TARGET_DEVICE_ID:
+            self.logger.info(f"🎵 Target Spotify device ID configured: {self.TARGET_DEVICE_ID[:8]}...")
+        else:
+            self.logger.info("🎵 No SPOTIFY_DEVICE_ID configured - will use any available device")
         
         # Spotify client instances (lazy initialization)
         self.sp_clients = {}
@@ -452,10 +465,35 @@ class SpotifyPlaybackTool(BaseTool):
             }
     
     def _handle_play(self, sp_client, params: Dict[str, Any]) -> Dict[str, Any]:
-        """Handle play action."""
+        """Handle play action with automatic device activation."""
         try:
-            device_id = params.get("device_id")
-            sp_client.start_playback(device_id=device_id)
+            # Use provided device_id or ensure we have an active device
+            device_id = params.get("device_id") or self._ensure_active_device(sp_client)
+            
+            if not device_id:
+                return {
+                    "success": False,
+                    "error": "No Spotify device available. Please open Spotify on your Mac or another device first.",
+                    "hint": "Run this tool with action 'devices' after opening Spotify to see available devices."
+                }
+            
+            # Attempt playback with retry logic
+            retried = False
+            try:
+                sp_client.start_playback(device_id=device_id)
+            except SpotifyException as e:
+                if e.http_status == 404 and not retried:
+                    # Device may have gone inactive - try transfer and retry
+                    self.logger.info("🔄 Got 404, attempting transfer_playback retry...")
+                    retried = True
+                    try:
+                        sp_client.transfer_playback([device_id], force_play=False)
+                        time.sleep(0.3)
+                        sp_client.start_playback(device_id=device_id)
+                    except SpotifyException:
+                        raise e  # Raise original error if retry fails
+                else:
+                    raise
             
             # Get current track info
             current = sp_client.current_playback()
@@ -464,9 +502,10 @@ class SpotifyPlaybackTool(BaseTool):
             return {
                 "success": True,
                 "message": "Playback started",
-                "current_track": track_info
+                "current_track": track_info,
+                "device_id": device_id
             }
-        except Exception as e:
+        except SpotifyException as e:
             error_str = str(e).lower()
             if "403" in error_str and "restriction" in error_str:
                 return {
@@ -474,10 +513,11 @@ class SpotifyPlaybackTool(BaseTool):
                     "error": "Cannot resume playback: Spotify restrictions apply. Try using Spotify Premium or a different device.",
                     "details": str(e)
                 }
-            elif "404" in error_str:
+            elif e.http_status == 404 or "404" in error_str:
                 return {
                     "success": False,
                     "error": "No active Spotify device found. Please open Spotify on a device first.",
+                    "hint": "Make sure Spotify is open and has played something recently.",
                     "details": str(e)
                 }
             else:
@@ -486,6 +526,12 @@ class SpotifyPlaybackTool(BaseTool):
                     "error": f"Failed to start playback: {str(e)}",
                     "details": str(e)
                 }
+        except Exception as e:
+            return {
+                "success": False,
+                "error": f"Failed to start playback: {str(e)}",
+                "details": str(e)
+            }
     
     def _handle_pause(self, sp_client) -> Dict[str, Any]:
         """Handle pause action."""
@@ -522,7 +568,6 @@ class SpotifyPlaybackTool(BaseTool):
         sp_client.next_track()
         
         # Get new current track info
-        import time
         time.sleep(0.5)  # Brief delay for track change
         current = sp_client.current_playback()
         track_info = self._extract_track_info(current) if current else {}
@@ -538,7 +583,6 @@ class SpotifyPlaybackTool(BaseTool):
         sp_client.previous_track()
         
         # Get new current track info
-        import time
         time.sleep(0.5)  # Brief delay for track change
         current = sp_client.current_playback()
         track_info = self._extract_track_info(current) if current else {}
@@ -559,7 +603,18 @@ class SpotifyPlaybackTool(BaseTool):
         }
     
     def _handle_search_track(self, sp_client, query: str, limit: int) -> Dict[str, Any]:
-        """Handle track search and play."""
+        """Handle track search and play with automatic device activation."""
+        # Ensure we have an active device before searching (so we can play immediately)
+        device_id = self._ensure_active_device(sp_client)
+        
+        if not device_id:
+            return {
+                "success": False,
+                "error": "No Spotify device available. Please open Spotify on your Mac or another device first.",
+                "hint": "Run this tool with action 'devices' after opening Spotify to see available devices.",
+                "query": query
+            }
+        
         results = sp_client.search(q=query, type='track', limit=limit)
         tracks = results['tracks']['items']
         
@@ -570,20 +625,49 @@ class SpotifyPlaybackTool(BaseTool):
                 "query": query
             }
         
-        # Play the first result
+        # Play the first result on the active device
         track = tracks[0]
-        sp_client.start_playback(uris=[track['uri']])
+        try:
+            sp_client.start_playback(uris=[track['uri']], device_id=device_id)
+        except SpotifyException as e:
+            if e.http_status == 404:
+                # Retry with transfer
+                try:
+                    sp_client.transfer_playback([device_id], force_play=False)
+                    time.sleep(0.3)
+                    sp_client.start_playback(uris=[track['uri']], device_id=device_id)
+                except SpotifyException:
+                    return {
+                        "success": False,
+                        "error": f"Found track but could not start playback: {str(e)}",
+                        "track_found": self._extract_track_info_from_item(track),
+                        "query": query
+                    }
+            else:
+                raise
         
         return {
             "success": True,
             "message": f"Playing track: {track['name']} by {', '.join(a['name'] for a in track['artists'])}",
             "track_played": self._extract_track_info_from_item(track),
             "total_results": len(tracks),
-            "query": query
+            "query": query,
+            "device_id": device_id
         }
     
     def _handle_search_artist(self, sp_client, query: str, limit: int) -> Dict[str, Any]:
-        """Handle artist search and play."""
+        """Handle artist search and play with automatic device activation."""
+        # Ensure we have an active device before searching (so we can play immediately)
+        device_id = self._ensure_active_device(sp_client)
+        
+        if not device_id:
+            return {
+                "success": False,
+                "error": "No Spotify device available. Please open Spotify on your Mac or another device first.",
+                "hint": "Run this tool with action 'devices' after opening Spotify to see available devices.",
+                "query": query
+            }
+        
         results = sp_client.search(q=query, type='artist', limit=limit)
         artists = results['artists']['items']
         
@@ -599,16 +683,35 @@ class SpotifyPlaybackTool(BaseTool):
         top_tracks = sp_client.artist_top_tracks(artist['id'])['tracks']
         
         if top_tracks:
-            # Play the top track
+            # Play the top track on the active device
             track = top_tracks[0]
-            sp_client.start_playback(uris=[track['uri']])
+            try:
+                sp_client.start_playback(uris=[track['uri']], device_id=device_id)
+            except SpotifyException as e:
+                if e.http_status == 404:
+                    # Retry with transfer
+                    try:
+                        sp_client.transfer_playback([device_id], force_play=False)
+                        time.sleep(0.3)
+                        sp_client.start_playback(uris=[track['uri']], device_id=device_id)
+                    except SpotifyException:
+                        return {
+                            "success": False,
+                            "error": f"Found artist but could not start playback: {str(e)}",
+                            "artist": artist['name'],
+                            "track_found": self._extract_track_info_from_item(track),
+                            "query": query
+                        }
+                else:
+                    raise
             
             return {
                 "success": True,
                 "message": f"Playing top track by {artist['name']}: {track['name']}",
                 "artist": artist['name'],
                 "track_played": self._extract_track_info_from_item(track),
-                "query": query
+                "query": query,
+                "device_id": device_id
             }
         else:
             return {
@@ -660,6 +763,160 @@ class SpotifyPlaybackTool(BaseTool):
             "devices": device_list,
             "total_devices": len(device_list)
         }
+    
+    def _ensure_active_device(self, sp_client) -> Optional[str]:
+        """
+        Ensure a device is active for playback. Returns device_id to use.
+        
+        Logic:
+        1. Check if any device is already active -> return it
+        2. If target device exists but inactive -> transfer playback to it
+        3. If target device not in list -> try AppleScript to open Spotify (macOS only)
+        4. Return device_id or None if failed
+        """
+        try:
+            # Get current devices
+            devices_response = sp_client.devices()
+            devices = devices_response.get('devices', [])
+            
+            self.logger.info(f"🔍 Found {len(devices)} Spotify device(s)")
+            
+            # Check if any device is already active
+            for device in devices:
+                if device.get('is_active'):
+                    self.logger.info(f"✅ Found active device: {device['name']} ({device['id'][:8]}...)")
+                    return device['id']
+            
+            # No active device - try to activate one
+            target_device_id = self.TARGET_DEVICE_ID
+            
+            # Check if target device is in the list (but inactive)
+            if target_device_id:
+                target_in_list = any(d['id'] == target_device_id for d in devices)
+                
+                if target_in_list:
+                    # Target exists but not active - transfer playback to it
+                    self.logger.info(f"🔄 Transferring playback to target device: {target_device_id[:8]}...")
+                    try:
+                        sp_client.transfer_playback([target_device_id], force_play=False)
+                        time.sleep(0.3)  # Brief delay for transfer to complete
+                        return target_device_id
+                    except SpotifyException as e:
+                        self.logger.warning(f"⚠️ Transfer playback failed: {e}")
+                        # Still return the device_id to try playback anyway
+                        return target_device_id
+            
+            # If we have devices but none active and no specific target, use the first one
+            if devices and not target_device_id:
+                first_device = devices[0]
+                self.logger.info(f"🔄 No target device configured, activating first available: {first_device['name']}")
+                try:
+                    sp_client.transfer_playback([first_device['id']], force_play=False)
+                    time.sleep(0.3)
+                    return first_device['id']
+                except SpotifyException as e:
+                    self.logger.warning(f"⚠️ Transfer playback failed: {e}")
+                    return first_device['id']
+            
+            # No devices available at all - try AppleScript to open Spotify (macOS only)
+            if not devices:
+                self.logger.info("📱 No devices found - attempting to open Spotify app...")
+                if self._open_spotify_app():
+                    # Wait for Spotify to register as a device
+                    time.sleep(2)
+                    
+                    # Retry getting devices
+                    devices_response = sp_client.devices()
+                    devices = devices_response.get('devices', [])
+                    
+                    if devices:
+                        # Use target device if configured and available, otherwise first device
+                        if target_device_id:
+                            for device in devices:
+                                if device['id'] == target_device_id:
+                                    self.logger.info(f"✅ Target device now available: {device['name']}")
+                                    return device['id']
+                        
+                        # Fallback to first available device
+                        device = devices[0]
+                        self.logger.info(f"✅ Device now available: {device['name']}")
+                        try:
+                            sp_client.transfer_playback([device['id']], force_play=False)
+                            time.sleep(0.3)
+                        except SpotifyException:
+                            pass  # Continue anyway
+                        return device['id']
+                    else:
+                        self.logger.warning("⚠️ Still no devices after opening Spotify")
+            
+            # Could not activate any device
+            self.logger.warning("❌ Could not find or activate any Spotify device")
+            return None
+            
+        except Exception as e:
+            self.logger.error(f"❌ Error ensuring active device: {e}")
+            return None
+    
+    def _open_spotify_app(self) -> bool:
+        """
+        Use AppleScript to open Spotify app and trigger brief playback (macOS only).
+        This wakes up the device so it appears in the Spotify Connect device list.
+        
+        Returns:
+            True if Spotify was opened successfully, False otherwise
+        """
+        if platform.system() != "Darwin":
+            self.logger.info("⏭️ AppleScript not available (not macOS)")
+            return False
+        
+        script = '''
+tell application "Spotify"
+    activate
+    delay 1
+    play
+    delay 0.5
+    pause
+end tell
+'''
+        
+        try:
+            # Write script to temp file to avoid shell escaping issues
+            with tempfile.NamedTemporaryFile(mode='w', suffix='.applescript', delete=False) as f:
+                f.write(script)
+                script_path = f.name
+            
+            try:
+                result = subprocess.run(
+                    ["osascript", script_path],
+                    capture_output=True,
+                    text=True,
+                    timeout=15  # 15 second timeout
+                )
+                
+                if result.returncode == 0:
+                    self.logger.info("✅ Spotify app opened and activated via AppleScript")
+                    return True
+                else:
+                    self.logger.warning(f"⚠️ AppleScript returned non-zero: {result.stderr}")
+                    # Still return True if Spotify opened but play/pause failed
+                    return True
+                    
+            finally:
+                # Clean up temp file
+                try:
+                    os.unlink(script_path)
+                except Exception:
+                    pass
+                    
+        except subprocess.TimeoutExpired:
+            self.logger.warning("⚠️ AppleScript timed out - Spotify may be slow to respond")
+            return True  # Spotify might still be opening
+        except FileNotFoundError:
+            self.logger.error("❌ osascript not found - AppleScript not available")
+            return False
+        except Exception as e:
+            self.logger.error(f"❌ Failed to open Spotify via AppleScript: {e}")
+            return False
     
     def _handle_shuffle(self, sp_client, shuffle_state: Optional[bool]) -> Dict[str, Any]:
         """Handle shuffle toggle."""
@@ -722,5 +979,5 @@ class SpotifyPlaybackTool(BaseTool):
         try:
             from datetime import datetime
             return datetime.now().isoformat()
-        except:
+        except Exception:
             return "unknown"

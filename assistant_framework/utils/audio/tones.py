@@ -245,6 +245,16 @@ def beep_tool_failure() -> None:
     _play_async(_beep_impl_tool_failure)
 
 
+def beep_tool_call() -> None:
+    """Play sound when a tool is being called/started."""
+    _play_async(_beep_impl_tool_call)
+
+
+def beep_tools_complete() -> None:
+    """Play sound when all tool calls are complete (last tool finished)."""
+    _play_async(_beep_impl_tools_complete)
+
+
 def _beep_impl_shutdown() -> None:
     """Single tone for shutdown/goodbye (simplified for faster transition)."""
     _beep_platform(
@@ -282,4 +292,162 @@ def _beep_impl_tool_failure() -> None:
         linux_ids=["dialog-warning", "message-attention"],
         win_tone=(500, 150),
     )
+
+
+def _beep_impl_tool_call() -> None:
+    """Short click for tool being called."""
+    _beep_platform(
+        # Quick, subtle click to indicate action started
+        mac_sounds=["Tink"],
+        linux_ids=["button-pressed", "bell"],
+        win_tone=(1000, 50),
+    )
+
+
+def _beep_impl_tools_complete() -> None:
+    """Completion chime when all tools are done."""
+    _beep_platform(
+        # Satisfying completion sound
+        mac_sounds=["Bottle"],
+        linux_ids=["complete", "bell"],
+        win_tone=(1100, 120),
+    )
+
+
+# =============================================================================
+# STATE TRANSITION BEEPS (Config-Driven)
+# Each unique state transition gets a distinct sound for audio feedback.
+# Sounds are configured in assistant_framework/config.py under TRANSITION_SOUNDS.
+# =============================================================================
+
+def _get_transition_config():
+    """Lazy-load transition sound config to avoid circular imports."""
+    try:
+        from assistant_framework.config import (
+            TRANSITION_SOUNDS,
+            TRANSITION_SOUNDS_LINUX,
+            TRANSITION_SOUNDS_WINDOWS,
+        )
+        return TRANSITION_SOUNDS, TRANSITION_SOUNDS_LINUX, TRANSITION_SOUNDS_WINDOWS
+    except ImportError:
+        # Fallback defaults if config not available
+        return {}, {}, {}
+
+
+def _play_transition_sound(transition_key: str) -> None:
+    """
+    Play the configured sound for a state transition.
+    
+    Only plays a sound if the transition is explicitly configured.
+    Unlisted transitions are silent.
+    
+    Args:
+        transition_key: Key in TRANSITION_SOUNDS config (e.g., "idle_to_wakeword")
+    """
+    mac_sounds, linux_sounds, win_sounds = _get_transition_config()
+    
+    # Only play if transition is explicitly listed in config
+    # Unlisted transitions = silent (no sound)
+    if transition_key not in mac_sounds:
+        return
+    
+    mac_sound = mac_sounds.get(transition_key)
+    linux_id = linux_sounds.get(transition_key)
+    win_tone = win_sounds.get(transition_key)
+    
+    # Skip if sound is explicitly disabled (set to None)
+    if mac_sound is None:
+        return
+    
+    _beep_platform(
+        mac_sounds=[mac_sound],
+        linux_ids=[linux_id, "bell"] if linux_id else ["bell"],
+        win_tone=win_tone or (800, 100),
+    )
+
+
+def beep_transition_idle_to_wakeword() -> None:
+    """IDLE → WAKE_WORD_LISTENING: System entering wake word detection mode."""
+    _play_async(lambda: _play_transition_sound("idle_to_wakeword"))
+
+
+def beep_transition_idle_to_synthesizing() -> None:
+    """IDLE → SYNTHESIZING: Starting TTS directly from idle (dev mode)."""
+    _play_async(lambda: _play_transition_sound("idle_to_synthesizing"))
+
+
+def beep_transition_idle_to_transcribing() -> None:
+    """IDLE → TRANSCRIBING: Starting transcription directly from idle (dev mode)."""
+    _play_async(lambda: _play_transition_sound("idle_to_transcribing"))
+
+
+def beep_transition_wakeword_to_transcribing() -> None:
+    """WAKE_WORD_LISTENING → TRANSCRIBING: Wake word detected, starting transcription."""
+    _play_async(lambda: _play_transition_sound("wakeword_to_transcribing"))
+
+
+def beep_transition_wakeword_to_processing() -> None:
+    """WAKE_WORD_LISTENING → PROCESSING_RESPONSE: Proactive response triggered."""
+    _play_async(lambda: _play_transition_sound("wakeword_to_processing"))
+
+
+def beep_transition_wakeword_to_synthesizing() -> None:
+    """WAKE_WORD_LISTENING → SYNTHESIZING: Pre-generated briefing starting."""
+    _play_async(lambda: _play_transition_sound("wakeword_to_synthesizing"))
+
+
+def beep_transition_wakeword_to_idle() -> None:
+    """WAKE_WORD_LISTENING → IDLE: Wake word detection cancelled."""
+    _play_async(lambda: _play_transition_sound("wakeword_to_idle"))
+
+
+def beep_transition_transcribing_to_processing() -> None:
+    """TRANSCRIBING → PROCESSING_RESPONSE: Transcription complete, processing."""
+    _play_async(lambda: _play_transition_sound("transcribing_to_processing"))
+
+
+def beep_transition_transcribing_to_idle() -> None:
+    """TRANSCRIBING → IDLE: Transcription cancelled/timeout."""
+    _play_async(lambda: _play_transition_sound("transcribing_to_idle"))
+
+
+def beep_transition_processing_to_synthesizing() -> None:
+    """PROCESSING_RESPONSE → SYNTHESIZING: Response ready, speaking."""
+    _play_async(lambda: _play_transition_sound("processing_to_synthesizing"))
+
+
+def beep_transition_processing_to_transcribing() -> None:
+    """PROCESSING_RESPONSE → TRANSCRIBING: Barge-in during processing."""
+    _play_async(lambda: _play_transition_sound("processing_to_transcribing"))
+
+
+def beep_transition_processing_to_idle() -> None:
+    """PROCESSING_RESPONSE → IDLE: Processing cancelled."""
+    _play_async(lambda: _play_transition_sound("processing_to_idle"))
+
+
+def beep_transition_synthesizing_to_idle() -> None:
+    """SYNTHESIZING → IDLE: TTS complete."""
+    _play_async(lambda: _play_transition_sound("synthesizing_to_idle"))
+
+
+def beep_transition_synthesizing_to_wakeword() -> None:
+    """SYNTHESIZING → WAKE_WORD_LISTENING: TTS complete, resuming wake word."""
+    _play_async(lambda: _play_transition_sound("synthesizing_to_wakeword"))
+
+
+def beep_transition_synthesizing_to_transcribing() -> None:
+    """SYNTHESIZING → TRANSCRIBING: Barge-in during TTS."""
+    _play_async(lambda: _play_transition_sound("synthesizing_to_transcribing"))
+
+
+def beep_transition_error_to_idle() -> None:
+    """ERROR → IDLE: Error recovery."""
+    _play_async(lambda: _play_transition_sound("error_to_idle"))
+
+
+def beep_transition_to_error() -> None:
+    """Any → ERROR: System entering error state."""
+    # All error transitions use the same sound
+    _play_async(lambda: _play_transition_sound("wakeword_to_error"))
 

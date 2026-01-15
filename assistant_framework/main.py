@@ -4,7 +4,10 @@ Simplified CLI for refactored assistant framework.
 
 import asyncio
 import argparse
+import atexit
 import json
+import signal
+import subprocess
 import sys
 from pathlib import Path
 from datetime import datetime
@@ -17,6 +20,53 @@ except ImportError:
     from assistant_framework.orchestrator import RefactoredOrchestrator
     from assistant_framework.config import get_framework_config, print_config_summary
     from assistant_framework.utils.logging.logging_config import setup_logging
+
+
+# Global flag to prevent re-entrant signal handling
+_shutting_down = False
+
+
+def _kill_audio_processes_immediate() -> None:
+    """
+    Immediately kill ALL audio playback processes.
+    
+    Called on SIGINT to ensure audio stops even if cleanup doesn't complete.
+    Uses SIGKILL (-9) for immediate termination.
+    """
+    for proc_name in ["ffplay", "afplay"]:
+        try:
+            subprocess.run(
+                ["pkill", "-9", "-x", proc_name],
+                capture_output=True,
+                timeout=1
+            )
+        except Exception:
+            pass
+
+
+def _sigint_handler(signum, frame):
+    """
+    Handle SIGINT (Ctrl+C) by immediately killing audio processes.
+    
+    Uses the default Python signal handling after killing audio,
+    which properly propagates KeyboardInterrupt through asyncio.
+    """
+    global _shutting_down
+    if _shutting_down:
+        # Force exit if already shutting down (second Ctrl+C)
+        _kill_audio_processes_immediate()
+        sys.exit(130)  # 128 + SIGINT
+    
+    _shutting_down = True
+    _kill_audio_processes_immediate()
+    
+    # Restore default handler and re-send signal to trigger normal KeyboardInterrupt
+    signal.signal(signal.SIGINT, signal.SIG_DFL)
+    signal.raise_signal(signal.SIGINT)
+
+
+# Register atexit handler as backup cleanup
+atexit.register(_kill_audio_processes_immediate)
 
 
 # =============================================================================
@@ -329,6 +379,22 @@ def cmd_config():
 
 async def async_main():
     """Async main function."""
+    # Add async-aware signal handler for the event loop
+    loop = asyncio.get_running_loop()
+    
+    def _async_sigint_handler():
+        """Async-aware SIGINT handler - kills audio immediately."""
+        _kill_audio_processes_immediate()
+        # Raise KeyboardInterrupt to cancel running tasks
+        raise KeyboardInterrupt()
+    
+    # Register with the event loop (works better with asyncio than signal.signal)
+    try:
+        loop.add_signal_handler(signal.SIGINT, _async_sigint_handler)
+    except NotImplementedError:
+        # Windows doesn't support add_signal_handler
+        pass
+    
     parser = create_parser()
     args = parser.parse_args()
     
@@ -381,6 +447,10 @@ async def async_main():
 
 def main():
     """Synchronous entry point."""
+    # Register signal handler to immediately kill audio on Ctrl+C
+    # This ensures audio stops even if async cleanup doesn't complete
+    signal.signal(signal.SIGINT, _sigint_handler)
+    
     # Setup logging
     import os
     log_level = os.getenv("LOG_LEVEL", "INFO")
@@ -396,11 +466,16 @@ def main():
     try:
         asyncio.run(async_main())
     except KeyboardInterrupt:
+        # Signal handler already killed audio, just print message
         print("\n⚠️  Interrupted by user")
+        # Final cleanup to be safe
+        _kill_audio_processes_immediate()
     except Exception as e:
         print(f"\n❌ Fatal error: {e}")
         import traceback
         traceback.print_exc()
+        # Kill audio on any fatal error too
+        _kill_audio_processes_immediate()
 
 
 if __name__ == '__main__':

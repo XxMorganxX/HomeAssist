@@ -101,6 +101,30 @@ ASSEMBLYAI_CONFIG = {
     "sample_rate": 16000,
     "format_turns": True,
     "frames_per_buffer": 3200,  # Default; auto-adjusted if Ray-Bans detected
+    
+    # Word boost: List of words/phrases to prioritize in transcription
+    # Great for names, technical terms, or commonly misheard words
+    "word_boost": [
+        "Stuart",           # Proper spelling of the name
+        "Morgan",
+        "Sol",              # Wake word / assistant name
+        "HomeAssist",
+        "sir",
+        "ma'am",
+        "shorty"
+    ],
+    # Boost strength: "low", "default", or "high"
+    "boost_param": "high",
+    
+    # Custom spelling: Post-processing find-and-replace for transcription
+    # Maps incorrect/alternative spellings to the correct form
+    # Format: {"correct_spelling": ["wrong1", "wrong2", ...]}
+    "custom_spelling": {
+        "Stuart": ["stewart", "Stewart"],  # Capitalize properly
+        "Morgan": ["morgan"],               # Capitalize properly
+        # Add more mappings as needed, e.g.:
+        "HomeAssist": ["home assist", "homeassist", "Home assist", "Home Assist"],
+    },
 }
 
 # OpenAI Whisper transcription configuration (alternative to AssemblyAI)
@@ -584,7 +608,7 @@ WAKEWORD_CONFIG = {
     # When a Bluetooth device is detected, these thresholds override model_thresholds
     # Typically need to be more sensitive due to lower mic quality during BT transmission
     "bluetooth_model_thresholds": {
-        "hey_honey_v2": 0.28,  # Lower than 0.4 (non-BT) - more sensitive for Ray-Bans
+        "hey_honey_v2": 0.24,  # Lower than 0.4 (non-BT) - more sensitive for Ray-Bans
         "sol": 0.12,          # Lower than 0.15 (non-BT) - more sensitive for Ray-Bans
         "alexa_v0.1": 0.4,    # Lower than 0.5 (non-BT)
         # Add more models as needed
@@ -900,6 +924,11 @@ SEND_PHRASES = ["process this", "respond to this", "send this", "send it", "sir"
 # Set to 0 to disable auto-send (require explicit send phrase)
 AUTO_SEND_SILENCE_TIMEOUT = 6.0
 
+# Higher silence timeout during tool call execution
+# When the assistant is executing tool calls, use a longer timeout to allow
+# the user more time to think while waiting for results
+AUTO_SEND_SILENCE_TIMEOUT_DURING_TOOLS = 12.0
+
 # Phrases that clear preceding text from the buffer
 PREFIX_TRIM_PHRASES = ["scratch that"]
 
@@ -978,6 +1007,107 @@ SHARED_AUDIO_BUS_CONFIG = {
     "buffer_seconds": 3.0,              # Ring buffer size for prefill (barge-in captured audio)
     "device_index": None,               # None = use default device (auto-detected)
     "latency": "high",                  # 'high' for Bluetooth devices
+}
+
+
+# =============================================================================
+# SECTION 11B: STATE TRANSITION SOUNDS
+# =============================================================================
+# Each state transition plays a distinct sound for audio feedback.
+# Sounds are macOS system sounds (in /System/Library/Sounds/).
+# Available sounds: Basso, Blow, Bottle, Frog, Funk, Glass, Hero, Morse,
+#                   Ping, Pop, Purr, Sosumi, Submarine, Tink
+#
+# Set any sound to None to disable that transition's beep.
+# Set ENABLE_TRANSITION_BEEPS to False to disable all transition beeps.
+
+ENABLE_TRANSITION_BEEPS = True
+
+# Mapping of state transitions to macOS sound names
+# Format: (from_state, to_state) -> sound_name
+# Only sounds that are listed here will play - unlisted transitions are silent.
+# Set to None to explicitly disable a sound.
+#
+# Available macOS sounds:
+#   Basso, Blow, Bottle, Frog, Funk, Glass, Hero, Morse,
+#   Ping, Pop, Purr, Sosumi, Submarine, Tink
+#
+TRANSITION_SOUNDS = {
+    # === KEY SOUNDS (keep these for feedback) ===
+    "wakeword_to_transcribing": "Ping",      # Wake word detected - now recording you
+    "synthesizing_to_wakeword": "Frog",      # Done speaking - ready for wake word again
+    "idle_to_synthesizing": "Pop",           # Starting TTS directly from idle (dev mode)
+    "idle_to_transcribing": "Ping",          # Starting transcription directly from idle (dev mode)
+    
+    # === INTERRUPTION SOUNDS (barge-in feedback) ===
+    "processing_to_transcribing": "Glass",   # Barge-in during processing
+    "synthesizing_to_transcribing": "Glass", # Barge-in during TTS
+    
+    # === OPTIONAL SOUNDS (uncomment to enable) ===
+    # "idle_to_wakeword": "Tink",            # System entering wake word detection mode
+    # "wakeword_to_processing": "Submarine", # Proactive response triggered
+    # "wakeword_to_synthesizing": "Pop",     # Pre-generated briefing starting
+    # "transcribing_to_processing": "Hero",  # Transcription complete, processing
+    # "processing_to_synthesizing": "Morse", # Response ready, starting speech
+    # "synthesizing_to_idle": "Bottle",      # TTS complete (use if not using wake word)
+    
+    # === ERROR/CANCEL SOUNDS ===
+    # "wakeword_to_idle": "Purr",            # Wake word detection cancelled
+    # "wakeword_to_error": "Basso",          # Error during wake word
+    # "transcribing_to_idle": "Blow",        # Transcription cancelled/timeout
+    # "transcribing_to_error": "Basso",      # Error during transcription
+    # "processing_to_idle": "Sosumi",        # Processing cancelled
+    # "processing_to_error": "Basso",        # Error during processing
+    # "synthesizing_to_error": "Basso",      # Error during TTS
+    # "error_to_idle": "Purr",               # Error recovery complete
+}
+
+# Linux sound event IDs (fallback for non-macOS systems)
+# Only include sounds that are enabled in TRANSITION_SOUNDS above
+TRANSITION_SOUNDS_LINUX = {
+    "wakeword_to_transcribing": "message-new-instant",
+    "synthesizing_to_wakeword": "audio-volume-change",
+    # Uncomment below if you enable more sounds in TRANSITION_SOUNDS:
+    # "idle_to_wakeword": "device-added",
+    # "wakeword_to_processing": "message",
+    # "wakeword_to_synthesizing": "complete",
+    # "wakeword_to_idle": "service-logout",
+    # "wakeword_to_error": "dialog-error",
+    # "transcribing_to_processing": "message-sent",
+    # "transcribing_to_idle": "service-logout",
+    # "transcribing_to_error": "dialog-error",
+    # "processing_to_synthesizing": "message",
+    # "processing_to_transcribing": "audio-channel-front-center",
+    # "processing_to_idle": "dialog-warning",
+    # "processing_to_error": "dialog-error",
+    # "synthesizing_to_idle": "complete",
+    # "synthesizing_to_transcribing": "message-new-instant",
+    # "synthesizing_to_error": "dialog-error",
+    # "error_to_idle": "device-added",
+}
+
+# Windows beep frequencies and durations (fallback for Windows)
+# Only include sounds that are enabled in TRANSITION_SOUNDS above
+TRANSITION_SOUNDS_WINDOWS = {
+    "wakeword_to_transcribing": (1200, 120),
+    "synthesizing_to_wakeword": (1300, 100),
+    # Uncomment below if you enable more sounds in TRANSITION_SOUNDS:
+    # "idle_to_wakeword": (800, 80),
+    # "wakeword_to_processing": (600, 150),
+    # "wakeword_to_synthesizing": (1000, 100),
+    # "wakeword_to_idle": (500, 100),
+    # "wakeword_to_error": (300, 250),
+    # "transcribing_to_processing": (1050, 180),
+    # "transcribing_to_idle": (600, 120),
+    # "transcribing_to_error": (300, 250),
+    # "processing_to_synthesizing": (900, 100),
+    # "processing_to_transcribing": (1400, 80),
+    # "processing_to_idle": (700, 100),
+    # "processing_to_error": (300, 250),
+    # "synthesizing_to_idle": (1100, 100),
+    # "synthesizing_to_transcribing": (1500, 80),
+    # "synthesizing_to_error": (300, 250),
+    # "error_to_idle": (800, 150),
 }
 
 

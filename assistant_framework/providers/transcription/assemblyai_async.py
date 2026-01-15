@@ -70,11 +70,23 @@ class AssemblyAIAsyncProvider(StreamingProviderBase, TranscriptionInterface):
         self._latency = config.get('latency', 'high')  # 'high' handles Bluetooth bursts better
         self._is_bluetooth = config.get('is_bluetooth', False)
         
+        # Word boost configuration (helps recognize specific words/names)
+        self.word_boost = config.get('word_boost', [])
+        self.boost_param = config.get('boost_param', 'default')
+        
         # WebSocket URL
         connection_params = {
             "sample_rate": self.sample_rate,
             "format_turns": self.format_turns,
         }
+        
+        # Add word boost if configured
+        if self.word_boost:
+            import json
+            connection_params["word_boost"] = json.dumps(self.word_boost)
+            connection_params["boost_param"] = self.boost_param
+            print(f"📝 Word boost enabled: {self.word_boost} (strength: {self.boost_param})")
+        
         self.api_endpoint = f"wss://streaming.assemblyai.com/v3/ws?{urlencode(connection_params)}"
         
         # State

@@ -4,9 +4,29 @@ Audio state machine for coordinating component lifecycle.
 
 import asyncio
 from enum import Enum, auto
-from typing import Optional, Callable, Dict, Any, List
+from typing import Optional, Callable, Dict, Any, List, Tuple
 from dataclasses import dataclass, field
 from datetime import datetime
+
+from assistant_framework.utils.audio.tones import (
+    beep_transition_idle_to_wakeword,
+    beep_transition_idle_to_synthesizing,
+    beep_transition_idle_to_transcribing,
+    beep_transition_wakeword_to_transcribing,
+    beep_transition_wakeword_to_processing,
+    beep_transition_wakeword_to_synthesizing,
+    beep_transition_wakeword_to_idle,
+    beep_transition_transcribing_to_processing,
+    beep_transition_transcribing_to_idle,
+    beep_transition_processing_to_synthesizing,
+    beep_transition_processing_to_transcribing,
+    beep_transition_processing_to_idle,
+    beep_transition_synthesizing_to_idle,
+    beep_transition_synthesizing_to_wakeword,
+    beep_transition_synthesizing_to_transcribing,
+    beep_transition_error_to_idle,
+    beep_transition_to_error,
+)
 
 
 class AudioState(Enum):
@@ -39,9 +59,54 @@ class AudioStateMachine:
     - Automatic cleanup on transitions
     - State history tracking
     - Component ownership tracking
+    - Distinct audio beeps for each transition
     """
     
-    def __init__(self, mode: str = "prod", transition_delay: float = 0.25):
+    # Mapping of (from_state, to_state) -> beep function
+    # Each unique transition gets a distinct sound
+    _TRANSITION_BEEPS: Dict[Tuple["AudioState", "AudioState"], Callable[[], None]] = {}
+    
+    @classmethod
+    def _init_transition_beeps(cls) -> None:
+        """Initialize the transition beep mapping (called once on first use)."""
+        if cls._TRANSITION_BEEPS:
+            return  # Already initialized
+        
+        cls._TRANSITION_BEEPS = {
+            # IDLE transitions
+            (AudioState.IDLE, AudioState.WAKE_WORD_LISTENING): beep_transition_idle_to_wakeword,
+            (AudioState.IDLE, AudioState.SYNTHESIZING): beep_transition_idle_to_synthesizing,
+            (AudioState.IDLE, AudioState.TRANSCRIBING): beep_transition_idle_to_transcribing,
+            
+            # WAKE_WORD_LISTENING transitions
+            (AudioState.WAKE_WORD_LISTENING, AudioState.TRANSCRIBING): beep_transition_wakeword_to_transcribing,
+            (AudioState.WAKE_WORD_LISTENING, AudioState.PROCESSING_RESPONSE): beep_transition_wakeword_to_processing,
+            (AudioState.WAKE_WORD_LISTENING, AudioState.SYNTHESIZING): beep_transition_wakeword_to_synthesizing,
+            (AudioState.WAKE_WORD_LISTENING, AudioState.IDLE): beep_transition_wakeword_to_idle,
+            (AudioState.WAKE_WORD_LISTENING, AudioState.ERROR): beep_transition_to_error,
+            
+            # TRANSCRIBING transitions
+            (AudioState.TRANSCRIBING, AudioState.PROCESSING_RESPONSE): beep_transition_transcribing_to_processing,
+            (AudioState.TRANSCRIBING, AudioState.IDLE): beep_transition_transcribing_to_idle,
+            (AudioState.TRANSCRIBING, AudioState.ERROR): beep_transition_to_error,
+            
+            # PROCESSING_RESPONSE transitions
+            (AudioState.PROCESSING_RESPONSE, AudioState.SYNTHESIZING): beep_transition_processing_to_synthesizing,
+            (AudioState.PROCESSING_RESPONSE, AudioState.TRANSCRIBING): beep_transition_processing_to_transcribing,
+            (AudioState.PROCESSING_RESPONSE, AudioState.IDLE): beep_transition_processing_to_idle,
+            (AudioState.PROCESSING_RESPONSE, AudioState.ERROR): beep_transition_to_error,
+            
+            # SYNTHESIZING transitions
+            (AudioState.SYNTHESIZING, AudioState.IDLE): beep_transition_synthesizing_to_idle,
+            (AudioState.SYNTHESIZING, AudioState.WAKE_WORD_LISTENING): beep_transition_synthesizing_to_wakeword,
+            (AudioState.SYNTHESIZING, AudioState.TRANSCRIBING): beep_transition_synthesizing_to_transcribing,
+            (AudioState.SYNTHESIZING, AudioState.ERROR): beep_transition_to_error,
+            
+            # ERROR transitions
+            (AudioState.ERROR, AudioState.IDLE): beep_transition_error_to_idle,
+        }
+    
+    def __init__(self, mode: str = "prod", transition_delay: float = 0.25, enable_transition_beeps: Optional[bool] = None):
         self._state = AudioState.IDLE
         self._current_component: Optional[str] = None
         self._lock = asyncio.Lock()
@@ -50,6 +115,20 @@ class AudioStateMachine:
         # Configurable delay for audio system settling between component switches
         # Lower = faster turnaround, but may cause conflicts on some systems
         self._transition_delay = transition_delay
+        
+        # Whether to play distinct beeps on state transitions
+        # If not explicitly set, read from config
+        if enable_transition_beeps is None:
+            try:
+                from assistant_framework.config import ENABLE_TRANSITION_BEEPS
+                self._enable_transition_beeps = ENABLE_TRANSITION_BEEPS
+            except ImportError:
+                self._enable_transition_beeps = True
+        else:
+            self._enable_transition_beeps = enable_transition_beeps
+        
+        # Initialize transition beeps mapping
+        self._init_transition_beeps()
 
         # Normalize mode and compute IDLE transitions based on environment
         env_mode = (mode or "prod").lower()
@@ -189,6 +268,10 @@ class AudioStateMachine:
             
             print(f"✅ State: {target_state.name} (component: {component})")
             
+            # Play distinct beep for this transition
+            if self._enable_transition_beeps:
+                self._play_transition_beep(previous_state, target_state)
+            
             return True
     
     async def _cleanup_component(self, component: str):
@@ -208,6 +291,22 @@ class AudioStateMachine:
                 print(f"⚠️  Error cleaning component {component}: {e}")
         else:
             print(f"ℹ️  No cleanup handler for: {component}")
+    
+    def _play_transition_beep(self, from_state: AudioState, to_state: AudioState) -> None:
+        """
+        Play the distinct beep for a state transition.
+        
+        Args:
+            from_state: The state we're transitioning from
+            to_state: The state we're transitioning to
+        """
+        beep_fn = self._TRANSITION_BEEPS.get((from_state, to_state))
+        if beep_fn:
+            try:
+                beep_fn()
+            except Exception as e:
+                # Never let beep failures affect state transitions
+                print(f"⚠️  Beep failed for {from_state.name} → {to_state.name}: {e}")
     
     async def emergency_reset(self):
         """

@@ -25,9 +25,10 @@ try:
     from .utils.audio.shared_audio_bus import SharedAudioBus, SharedAudioBusConfig
     from .utils.logging.conversation_recorder import ConversationRecorder
     from .utils.audio.tones import (
-        beep_wake_detected, beep_listening_start,
-        beep_send_detected, beep_ready_to_listen, beep_shutdown
+        beep_send_detected, beep_shutdown
     )
+    # Note: beep_wake_detected, beep_listening_start, beep_ready_to_listen
+    # are now handled automatically by state machine transition beeps
     from .utils.logging.console_logger import (
         log_boot, log_shutdown, log_conversation_end, log_wake_word,
         log_user_message, log_assistant_response, log_tool_call,
@@ -55,9 +56,10 @@ except ImportError:
     from assistant_framework.utils.audio.shared_audio_bus import SharedAudioBus, SharedAudioBusConfig
     from assistant_framework.utils.logging.conversation_recorder import ConversationRecorder
     from assistant_framework.utils.audio.tones import (
-        beep_wake_detected, beep_listening_start,
-        beep_send_detected, beep_ready_to_listen, beep_shutdown
+        beep_send_detected, beep_shutdown
     )
+    # Note: beep_wake_detected, beep_listening_start, beep_ready_to_listen
+    # are now handled automatically by state machine transition beeps
     from assistant_framework.utils.logging.console_logger import (
         log_boot, log_shutdown, log_conversation_end, log_wake_word,
         log_user_message, log_assistant_response, log_tool_call,
@@ -710,7 +712,7 @@ class RefactoredOrchestrator:
             print("👂 Listening for wake word...")
             async for event in wakeword.start_detection():
                 print(f"🔔 Wake word detected: {event.model_name} (score: {event.score:.3f})")
-                beep_wake_detected()  # 🔔 Wake word sound
+                # Note: Wake word beep now handled by state machine transition
                 log_wake_word(event.model_name, event.score)  # 📡 Remote console log
                 yield event
             
@@ -729,8 +731,13 @@ class RefactoredOrchestrator:
         # The finally block was causing double cleanup (here + state machine)
         # which led to segmentation faults
     
-    async def run_transcription(self) -> Optional[str]:
-        """Run transcription and return final text when send phrase is detected."""
+    async def run_transcription(self, use_extended_timeout: bool = False) -> Optional[str]:
+        """
+        Run transcription and return final text when send phrase is detected.
+        
+        Args:
+            use_extended_timeout: If True, use a longer silence timeout (for post-tool-call follow-ups)
+        """
         try:
             # Transition to transcription state
             await self._transition(
@@ -776,14 +783,51 @@ class RefactoredOrchestrator:
                 print("🎤 Starting fresh transcription (no barge-in prefill)")
             
             # Get send phrases from config
-            from .config import SEND_PHRASES, TERMINATION_PHRASES, AUTO_SEND_SILENCE_TIMEOUT
+            from .config import SEND_PHRASES, TERMINATION_PHRASES, PREFIX_TRIM_PHRASES, AUTO_SEND_SILENCE_TIMEOUT, AUTO_SEND_SILENCE_TIMEOUT_DURING_TOOLS
+            
+            def apply_trim_phrases(text: str) -> str:
+                """Apply trim phrases - drop all text before and including the phrase (case insensitive)."""
+                if not text:
+                    return text
+                result = text
+                text_lower = text.lower()
+                for trim_phrase in PREFIX_TRIM_PHRASES:
+                    trim_lower = trim_phrase.lower()
+                    if trim_lower in text_lower:
+                        idx = text_lower.rfind(trim_lower)  # Use last occurrence
+                        result = text[idx + len(trim_phrase):].strip()
+                        text_lower = result.lower()
+                        print(f"✂️  Trim phrase '{trim_phrase}' applied - dropped preceding text")
+                return result
+            
+            def apply_custom_spelling(text: str) -> str:
+                """Apply custom spelling corrections (case-insensitive find-and-replace)."""
+                if not text:
+                    return text
+                from .config import ASSEMBLYAI_CONFIG
+                custom_spelling = ASSEMBLYAI_CONFIG.get("custom_spelling", {})
+                if not custom_spelling:
+                    return text
+                result = text
+                for correct, wrong_forms in custom_spelling.items():
+                    for wrong in wrong_forms:
+                        # Case-insensitive replacement using re
+                        import re
+                        pattern = re.compile(re.escape(wrong), re.IGNORECASE)
+                        if pattern.search(result):
+                            result = pattern.sub(correct, result)
+                return result
+            
+            # Use extended timeout if requested (e.g., after tool calls)
+            effective_timeout = AUTO_SEND_SILENCE_TIMEOUT_DURING_TOOLS if use_extended_timeout else AUTO_SEND_SILENCE_TIMEOUT
             
             # Start streaming
             print("🎙️  Transcribing...")
             print(f"💡 Say one of these to send: {', '.join(SEND_PHRASES)}")
-            if AUTO_SEND_SILENCE_TIMEOUT > 0:
-                print(f"⏱️  Auto-send after {AUTO_SEND_SILENCE_TIMEOUT:.0f}s of silence")
-            beep_listening_start()  # 🔔 Listening start sound
+            if effective_timeout > 0:
+                timeout_note = " (extended after tool calls)" if use_extended_timeout else ""
+                print(f"⏱️  Auto-send after {effective_timeout:.0f}s of silence{timeout_note}")
+            # Note: Listening start beep now handled by state machine transition
             
             accumulated_text = ""
             last_activity_time = asyncio.get_event_loop().time()
@@ -794,12 +838,12 @@ class RefactoredOrchestrator:
             while True:
                 try:
                     # Calculate remaining time until auto-send
-                    if AUTO_SEND_SILENCE_TIMEOUT > 0 and accumulated_text:
+                    if effective_timeout > 0 and accumulated_text:
                         elapsed = asyncio.get_event_loop().time() - last_activity_time
-                        remaining = AUTO_SEND_SILENCE_TIMEOUT - elapsed
+                        remaining = effective_timeout - elapsed
                         if remaining <= 0:
                             # Auto-send timeout reached
-                            print(f"⏱️  Auto-sending after {AUTO_SEND_SILENCE_TIMEOUT:.0f}s of silence...")
+                            print(f"⏱️  Auto-sending after {effective_timeout:.0f}s of silence...")
                             beep_send_detected()  # 🔔 Send phrase sound
                             return accumulated_text
                         timeout = remaining
@@ -834,6 +878,8 @@ class RefactoredOrchestrator:
                                 cleaned_text = pattern.sub("", accumulated_text).strip()
                                 # Clean up extra spaces
                                 cleaned_text = " ".join(cleaned_text.split())
+                                # Apply trim phrases and custom spelling before returning
+                                cleaned_text = apply_custom_spelling(apply_trim_phrases(cleaned_text))
                                 return cleaned_text if cleaned_text else None
                         
                         # Check for termination phrases
@@ -861,6 +907,8 @@ class RefactoredOrchestrator:
                                 pattern = re.compile(re.escape(send_phrase), re.IGNORECASE)
                                 cleaned_text = pattern.sub("", full_text).strip()
                                 cleaned_text = " ".join(cleaned_text.split())
+                                # Apply trim phrases and custom spelling before returning
+                                cleaned_text = apply_custom_spelling(apply_trim_phrases(cleaned_text))
                                 return cleaned_text if cleaned_text else None
                         
                         # Check for termination phrases in partial
@@ -872,10 +920,11 @@ class RefactoredOrchestrator:
                                 return None
                                 
                 except asyncio.TimeoutError:
-                    if AUTO_SEND_SILENCE_TIMEOUT > 0 and accumulated_text:
-                        print(f"⏱️  Auto-sending after {AUTO_SEND_SILENCE_TIMEOUT:.0f}s of silence...")
+                    if effective_timeout > 0 and accumulated_text:
+                        print(f"⏱️  Auto-sending after {effective_timeout:.0f}s of silence...")
                         beep_send_detected()  # 🔔 Send phrase sound
-                        return accumulated_text
+                        # Apply trim phrases and custom spelling before returning
+                        return apply_custom_spelling(apply_trim_phrases(accumulated_text))
                     continue
                     
                 except StopAsyncIteration:
@@ -883,7 +932,9 @@ class RefactoredOrchestrator:
                     break
             
             # If stream ends naturally without send phrase, return accumulated text
-            return accumulated_text if accumulated_text else None
+            # Apply trim phrases and custom spelling before returning
+            final_text = apply_custom_spelling(apply_trim_phrases(accumulated_text)) if accumulated_text else None
+            return final_text if final_text else None
             
         except Exception as e:
             print(f"❌ Transcription error: {e}")
@@ -2109,7 +2160,9 @@ class RefactoredOrchestrator:
                     
                     # Transcribe user speech with termination interrupt support
                     # Run transcription as task so we can cancel it if termination detected
-                    transcription_task = asyncio.create_task(self.run_transcription())
+                    # Use extended timeout if last response used tool calls (gives user more time to think)
+                    use_extended_timeout = len(self._last_tool_calls) > 0
+                    transcription_task = asyncio.create_task(self.run_transcription(use_extended_timeout=use_extended_timeout))
                     
                     # Poll for termination while transcription is running
                     user_text = None
@@ -2300,7 +2353,7 @@ class RefactoredOrchestrator:
                             )
                         )
                         print("🎤 Ready for next question (or say termination phrase)...\n")
-                        beep_ready_to_listen()  # 🔔 Ready for next question sound
+                        # Note: Ready beep now handled by state machine transition
                         # Clear previous message since response completed without barge-in
                         self._previous_user_message = ""
                         self._vector_query_override = None
@@ -2376,6 +2429,14 @@ class RefactoredOrchestrator:
         """Cleanup all resources."""
         print("🧹 Cleaning up orchestrator...")
         log_shutdown()  # 📡 Remote console log
+        
+        # FIRST: Immediately kill any audio processes (most important for user experience)
+        import subprocess
+        for proc_name in ["ffplay", "afplay"]:
+            try:
+                subprocess.run(["pkill", "-9", "-x", proc_name], capture_output=True, timeout=1)
+            except Exception:
+                pass
         
         # Stop shared audio bus if running
         if self._shared_audio_bus:

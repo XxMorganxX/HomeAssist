@@ -288,7 +288,10 @@ This lets you say "Hey Honey" for quick commands, or "Hey Honey, what's new?" to
 TERMINATION_PHRASES = ["over out", "stop listening"]
 SEND_PHRASES = ["send it", "sir"]
 AUTO_SEND_SILENCE_TIMEOUT = 6.0  # Auto-send after 6s of silence
+AUTO_SEND_SILENCE_TIMEOUT_DURING_TOOLS = 12.0  # Extended timeout after tool calls
 ```
+
+> 💡 **Tip:** After the assistant executes tool calls (calendar, weather, etc.), the silence timeout automatically increases to give you more time to think about the results before your next question.
 
 #### Parallel Termination Detection
 
@@ -663,17 +666,50 @@ SPOTIFY_USERS = {
 
 ## 🔔 Audio Feedback
 
-HomeAssist provides distinct audio cues for system events and tool execution to give you real-time feedback without looking at the terminal.
+HomeAssist provides distinct audio cues for every state transition and tool execution, giving you real-time feedback without looking at the terminal.
 
-### System Sounds
+### State Transition Sounds
 
-| Event | Sound | Description |
-|-------|-------|-------------|
-| 🎤 **Wake Word** | Ping/Glass | Wake word detected, assistant activated |
-| 🎙️ **Listening** | Tink | Recording your voice |
-| 🤖 **Responding** | Morse | AI is generating a response |
-| ✅ **Ready** | Frog/Bottle | System ready for next interaction |
-| 🚪 **Shutdown** | Blow | Assistant shutting down |
+Every unique state transition plays a distinct sound automatically. This helps you know exactly what the system is doing.
+
+| Transition | Sound (macOS) | Config Key | Description |
+|------------|---------------|------------|-------------|
+| **IDLE → Wake Word** | Tink | `idle_to_wakeword` | System entering wake word detection mode |
+| **Wake Word → Transcribing** | Ping | `wakeword_to_transcribing` | Wake word detected, now recording |
+| **Wake Word → Processing** | Submarine | `wakeword_to_processing` | Proactive response triggered |
+| **Wake Word → Synthesizing** | Pop | `wakeword_to_synthesizing` | Pre-generated briefing starting |
+| **Wake Word → IDLE** | Purr | `wakeword_to_idle` | Wake word detection cancelled |
+| **Transcribing → Processing** | Hero | `transcribing_to_processing` | Transcription complete, processing request |
+| **Transcribing → IDLE** | Blow | `transcribing_to_idle` | Transcription cancelled/timeout |
+| **Processing → Synthesizing** | Morse | `processing_to_synthesizing` | Response ready, starting speech |
+| **Processing → Transcribing** | Glass | `processing_to_transcribing` | Barge-in during processing |
+| **Processing → IDLE** | Sosumi | `processing_to_idle` | Processing cancelled |
+| **Synthesizing → IDLE** | Bottle | `synthesizing_to_idle` | TTS complete, system idle |
+| **Synthesizing → Wake Word** | Frog | `synthesizing_to_wakeword` | TTS done, ready for wake word |
+| **Synthesizing → Transcribing** | Ping | `synthesizing_to_transcribing` | Barge-in during TTS |
+| **Any → ERROR** | Basso | `*_to_error` | System entering error state |
+| **ERROR → IDLE** | Purr | `error_to_idle` | Error recovery complete |
+
+### Customizing Transition Sounds
+
+All transition sounds are configurable in `assistant_framework/config.py`:
+
+```python
+# Disable all transition beeps
+ENABLE_TRANSITION_BEEPS = False
+
+# Or customize individual sounds (macOS)
+TRANSITION_SOUNDS = {
+    "wakeword_to_transcribing": "Glass",  # Change wake word sound
+    "synthesizing_to_idle": None,          # Disable this specific beep
+    # ... other transitions
+}
+```
+
+**Available macOS Sounds:**
+`Basso`, `Blow`, `Bottle`, `Frog`, `Funk`, `Glass`, `Hero`, `Morse`, `Ping`, `Pop`, `Purr`, `Sosumi`, `Submarine`, `Tink`
+
+> 💡 **Tip:** Only transitions listed in `TRANSITION_SOUNDS` will play a sound. Remove a transition from the dict to silence it, or set it to `None` to explicitly disable it.
 
 ### Tool Execution Feedback
 
@@ -698,6 +734,15 @@ HomeAssist provides distinct audio cues for system events and tool execution to 
 ```
 
 > 💡 **Tip:** The system automatically detects success/failure from tool responses. No manual configuration needed.
+
+### Event-Specific Sounds
+
+These sounds play for specific events (not state transitions):
+
+| Event | Sound | Description |
+|-------|-------|-------------|
+| **Send Phrase** | Hero/Funk | Send phrase detected in transcription |
+| **Shutdown** | Blow | Assistant shutting down gracefully |
 
 ---
 

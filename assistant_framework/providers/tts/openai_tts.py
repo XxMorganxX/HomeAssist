@@ -32,6 +32,27 @@ except ImportError:
     from models.data_models import AudioOutput, AudioFormat
 
 
+def _kill_audio_processes() -> None:
+    """
+    Kill any orphaned audio playback processes (ffplay, afplay).
+    
+    This is a safety net to ensure audio stops even if process tracking fails.
+    Called on stop_audio() and during cleanup.
+    """
+    import signal
+    
+    for proc_name in ["ffplay", "afplay"]:
+        try:
+            # Use pkill to kill all matching processes owned by current user
+            subprocess.run(
+                ["pkill", "-9", "-x", proc_name],  # -9 = SIGKILL, -x = exact match
+                capture_output=True,
+                timeout=1
+            )
+        except Exception:
+            pass  # Ignore errors - process might not exist
+
+
 class OpenAITTSProvider(TextToSpeechInterface):
     """
     OpenAI TTS provider with streaming support.
@@ -330,11 +351,14 @@ class OpenAITTSProvider(TextToSpeechInterface):
                 # Fallback: buffer and play with afplay
                 await self._fallback_buffered_playback(sanitized_text, voice_name, speed_rate)
                 
+            except (KeyboardInterrupt, asyncio.CancelledError):
+                # Graceful shutdown - propagate without error message
+                raise
             except Exception as e:
                 print(f"❌ Streaming TTS error: {e}")
             finally:
                 self._is_playing = False
-                self._playback_process = None
+                self._cleanup_playback_process()
     
     async def _try_streaming_playback(self, text: str, voice: str, speed: float) -> bool:
         """
@@ -399,8 +423,11 @@ class OpenAITTSProvider(TextToSpeechInterface):
             
             # Close stdin to signal end of stream
             if self._playback_process and self._playback_process.stdin:
-                self._playback_process.stdin.close()
-                await self._playback_process.stdin.wait_closed()
+                try:
+                    self._playback_process.stdin.close()
+                    await self._playback_process.stdin.wait_closed()
+                except (BrokenPipeError, ConnectionResetError, ProcessLookupError):
+                    pass  # Process already terminated, that's fine
             
             # Wait for playback to complete (with timeout)
             if self._playback_process and not self._stop_playback:
@@ -413,9 +440,31 @@ class OpenAITTSProvider(TextToSpeechInterface):
             
         except FileNotFoundError:
             return False
+        except (KeyboardInterrupt, asyncio.CancelledError):
+            # Graceful shutdown - not an error
+            self._cleanup_playback_process()
+            raise  # Re-raise to propagate shutdown signal
+        except (BrokenPipeError, ConnectionResetError):
+            # Process was terminated (e.g., by Ctrl+C) - not an error
+            self._cleanup_playback_process()
+            return True  # Consider this a successful (interrupted) playback
         except Exception as e:
             print(f"⚠️  Streaming playback error: {e}")
+            self._cleanup_playback_process()
             return False
+    
+    def _cleanup_playback_process(self) -> None:
+        """Clean up the ffplay process if it's still running."""
+        if self._playback_process:
+            try:
+                self._playback_process.kill()  # SIGKILL - forceful
+            except ProcessLookupError:
+                pass  # Already dead
+            except Exception:
+                pass
+            self._playback_process = None
+        # Also kill any orphaned processes
+        _kill_audio_processes()
     
     def _get_ffplay_format_args(self) -> list:
         """Get format-specific arguments for ffplay."""
@@ -494,20 +543,25 @@ class OpenAITTSProvider(TextToSpeechInterface):
             process = self._playback_process
             if process is not None:
                 # For asyncio subprocess
-                if hasattr(process, 'terminate'):
-                    process.terminate()
+                if hasattr(process, 'kill'):
+                    try:
+                        process.kill()  # SIGKILL - more forceful than terminate
+                    except ProcessLookupError:
+                        pass
                 # For regular subprocess
                 elif hasattr(process, 'poll') and process.poll() is None:
-                    process.terminate()
+                    process.kill()  # SIGKILL
                     try:
                         process.wait(timeout=0.5)
                     except Exception:
-                        process.kill()
-                print("🛑 Stopped audio playback")
+                        pass
         except Exception as e:
-            print(f"⚠️  Error stopping playback: {e}")
+            pass  # Ignore errors during cleanup
         finally:
             self._playback_process = None
+        
+        # Also kill any orphaned audio processes
+        _kill_audio_processes()
     
     @property
     def is_playing(self) -> bool:
@@ -553,11 +607,11 @@ class OpenAITTSProvider(TextToSpeechInterface):
             if self._stop_playback:
                 process = self._playback_process
                 if process is not None and process.poll() is None:
-                    process.terminate()
+                    process.kill()  # SIGKILL - immediate
                     try:
-                        process.wait(timeout=1)
+                        process.wait(timeout=0.5)
                     except Exception:
-                        process.kill()
+                        pass
         finally:
             self._playback_process = None
     

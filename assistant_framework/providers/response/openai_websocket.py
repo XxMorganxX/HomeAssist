@@ -615,6 +615,7 @@ class OpenAIWebSocketResponseProvider(ResponseInterface):
                                 
                                 # Check if composed tool calling is enabled
                                 if self.composed_tool_calling_enabled:
+                                    # Note: tools_complete sound will play at end of iterative execution
                                     # Use iterative tool execution for multi-step tasks
                                     user_message = next((m.get("content", "") for m in messages if m.get("role") == "user"), "")
                                     context = [m for m in messages if m.get("role") in ("user", "assistant")]
@@ -634,6 +635,10 @@ class OpenAIWebSocketResponseProvider(ResponseInterface):
                                     )
                                 else:
                                     # Original behavior: compose final answer directly
+                                    # Play tools complete sound since no iterative execution
+                                    from assistant_framework.utils.audio.tones import beep_tools_complete
+                                    beep_tools_complete()
+                                    
                                     final_text = await self._compose_final_answer(
                                         user_message=next((m.get("content", "") for m in messages if m.get("role") == "user"), ""),
                                         context=[m for m in messages if m.get("role") in ("user", "assistant")],
@@ -788,11 +793,15 @@ class OpenAIWebSocketResponseProvider(ResponseInterface):
         """Execute a tool/function call via MCP."""
         import time
         from assistant_framework.utils.logging import format_tool_call, format_tool_result, format_tool_error
+        from assistant_framework.utils.audio.tones import beep_tool_call
         
         if not self.mcp_session:
             return "Error: MCP not initialized"
         
         try:
+            # Play sound to indicate tool is being called
+            beep_tool_call()
+            
             # Log the tool call with formatted output
             print(format_tool_call(tool_name, arguments))
             
@@ -1025,6 +1034,10 @@ class OpenAIWebSocketResponseProvider(ResponseInterface):
         
         if iteration >= self.max_tool_iterations:
             print(f"⚠️ Max tool iterations ({self.max_tool_iterations}) reached")
+        
+        # Play tools complete sound - all tool iterations are done
+        from assistant_framework.utils.audio.tones import beep_tools_complete
+        beep_tools_complete()
         
         # Compose final answer with all accumulated tool results
         final_text = await self._compose_final_answer(
