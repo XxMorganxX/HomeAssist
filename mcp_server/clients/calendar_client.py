@@ -933,6 +933,15 @@ class CalendarComponent:
             if not self.service:
                 raise Exception("Calendar service not initialized")
             
+            # Rebuild the service to get a fresh HTTP connection
+            # This helps avoid "Errno 49: Can't assign requested address" errors
+            # that can occur when sockets are reused after network changes
+            try:
+                self.service = build('calendar', 'v3', credentials=self.creds, cache_discovery=False)
+            except Exception as rebuild_err:
+                if getattr(config, "DEBUG_MODE", False):
+                    print(f"⚠️ Failed to rebuild service: {rebuild_err}")
+            
             # Build event object from event_data
             start_datetime = f"{event_data['date']}T{event_data['start_time']}:00"
             end_datetime = f"{event_data['date']}T{event_data['end_time']}:00"
@@ -1002,19 +1011,53 @@ class CalendarComponent:
                 except Exception:
                     pass
             
-            # Create the event
-            created_event = self.service.events().insert(
-                calendarId=calendar_id,
-                body=event_body
-            ).execute()
+            # Create the event with retry logic for transient network errors
+            max_retries = 3
+            retry_delay = 0.5  # Start with 500ms delay
+            last_error = None
             
-            return {
-                'id': created_event.get('id'),
-                'htmlLink': created_event.get('htmlLink'),
-                'summary': created_event.get('summary'),
-                'start': created_event.get('start'),
-                'end': created_event.get('end'),
-            }
+            for attempt in range(max_retries):
+                try:
+                    created_event = self.service.events().insert(
+                        calendarId=calendar_id,
+                        body=event_body
+                    ).execute()
+                    
+                    return {
+                        'id': created_event.get('id'),
+                        'htmlLink': created_event.get('htmlLink'),
+                        'summary': created_event.get('summary'),
+                        'start': created_event.get('start'),
+                        'end': created_event.get('end'),
+                    }
+                except OSError as e:
+                    # Handle network errors like "Errno 49: Can't assign requested address"
+                    last_error = e
+                    if attempt < max_retries - 1:
+                        if getattr(config, "DEBUG_MODE", False):
+                            print(f"⚠️ Network error (attempt {attempt + 1}/{max_retries}): {e}. Retrying in {retry_delay}s...")
+                        import time
+                        time.sleep(retry_delay)
+                        retry_delay *= 2  # Exponential backoff
+                        
+                        # Rebuild the service with a fresh connection
+                        try:
+                            self.service = build('calendar', 'v3', credentials=self.creds, cache_discovery=False)
+                        except Exception as rebuild_err:
+                            if getattr(config, "DEBUG_MODE", False):
+                                print(f"⚠️ Failed to rebuild service on retry: {rebuild_err}")
+                    else:
+                        # Last attempt failed
+                        raise
+                except Exception:
+                    # Non-network errors should not be retried
+                    raise
+            
+            # If we got here, all retries failed
+            if last_error:
+                raise last_error
+            
+            raise Exception("Failed to create event after retries")
             
         except Exception as e:
             raise Exception(f"Failed to create event: {str(e)}")

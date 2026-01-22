@@ -744,6 +744,46 @@ These sounds play for specific events (not state transitions):
 | **Send Phrase** | Hero/Funk | Send phrase detected in transcription |
 | **Shutdown** | Blow | Assistant shutting down gracefully |
 
+### TTS Announcements
+
+In addition to audio beeps, HomeAssist can speak brief TTS announcements for key phase transitions. This provides clear spoken feedback for audio-only interactions.
+
+**Announcements:**
+
+| Event | Spoken Text | Description |
+|-------|-------------|-------------|
+| **Conversation Start** | "Listening" | Wake word detected, ready for input |
+| **Conversation End** | "Conversation ended" | Termination phrase detected |
+| **Tool Success** | "{tool} success" | Tool executed successfully |
+| **Tool Failure** | "{tool} failed" | Tool execution failed |
+
+**Pre-cached for Instant Playback:**
+
+All announcements are pre-generated and cached at boot time for zero-latency playback. The cache is stored in `audio_data/announcement_cache/` and persists across restarts. On first run (or after clearing cache), the announcements are synthesized and saved. Subsequent boots load from cache instantly.
+
+To clear the cache (e.g., after changing TTS voice):
+```python
+from assistant_framework.utils.audio.tts_announcements import clear_announcement_cache
+clear_announcement_cache()
+```
+
+Or simply delete the `audio_data/announcement_cache/` folder.
+
+**Configuration:**
+
+```python
+# In config.py (or via environment variable)
+ENABLE_TTS_ANNOUNCEMENTS = True   # Enable spoken announcements (default)
+ENABLE_TTS_ANNOUNCEMENTS = False  # Disable (beeps only)
+```
+
+**Environment variable:**
+```bash
+export ENABLE_TTS_ANNOUNCEMENTS=false  # Disable TTS announcements
+```
+
+> 💡 **Tip:** TTS announcements play alongside audio beeps. To have beeps only, set `ENABLE_TTS_ANNOUNCEMENTS=false`. To have TTS only, set `ENABLE_TRANSITION_BEEPS=false`.
+
 ---
 
 ## 📊 Token Tracking

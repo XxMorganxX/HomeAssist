@@ -34,5 +34,13 @@
         <key>PATH</key>
         <string>/opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin:/sbin:/usr/sbin</string>
     </dict>
+
+    <!-- Highest priority (match Bluetooth service) -->
+    <key>Nice</key>
+    <integer>-10</integer>
+    <key>ProcessType</key>
+    <string>Interactive</string>
+    <key>LowPriorityIO</key>
+    <false/>
 </dict>
 </plist>

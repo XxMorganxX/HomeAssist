@@ -79,6 +79,7 @@ class CalendarTool(BaseTool):
         return (
             f"Google Calendar. Calendars: {calendars}. "
             "USE FOR: schedule questions ('what's on my calendar'), event creation ('add meeting', 'schedule lunch'). "
+            "READ OPERATIONS: Always search ALL calendars by default (omit 'calendar' param or use 'all'). "
             "DO NOT USE FOR: general conversation, greetings, non-calendar topics. "
             "CRITICAL: Never invent times. If user didn't say a time, omit start_time/end_time - tool will prompt for it."
         )
@@ -102,15 +103,15 @@ class CalendarTool(BaseTool):
         Returns:
             Detailed JSON schema dictionary
         """
-        # Build calendar options: individual calendars + "all" for reading
-        calendar_options = self.available_calendars + ["all"]
+        # Build calendar options: "all" FIRST for reading (preferred), then individual calendars
+        calendar_options = ["all"] + self.available_calendars
         
         return {
             "type": "object",
             "properties": {
                 "commands": {
                     "type": "array",
-                    "description": "Exactly ONE command per tool call. Never call this tool multiple times for the same user request.",
+                    "description": "Use exactly ONE command per tool call. Put all parameters in that single object; do not call the tool multiple times for one request.",
                     "minItems": 1,
                     "maxItems": 1,
                     "items": {
@@ -118,24 +119,24 @@ class CalendarTool(BaseTool):
                         "properties": {
                             "read_or_write": {
                                 "type": "string",
-                                "description": "Action: 'read' to view events (default), 'create_event' only when user explicitly says add/create/schedule.",
+                                "description": "Action: 'read' to view events (default). Use 'create_event' only when the user explicitly asks to add/create/schedule.",
                                 "enum": ["read", "create_event"],
                                 "default": "read"
                             },
                             "calendar": {
                                 "type": "string",
-                                "description": "For read only. Which calendar to read from. Default: 'all' (reads all calendars).",
+                                "description": "Read only. Use 'all' to search across calendars (default). Choose a specific calendar only if the user names it explicitly.",
                                 "enum": calendar_options,
                                 "default": "all"
                             },
                             "calendars": {
                                 "type": "array",
                                 "items": {"type": "string", "enum": self.available_calendars},
-                                "description": "For create_event only. Which calendars to add event to. Example: ['morgan_personal'] or ['morgan_personal', 'homeassist'] for multiple."
+                                "description": "Create only. Calendars to add the event to. Example: ['morgan_personal'] or ['morgan_personal', 'homeassist'] for multiple."
                             },
                             "read_type": {
                                 "type": "string",
-                                "description": "For read only. What to fetch: 'next_events' (upcoming), 'day_summary' (today), 'week_summary', 'specific_date'.",
+                                "description": "Read only. What to fetch: 'next_events' (upcoming), 'day_summary' (today), 'week_summary', or 'specific_date' (requires 'date').",
                                 "enum": self.available_read_types,
                                 "default": "next_events"
                             },
@@ -143,41 +144,41 @@ class CalendarTool(BaseTool):
                                 "type": "integer",
                                 "minimum": 1,
                                 "maximum": 50,
-                                "description": "For read only. Max events to return (default: 10).",
+                                "description": "Read only. Max events to return (default: 10).",
                                 "default": 10
                             },
                             "date": {
                                 "type": "string",
-                                "description": "Format: YYYY-MM-DD. Required for 'specific_date' read. For create_event: convert 'today'/'tomorrow' to date, or OMIT if user didn't specify."
+                                "description": "Format: YYYY-MM-DD. Required for 'specific_date' reads. For create_event: convert 'today'/'tomorrow' to a date, or omit if no date was given."
                             },
                             "event_title": {
                                 "type": "string",
-                                "description": "For create_event. The event name/title. Required."
+                                "description": "Create only. Event title/name. Required."
                             },
                             "event_description": {
                                 "type": "string",
-                                "description": "For create_event. Optional event details/notes."
+                                "description": "Create only. Optional event details/notes."
                             },
                             "start_time": {
                                 "type": "string",
-                                "description": "For create_event. Format: 'HH:MM' or '3pm'. OMIT if user didn't specify a time - tool will prompt for it."
+                                "description": "Create only. Format: 'HH:MM' or '3pm'. Omit if the user didn't specify a time; the tool will prompt."
                             },
                             "end_time": {
                                 "type": "string",
-                                "description": "For create_event. Format: 'HH:MM' or '4pm'. OMIT if user didn't specify - tool will prompt."
+                                "description": "Create only. Format: 'HH:MM' or '4pm'. Omit if the user didn't specify; the tool will prompt."
                             },
                             "location": {
                                 "type": "string",
-                                "description": "For create_event. Optional location/address."
+                                "description": "Create only. Optional location/address."
                             },
                             "attendees": {
                                 "type": "array",
                                 "items": {"type": "string"},
-                                "description": "For create_event. Optional list of attendee email addresses."
+                                "description": "Create only. Optional list of attendee email addresses."
                             },
                             "create_briefing": {
                                 "type": "boolean",
-                                "description": "For create_event. Auto-create smart reminder briefings (default: true). Set false to disable.",
+                                "description": "Create only. Auto-create smart reminder briefings (default: true). Set false to disable.",
                                 "default": True
                             }
                         },
@@ -185,7 +186,10 @@ class CalendarTool(BaseTool):
                     }
                 }
             },
-            "required": ["commands"]
+            # NOTE: commands is validated in execute() rather than Pydantic schema
+            # This allows graceful error messages instead of cryptic Pydantic failures
+            # when LLMs call the tool with empty/malformed arguments
+            "required": []
         }
     
     def execute(self, params: Dict[str, Any]) -> Dict[str, Any]:
@@ -374,14 +378,15 @@ class CalendarTool(BaseTool):
         """Execute a single calendar command."""
         try:
             calendar = cmd.get("calendar") or cmd.get("user")
-            action = cmd["read_or_write"]
+            action = cmd.get("read_or_write", "read")
             
             # Write commands handle their own calendar instances (supports multiple calendars)
             if action in ["write", "create_event"]:
                 return self._handle_write_command(cmd, cmd_index)
             
-            # Handle "all" calendars for read operations
-            if calendar == "all" and action == "read":
+            # Handle "all" calendars for read operations (default behavior for reads)
+            # If no calendar specified or explicitly "all", read from all calendars
+            if action == "read" and (calendar == "all" or calendar is None):
                 return self._handle_read_all_calendars(cmd, cmd_index)
             
             # Get calendar instance for specific calendar (read operations)

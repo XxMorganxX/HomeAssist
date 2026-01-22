@@ -48,6 +48,9 @@ class BargeInConfig:
     device_index: Optional[int] = None
     latency: str = 'high'  # 'high' for Bluetooth devices
     is_bluetooth: bool = False
+    # Speech consistency settings
+    require_consecutive_speech: bool = True  # If True, reset counter on silence; if False, slow decay
+    silence_reset_threshold: int = 3  # Number of silence frames before resetting (if consecutive=True)
 
 
 class BargeInDetector:
@@ -81,6 +84,7 @@ class BargeInDetector:
         
         # Detection state
         self._speech_frames = 0
+        self._silence_frames = 0  # Track consecutive silence frames
         self._required_frames = int(
             self.config.min_speech_duration * self.config.sample_rate / self.config.chunk_size
         )
@@ -157,11 +161,12 @@ class BargeInDetector:
             # Debug: log high RMS values to help diagnose threshold issues
             # Only log if above 50% of threshold (indicates speech activity)
             if rms > self.config.energy_threshold * 0.5 and self._frame_count > self._cooldown_frames:
-                print(f"🔊 Audio activity: RMS={rms:.4f} (threshold={self.config.energy_threshold}, speech_frames={self._speech_frames})")
+                print(f"🔊 Audio activity: RMS={rms:.4f} (threshold={self.config.energy_threshold}, speech_frames={self._speech_frames}/{self._required_frames})")
             
             # Check if above threshold
             if rms > self.config.energy_threshold:
                 self._speech_frames += 1
+                self._silence_frames = 0  # Reset silence counter on speech
                 
                 # Check if enough consecutive speech frames
                 if self._speech_frames >= self._required_frames:
@@ -181,8 +186,21 @@ class BargeInDetector:
                         except RuntimeError:
                             pass  # Event loop closed
             else:
-                # Reset consecutive count if silence
-                self._speech_frames = max(0, self._speech_frames - 1)
+                # Handle silence based on configuration
+                self._silence_frames += 1
+                
+                if self.config.require_consecutive_speech:
+                    # Strict mode: Reset speech counter after consecutive silence frames
+                    if self._silence_frames >= self.config.silence_reset_threshold:
+                        if self._speech_frames > 0:
+                            print(f"🔇 Speech interrupted - resetting counter (had {self._speech_frames}/{self._required_frames} frames)")
+                        self._speech_frames = 0
+                        # Clear buffer since this wasn't consistent speech
+                        with self._buffer_lock:
+                            self._audio_buffer.clear()
+                else:
+                    # Lenient mode: Slow decay (original behavior)
+                    self._speech_frames = max(0, self._speech_frames - 1)
                 
         except Exception as e:
             if not self._shutdown.is_set():
@@ -255,6 +273,7 @@ class BargeInDetector:
         self._detected.clear()
         self._shutdown.clear()
         self._speech_frames = 0
+        self._silence_frames = 0
         self._frame_count = 0
         self._post_trigger_frames = 0
         self._trigger_time = None

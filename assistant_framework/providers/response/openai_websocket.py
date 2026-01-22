@@ -84,6 +84,9 @@ class OpenAIWebSocketResponseProvider(ResponseInterface):
         self._ws: Optional[aiohttp.ClientWebSocketResponse] = None
         self._ws_lock = asyncio.Lock()
         self._last_heartbeat = 0.0
+        
+        # TTS provider for tool call announcements (set by orchestrator)
+        self._tts_provider = None
     
     async def initialize(self) -> bool:
         """Initialize the OpenAI WebSocket provider and MCP connection."""
@@ -113,6 +116,18 @@ class OpenAIWebSocketResponseProvider(ResponseInterface):
         except Exception as e:
             print(f"Failed to initialize OpenAI WebSocket provider: {e}")
             return False
+    
+    def set_tts_provider(self, tts_provider) -> None:
+        """
+        Store TTS provider reference for tool call announcements.
+        
+        Called by orchestrator after initialization to enable TTS announcements
+        for tool execution success/failure.
+        
+        Args:
+            tts_provider: Initialized TTS provider instance
+        """
+        self._tts_provider = tts_provider
     
     async def _initialize_mcp(self):
         """Initialize MCP connection and discover tools.
@@ -823,8 +838,10 @@ class OpenAIWebSocketResponseProvider(ResponseInterface):
                 # Log formatted result
                 print(format_tool_result(tool_name, result_text, execution_time_ms=execution_time_ms))
                 
-                # Play audio feedback based on result
+                # Play audio feedback and TTS announcement based on result
+                success = self._determine_tool_success(result_text)
                 self._play_tool_feedback(result_text)
+                self._announce_tool_result(tool_name, success)
                 
                 return result_text
             else:
@@ -833,8 +850,10 @@ class OpenAIWebSocketResponseProvider(ResponseInterface):
                 # Log formatted result
                 print(format_tool_result(tool_name, result_text, execution_time_ms=execution_time_ms))
                 
-                # Play audio feedback based on result
+                # Play audio feedback and TTS announcement based on result
+                success = self._determine_tool_success(result_text)
                 self._play_tool_feedback(result_text)
+                self._announce_tool_result(tool_name, success)
                 
                 return result_text
                 
@@ -851,17 +870,25 @@ class OpenAIWebSocketResponseProvider(ResponseInterface):
             # Log detailed error to webconsole API
             await console_log_async(f"Tool error [{tool_name}]: {e}", "command", is_positive=False)
             
-            # Play failure sound
+            # Play failure sound and TTS announcement
             beep_tool_failure()
+            self._announce_tool_result(tool_name, success=False)
             
             # Return simple error message to model (details in webconsole)
             return f"Error during {tool_name} tool call"
     
-    def _play_tool_feedback(self, result_text: str) -> None:
-        """Play audio feedback based on tool execution result."""
+    def _determine_tool_success(self, result_text: str) -> bool:
+        """
+        Determine if a tool execution was successful based on result text.
+        
+        Args:
+            result_text: The result text from tool execution
+            
+        Returns:
+            True if successful, False if failed
+        """
         try:
             import json
-            from assistant_framework.utils.audio.tones import beep_tool_success, beep_tool_failure
             
             # Try to parse as JSON to check for success field
             try:
@@ -873,28 +900,61 @@ class OpenAIWebSocketResponseProvider(ResponseInterface):
                     error = result_data.get('error')
                     
                     if success is True or (success is None and not error):
-                        # Success: either explicit success=true or no error field
-                        beep_tool_success()
+                        return True
                     elif success is False or error:
-                        # Failure: explicit success=false or error field present
-                        beep_tool_failure()
+                        return False
                     else:
                         # Ambiguous result - default to success
-                        beep_tool_success()
+                        return True
                 else:
                     # Non-dict JSON - assume success
-                    beep_tool_success()
+                    return True
                     
             except json.JSONDecodeError:
                 # Not JSON - check for error keywords in text
                 result_lower = result_text.lower()
                 if any(keyword in result_lower for keyword in ['error', 'failed', 'exception', 'not found']):
-                    beep_tool_failure()
+                    return False
                 else:
-                    beep_tool_success()
+                    return True
+                    
+        except Exception:
+            # If determination fails, default to success
+            return True
+    
+    def _play_tool_feedback(self, result_text: str) -> None:
+        """Play audio feedback based on tool execution result."""
+        try:
+            from assistant_framework.utils.audio.tones import beep_tool_success, beep_tool_failure
+            
+            success = self._determine_tool_success(result_text)
+            if success:
+                beep_tool_success()
+            else:
+                beep_tool_failure()
                     
         except Exception:
             # If feedback fails, don't propagate - it's non-critical
+            pass
+    
+    def _announce_tool_result(self, tool_name: str, success: bool) -> None:
+        """
+        Play TTS announcement for tool execution result.
+        
+        Runs immediately in a separate thread for instant feedback.
+        
+        Args:
+            tool_name: Name of the tool that was executed
+            success: Whether the tool execution succeeded
+        """
+        try:
+            from assistant_framework.config import ENABLE_TTS_ANNOUNCEMENTS
+            from assistant_framework.utils.audio.tts_announcements import announce_tool_call
+            
+            if ENABLE_TTS_ANNOUNCEMENTS and self._tts_provider:
+                announce_tool_call(self._tts_provider, tool_name, success)
+        except Exception:
+            # If announcement fails, don't propagate - it's non-critical
             pass
     
     async def _compose_final_answer(self,

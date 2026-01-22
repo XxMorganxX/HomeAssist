@@ -39,8 +39,9 @@ try:
     from .providers.context import UnifiedContextProvider
     from .providers.termination import IsolatedTerminationProvider
     from .utils.briefing.briefing_manager import BriefingManager
-    from .config import get_active_preset, TERMINATION_DETECTION_CONFIG
+    from .config import get_active_preset, TERMINATION_DETECTION_CONFIG, ENABLE_TTS_ANNOUNCEMENTS
     from .models.data_models import TransitionReason, TransitionContext
+    from .utils.audio.tts_announcements import announce_termination, announce_conversation_start, precache_announcements
 except ImportError:
     from assistant_framework.interfaces import (
         TranscriptionInterface,
@@ -70,8 +71,9 @@ except ImportError:
     from assistant_framework.providers.context import UnifiedContextProvider
     from assistant_framework.providers.termination import IsolatedTerminationProvider
     from assistant_framework.utils.briefing.briefing_manager import BriefingManager
-    from assistant_framework.config import get_active_preset, TERMINATION_DETECTION_CONFIG
+    from assistant_framework.config import get_active_preset, TERMINATION_DETECTION_CONFIG, ENABLE_TTS_ANNOUNCEMENTS
     from assistant_framework.models.data_models import TransitionReason, TransitionContext
+    from assistant_framework.utils.audio.tts_announcements import announce_termination, announce_conversation_start, precache_announcements
 
 
 class RefactoredOrchestrator:
@@ -162,9 +164,23 @@ class RefactoredOrchestrator:
         self._barge_in_device_index = barge_in_config.get('device_index', None)
         self._barge_in_latency = barge_in_config.get('latency', 'high')
         self._barge_in_is_bluetooth = barge_in_config.get('is_bluetooth', False)
+        # Speech consistency settings (require continuous speech, not intermittent)
+        self._barge_in_require_consecutive = barge_in_config.get('require_consecutive_speech', True)
+        self._barge_in_silence_reset_threshold = int(barge_in_config.get('silence_reset_threshold', 3))
         # Processing-phase barge-in settings
         self._barge_in_during_processing = barge_in_config.get('enable_during_processing', True)
         self._barge_in_processing_cooldown = float(barge_in_config.get('processing_cooldown', 0.1))
+        # False barge-in recovery: resume TTS if user doesn't speak after interrupting
+        self._barge_in_recovery_enabled = barge_in_config.get('recovery_enabled', True)
+        self._barge_in_recovery_timeout = float(barge_in_config.get('recovery_timeout', 4.0))
+        self._barge_in_recovery_grace_period = float(barge_in_config.get('recovery_grace_period', 1.0))
+        self._interrupted_tts_response: Optional[str] = None  # Store interrupted response for recovery
+        self._barge_in_recovery_mode = False  # Flag: currently in recovery mode (waiting to see if user speaks)
+        # Conservative speech rate estimate for resume position
+        # Using LOWER rate than typical TTS (which is ~150-180 wpm = 2.5-3.0 wps)
+        # This ensures we UNDERESTIMATE words spoken, so we repeat a few words
+        # rather than skip words (better to have slight redundancy than miss content)
+        self._tts_words_per_second = 1.2  # Very conservative: 72 wpm (TTS is usually 2.5-3x faster)
         self._early_barge_in = False  # Flag: next message should append to previous
         self._previous_user_message = ""  # Store last user message for appending
         self._vector_query_override = None  # Override for vector query (raw single message)
@@ -228,6 +244,18 @@ class RefactoredOrchestrator:
             
             print("🔧 Creating TTS provider...")
             self._tts = await self._create_tts_provider()
+            
+            # Pass TTS provider to response provider for tool call announcements
+            if self._response and hasattr(self._response, 'set_tts_provider'):
+                self._response.set_tts_provider(self._tts)
+            
+            # Pre-cache TTS announcements for instant playback
+            if ENABLE_TTS_ANNOUNCEMENTS and self._tts:
+                # Get tool names from response provider for tool announcement caching
+                tool_names = None
+                if self._response and hasattr(self._response, 'available_tools'):
+                    tool_names = list(self._response.available_tools.keys())
+                await precache_announcements(self._tts, tool_names)
             
             # Run remaining initialization in PARALLEL for faster boot
             # - Termination detection (~1-2s, loads ONNX model)
@@ -508,6 +536,47 @@ class RefactoredOrchestrator:
             **data
         })
     
+    def _estimate_remaining_text(self, full_text: str) -> Optional[str]:
+        """
+        Estimate remaining text after barge-in based on elapsed playback time.
+        
+        Uses playback start time and average speech rate to determine approximately
+        how much text was spoken, then returns the remaining unspoken text.
+        
+        Args:
+            full_text: The full TTS text that was being spoken
+            
+        Returns:
+            The remaining text that wasn't spoken, or None if nearly complete
+        """
+        if not self._playback_start_time:
+            return full_text  # No timing info, return full text
+        
+        elapsed = asyncio.get_event_loop().time() - self._playback_start_time
+        
+        # Estimate words spoken using CONSERVATIVE rate (intentionally low)
+        # This ensures we underestimate → repeat a few words rather than skip any
+        words_spoken = int(elapsed * self._tts_words_per_second)
+        
+        # Split into words
+        words = full_text.split()
+        total_words = len(words)
+        
+        # If we've spoken most of the text (>90%), don't bother recovering
+        if words_spoken >= total_words * 0.9:
+            return None
+        
+        # Get remaining words
+        remaining_words = words[words_spoken:]
+        if not remaining_words:
+            return None
+        
+        remaining_text = " ".join(remaining_words)
+        
+        print(f"📍 Playback estimate: {elapsed:.1f}s elapsed, ~{words_spoken}/{total_words} words spoken")
+        
+        return remaining_text
+    
     def _dump_recent_history(self, last_n: int = 30) -> None:
         """
         Print recent timeline for debugging.
@@ -652,6 +721,8 @@ class RefactoredOrchestrator:
                         print(f"   Interrupted state: {event.interrupted_state}")
                         log_termination_detected(event.phrase_name, event.interrupted_state or "UNKNOWN")
                         beep_shutdown()
+                        # Note: "Conversation ended" TTS announcement is played at session end
+                        # (handles all conversation end paths, not just termination phrase)
                         self._termination_detected = True
                         break  # Stop after first detection
             except asyncio.CancelledError:
@@ -830,23 +901,69 @@ class RefactoredOrchestrator:
             # Note: Listening start beep now handled by state machine transition
             
             accumulated_text = ""
-            last_activity_time = asyncio.get_event_loop().time()
+            real_speech_after_grace = False  # Track if user spoke AFTER grace period (not just prefill)
+            grace_period_ended_logged = False  # Track if we've logged grace period end
             
             # Create an async iterator we can poll with timeout
             stream_iter = transcription.start_streaming().__aiter__()
             
+            # NOW start the timers - after stream is created (closer to actual session start)
+            last_activity_time = asyncio.get_event_loop().time()
+            transcription_start_time = last_activity_time  # Track when transcription started for recovery
+            
+            # Barge-in recovery mode logging
+            if self._barge_in_recovery_mode:
+                print(f"🔄 Barge-in recovery mode: will resume TTS if no NEW speech within {self._barge_in_recovery_timeout}s")
+                print(f"⏳ GRACE PERIOD STARTED at t=0.00s: ignoring transcription results for {self._barge_in_recovery_grace_period}s")
+            
             while True:
                 try:
-                    # Calculate remaining time until auto-send
-                    if effective_timeout > 0 and accumulated_text:
+                    # Calculate remaining time until auto-send or recovery
+                    elapsed_since_start = asyncio.get_event_loop().time() - transcription_start_time
+                    
+                    # Log when grace period ends
+                    if self._barge_in_recovery_mode and not grace_period_ended_logged:
+                        if elapsed_since_start >= self._barge_in_recovery_grace_period:
+                            print(f"⏳ GRACE PERIOD ENDED at t={elapsed_since_start:.2f}s - now listening for real speech")
+                            grace_period_ended_logged = True
+                    
+                    # Check recovery timeout FIRST if in recovery mode and no real speech yet
+                    # (accumulated_text may exist from prefill, but we only care about real speech after grace)
+                    if self._barge_in_recovery_mode and not real_speech_after_grace:
+                        recovery_remaining = self._barge_in_recovery_timeout - elapsed_since_start
+                        if recovery_remaining <= 0:
+                            # Recovery timeout expired - no real speech detected, resume TTS
+                            if accumulated_text:
+                                print(f"⏱️  Only prefill speech detected, no new speech after {self._barge_in_recovery_timeout}s - resuming interrupted TTS")
+                            else:
+                                print(f"⏱️  No speech detected after {self._barge_in_recovery_timeout}s - resuming interrupted TTS")
+                            self._barge_in_recovery_mode = False
+                            # Return special marker to signal TTS resume
+                            return "__RESUME_TTS__"
+                        timeout = min(recovery_remaining, 1.0)  # Check every second max
+                    elif effective_timeout > 0 and accumulated_text and real_speech_after_grace:
+                        # Normal auto-send: only if real speech occurred after grace period
                         elapsed = asyncio.get_event_loop().time() - last_activity_time
                         remaining = effective_timeout - elapsed
                         if remaining <= 0:
                             # Auto-send timeout reached
                             print(f"⏱️  Auto-sending after {effective_timeout:.0f}s of silence...")
                             beep_send_detected()  # 🔔 Send phrase sound
+                            # Clear recovery mode since user spoke
+                            self._barge_in_recovery_mode = False
+                            self._interrupted_tts_response = None
                             return accumulated_text
                         timeout = remaining
+                    elif effective_timeout > 0 and accumulated_text:
+                        # Has accumulated text but not confirmed as real speech yet
+                        # Use both timeouts - whichever comes first
+                        elapsed = asyncio.get_event_loop().time() - last_activity_time
+                        auto_send_remaining = effective_timeout - elapsed
+                        if self._barge_in_recovery_mode:
+                            recovery_remaining = self._barge_in_recovery_timeout - elapsed_since_start
+                            timeout = min(auto_send_remaining, recovery_remaining, 1.0)
+                        else:
+                            timeout = auto_send_remaining
                     else:
                         # No auto-send or no text yet - wait indefinitely (long timeout)
                         timeout = 60.0
@@ -857,7 +974,21 @@ class RefactoredOrchestrator:
                     # Reset activity timer on any transcription activity
                     last_activity_time = asyncio.get_event_loop().time()
                     
+                    # Check ANY speech activity (final OR partial) after grace period to cancel recovery
+                    # This prevents recovery timeout from firing while user is actively speaking
+                    if self._barge_in_recovery_mode and result.text.strip():
+                        elapsed_since_start = asyncio.get_event_loop().time() - transcription_start_time
+                        if elapsed_since_start >= self._barge_in_recovery_grace_period:
+                            if not real_speech_after_grace:
+                                print(f"✅ User speech detected after grace period ({elapsed_since_start:.1f}s) - cancelling TTS recovery")
+                                self._barge_in_recovery_mode = False
+                                self._interrupted_tts_response = None
+                                real_speech_after_grace = True  # Mark that real speech occurred
+                        else:
+                            print(f"⏳ Speech during grace period ({elapsed_since_start:.1f}s < {self._barge_in_recovery_grace_period}s) - may be prefill, waiting for more...")
+                    
                     if result.is_final:
+                        
                         # Accumulate final transcriptions
                         if accumulated_text:
                             accumulated_text += " " + result.text
@@ -931,6 +1062,16 @@ class RefactoredOrchestrator:
                     # Stream ended naturally
                     break
             
+            # Stream ended - check if we should resume TTS (recovery mode)
+            if self._barge_in_recovery_mode and not real_speech_after_grace:
+                # No real speech was detected - should resume TTS
+                if accumulated_text:
+                    print(f"🔄 Stream ended with only prefill speech - resuming interrupted TTS")
+                else:
+                    print(f"🔄 Stream ended with no speech - resuming interrupted TTS")
+                self._barge_in_recovery_mode = False
+                return "__RESUME_TTS__"
+            
             # If stream ends naturally without send phrase, return accumulated text
             # Apply trim phrases and custom spelling before returning
             final_text = apply_custom_spelling(apply_trim_phrases(accumulated_text)) if accumulated_text else None
@@ -938,6 +1079,13 @@ class RefactoredOrchestrator:
             
         except Exception as e:
             print(f"❌ Transcription error: {e}")
+            
+            # Check if we should resume TTS instead of failing
+            if self._barge_in_recovery_mode:
+                print(f"🔄 Transcription error during recovery mode - resuming interrupted TTS")
+                self._barge_in_recovery_mode = False
+                return "__RESUME_TTS__"
+            
             error = ComponentError(
                 component="transcription",
                 severity=ErrorSeverity.RECOVERABLE,
@@ -1075,6 +1223,8 @@ class RefactoredOrchestrator:
                         device_index=self._barge_in_device_index,
                         latency=self._barge_in_latency,
                         is_bluetooth=self._barge_in_is_bluetooth,
+                        require_consecutive_speech=self._barge_in_require_consecutive,
+                        silence_reset_threshold=self._barge_in_silence_reset_threshold,
                     ),
                     shared_bus=self._shared_audio_bus,
                 )
@@ -1336,6 +1486,8 @@ class RefactoredOrchestrator:
                         device_index=self._barge_in_device_index,
                         latency=self._barge_in_latency,
                         is_bluetooth=self._barge_in_is_bluetooth,
+                        require_consecutive_speech=self._barge_in_require_consecutive,
+                        silence_reset_threshold=self._barge_in_silence_reset_threshold,
                     ),
                     shared_bus=self._shared_audio_bus,
                 )
@@ -1419,8 +1571,30 @@ class RefactoredOrchestrator:
             elif self._barge_in_triggered:
                 print("⚡ Speech interrupted by barge-in")
                 barge_in_occurred = True
+                # Save the REMAINING response for potential recovery (resume from where we left off)
+                if self._barge_in_recovery_enabled:
+                    remaining_text = self._estimate_remaining_text(text)
+                    if remaining_text:
+                        self._interrupted_tts_response = remaining_text
+                        self._barge_in_recovery_mode = True
+                        print(f"💾 Saved remaining response for recovery: ~{len(remaining_text.split())} words")
+                    else:
+                        # Nearly complete, no need to recover
+                        self._interrupted_tts_response = None
+                        self._barge_in_recovery_mode = False
+                        print("💾 Response was nearly complete, no recovery needed")
             else:
                 print("✅ Speech complete")
+                # Log actual speech rate for calibration
+                if self._playback_start_time:
+                    actual_duration = asyncio.get_event_loop().time() - self._playback_start_time
+                    word_count = len(text.split())
+                    if actual_duration > 0:
+                        actual_wps = word_count / actual_duration
+                        print(f"📊 TTS stats: {word_count} words in {actual_duration:.1f}s = {actual_wps:.2f} wps (estimate uses {self._tts_words_per_second} wps)")
+                # Clear any saved response on normal completion
+                self._interrupted_tts_response = None
+                self._barge_in_recovery_mode = False
             
         except Exception as e:
             print(f"❌ TTS error: {e}")
@@ -1592,6 +1766,8 @@ class RefactoredOrchestrator:
                         device_index=self._barge_in_device_index,
                         latency=self._barge_in_latency,
                         is_bluetooth=self._barge_in_is_bluetooth,
+                        require_consecutive_speech=self._barge_in_require_consecutive,
+                        silence_reset_threshold=self._barge_in_silence_reset_threshold,
                     ),
                     shared_bus=self._shared_audio_bus,
                 )
@@ -1844,6 +2020,30 @@ class RefactoredOrchestrator:
             
             # 2. Transcribe user speech
             user_text = await self.run_transcription()
+            
+            # Handle barge-in recovery: resume TTS if no speech detected
+            if user_text == "__RESUME_TTS__" and self._interrupted_tts_response:
+                print("🔄 Resuming interrupted TTS response...")
+                response_to_resume = self._interrupted_tts_response
+                self._interrupted_tts_response = None
+                
+                # Transition out of TRANSCRIBING before TTS
+                if self.state_machine.current_state == AudioState.TRANSCRIBING:
+                    await self._transition(
+                        AudioState.IDLE,
+                        component=None,
+                        ctx=TransitionContext(
+                            reason=TransitionReason.TRANSCRIPTION_COMPLETE,
+                            initiated_by="recovery",
+                            conversation_id=self._get_conversation_id(),
+                        )
+                    )
+                
+                await self.run_tts(response_to_resume, transition_to_idle=True, enable_barge_in=True)
+                if self._recorder and self._recorder.current_session_id:
+                    await self._recorder.end_session()
+                return
+            
             if not user_text:
                 print("⚠️  No transcription received")
                 if self._recorder and self._recorder.current_session_id:
@@ -2145,6 +2345,10 @@ class RefactoredOrchestrator:
                 # Start parallel termination detection (listens for "over out" etc.)
                 await self._start_termination_detection()
                 
+                # TTS announcement for conversation start (runs in separate thread)
+                if ENABLE_TTS_ANNOUNCEMENTS and self._tts:
+                    announce_conversation_start(self._tts)
+                
                 print("💬 Conversation mode active (say termination phrase to exit)")
                 conversation_active = True
                 
@@ -2195,9 +2399,42 @@ class RefactoredOrchestrator:
                     except asyncio.CancelledError:
                         user_text = None
                     
+                    # Handle barge-in recovery: resume TTS if no speech detected
+                    if user_text == "__RESUME_TTS__" and self._interrupted_tts_response:
+                        print("🔄 Resuming interrupted TTS response...")
+                        response_to_resume = self._interrupted_tts_response
+                        self._interrupted_tts_response = None  # Clear saved response
+                        
+                        # Transition out of TRANSCRIBING before TTS
+                        if self.state_machine.current_state == AudioState.TRANSCRIBING:
+                            await self._transition(
+                                AudioState.IDLE,
+                                component=None,
+                                ctx=TransitionContext(
+                                    reason=TransitionReason.TRANSCRIPTION_COMPLETE,
+                                    initiated_by="recovery",
+                                    conversation_id=self._get_conversation_id(),
+                                )
+                            )
+                        
+                        # Resume TTS with the interrupted response
+                        speech_completed = await self.run_tts(
+                            response_to_resume, 
+                            transition_to_idle=False,  # Don't go to idle, stay in conversation
+                            enable_barge_in=True  # Allow barge-in again
+                        )
+                        
+                        if speech_completed:
+                            print("✅ Resumed TTS completed")
+                        # Continue conversation loop (go back to wake word or ready for next input)
+                        continue
+                    
                     # Check if user wants to end conversation
-                    if not user_text:
-                        print("⚠️  No transcription received, ending conversation")
+                    if not user_text or user_text == "__RESUME_TTS__":
+                        if user_text == "__RESUME_TTS__":
+                            print("⚠️  Barge-in recovery triggered but no saved response")
+                        else:
+                            print("⚠️  No transcription received, ending conversation")
                         conversation_active = False
                         break
                     
@@ -2391,6 +2628,10 @@ class RefactoredOrchestrator:
                 # Stop shared audio bus (conversation ended, wake word will use own stream)
                 if self._shared_audio_bus:
                     await self._shared_audio_bus.stop()
+                
+                # TTS announcement for conversation end (plays for ALL conversation endings)
+                if ENABLE_TTS_ANNOUNCEMENTS and self._tts:
+                    announce_termination(self._tts)
                 
                 # Conversation ended - ensure we're in IDLE before restarting wake word
                 print("✅ Conversation session ended\n")

@@ -21,6 +21,15 @@ from assistant_framework.utils.audio.device_manager import get_emeet_device, get
 
 VERBOSE_LOGGING = os.getenv("VERBOSE_LOGGING", "true").lower() in ("true", "1", "yes")
 
+# =============================================================================
+# SECTION 0A: TTS ANNOUNCEMENTS
+# =============================================================================
+# Enable spoken TTS announcements for key phase transitions.
+# Plays alongside audio beeps for audio-only feedback.
+# Announces: conversation start, termination, tool call success/failure
+
+ENABLE_TTS_ANNOUNCEMENTS = os.getenv("ENABLE_TTS_ANNOUNCEMENTS", "true").lower() in ("true", "1", "yes")
+
 
 # =============================================================================
 # SECTION 0B: DYNAMIC USER CONFIG
@@ -448,11 +457,11 @@ SYSTEM_PROMPT_CONFIG = {
 
   # Behavioral rules
   "behavior": [
-    "Speak in loose paragraphs by default; sound like a real person.",
+    "Keep responses SHORT. 1-3 sentences is ideal for most questions.",
     "Be clear without being rigid.",
     "Don't repeat yourself.",
-    "Don't over-explain unless the user asks.",
-    "Prefer concise, direct responses—say what matters, then stop.",
+    "Don't over-explain. If the user wants more, they'll ask.",
+    "Get to the point fast—no preamble, no throat-clearing.",
     "If emotion is real, let a little profanity carry it (never at the user)."
   ],
 
@@ -473,18 +482,15 @@ SYSTEM_PROMPT_CONFIG = {
 
   # Default response shape
   "response_shape": [
-    "Start with the answer in a sentence or two.",
-    "Expand in one relaxed paragraph if it adds value.",
-    "Use at most one metaphor if it clarifies.",
-    "End with a small takeaway or one good question when useful."
+    "Answer in 1-3 sentences. That's usually enough.",
+    "Only expand if the question genuinely requires it.",
+    "Skip the metaphors unless they really help.",
+    "Don't end with questions unless the user seems stuck."
   ],
 
   # Example
   "example": (
-    "You’re not stuck—you’re hesitating.\n"
-    "Right now it’s like staring at a map instead of walking the trail.\n"
-    "Pick one small move and take it today.\n"
-    "What’s the first step you’ve been avoiding?"
+    "You're not stuck—you're hesitating. Pick one small move and take it today."
   )
 }
 
@@ -494,8 +500,8 @@ SYSTEM_PROMPT = build_system_prompt(SYSTEM_PROMPT_CONFIG)
 # OpenAI Realtime API configuration
 OPENAI_WS_CONFIG = {
     "api_key": os.getenv("OPENAI_API_KEY"),
-    "model": "gpt-realtime",
-    "max_tokens": 3000,  # Slightly reduced for more concise responses
+    "model": "gpt-4o-mini-realtime-preview",
+    "max_tokens": 1000,  # Reduced for concise responses (1-3 sentences ideal)
     "temperature": 0.725,  # Higher for more natural, varied responses
     "recency_bias_prompt": (
         "Focus your answer on the user's latest message. Use prior conversation only to disambiguate if explicitly referenced. "
@@ -589,7 +595,7 @@ WAKEWORD_CONFIG = {
     # - If briefing_wake_words is empty: ALL wake words announce briefings (default)
     # - If briefing_wake_words is configured: only those wake words announce briefings
     # Example: ["hey_honey_whats_new"] → only "hey_honey_whats_new" triggers briefings
-    "model_names": ["hey_honey_v2", "sol"],  # Add second model name here when ready
+    "model_names": ["hey_honey_v2", "hey_tolis", "sol"],  # Add second model name here when ready
     "briefing_wake_words": ["sol"],  # Empty = always announce briefings; set to specific wake words to be selective
     "sample_rate": 16000,
     "chunk": 1280,
@@ -602,15 +608,17 @@ WAKEWORD_CONFIG = {
         "hey_honey_v2": 0.4,
         "sol": 0.15,
          "alexa_v0.1": 0.5,
+         "hey_tolis": 0.03,
         # "hey_jarvis": 0.3,
     },
     # Bluetooth-specific thresholds (for Meta Ray-Bans and other BT devices)
     # When a Bluetooth device is detected, these thresholds override model_thresholds
     # Typically need to be more sensitive due to lower mic quality during BT transmission
     "bluetooth_model_thresholds": {
-        "hey_honey_v2": 0.24,  # Lower than 0.4 (non-BT) - more sensitive for Ray-Bans
+        "hey_honey_v2": 0.2,  # Lower than 0.4 (non-BT) - more sensitive for Ray-Bans
         "sol": 0.12,          # Lower than 0.15 (non-BT) - more sensitive for Ray-Bans
         "alexa_v0.1": 0.4,    # Lower than 0.5 (non-BT)
+        "hey_tolis": 0.02,    # Lower than 0.15 (non-BT) - more sensitive for Ray-Bans
         # Add more models as needed
     },
     "bluetooth_threshold": 0.15,  # Default BT threshold if model not in bluetooth_model_thresholds
@@ -637,10 +645,10 @@ WAKEWORD_CONFIG = {
 TERMINATION_DETECTION_CONFIG = {
     "enabled": True,  # Enable/disable parallel termination detection
     "model_dir": os.getenv("TERMINATION_MODEL_DIR", "./audio_data/wake_word_models"),
-    "model_name": "alexa_v0.1",  # Name of the trained termination phrase model
+    "model_name": "over_out",  # Name of the trained termination phrase model
     "sample_rate": 16000,
     "chunk": 1280,  # Audio chunk size (same as wake word)
-    "threshold": 0.5,  # Detection threshold (higher = fewer false positives)
+    "threshold": 0.4,  # Detection threshold (higher = fewer false positives)
     "cooldown_seconds": 1.0,  # Minimum time between detections
     "input_device_index": None,  # None = use default device
     "latency": "high",  # 'high' for Bluetooth devices
@@ -959,15 +967,22 @@ BARGE_IN_CONFIG = {
     "sample_rate": 16000,
     "chunk_size": 1024,                 # Default; auto-adjusted if Ray-Bans detected
     "energy_threshold": 0.04,           # Voice energy threshold for detection (lower = more sensitive)
-    "bluetooth_energy_threshold": 0.03, # Much lower threshold for Bluetooth (mic quality drops during playback)
+    "bluetooth_energy_threshold": 0.008, # Much lower threshold for Bluetooth (mic quality drops during playback)
     "early_barge_in_threshold": 3.0,    # Seconds - if barge-in within this time, append to previous message
-    "min_speech_duration": 0.2,         # Seconds of speech before triggering
-    "cooldown_after_tts_start": 0.5,    # Ignore speech for first 0.5s after TTS starts (avoid self-trigger)
-    "pre_barge_in_buffer_duration": 0.6,  # Seconds of audio to buffer BEFORE barge-in (captures speech onset)
+    "min_speech_duration": 0.3,         # Seconds of CONSISTENT speech before triggering (raised from 0.2)
+    "cooldown_after_tts_start": 0.3,    # Ignore speech for first 0.5s after TTS starts (avoid self-trigger)
+    "pre_barge_in_buffer_duration": 0.3,  # Seconds of audio to buffer BEFORE barge-in (captures speech onset)
     "post_barge_in_capture_duration": 0.5,  # Extra capture AFTER detection (captures speech tail)
+    # Speech consistency settings - require continuous speech, not intermittent
+    "require_consecutive_speech": True, # If True, reset counter on silence (stricter); if False, slow decay (lenient)
+    "silence_reset_threshold": 3,       # Number of silence frames before resetting speech counter (only if consecutive=True)
     # Processing-phase barge-in: allows interrupting during response generation (before TTS)
     "enable_during_processing": True,   # Allow barge-in during response generation
     "processing_cooldown": 0.1,         # Minimal cooldown for processing phase (no TTS feedback to avoid)
+    # False barge-in recovery: resume TTS if user doesn't actually speak after interrupting
+    "recovery_enabled": False,           # Enable recovery to resume interrupted TTS
+    "recovery_timeout": 2.5,            # Seconds to wait for speech before resuming TTS
+    "recovery_grace_period": 0.5,       # Seconds to ignore transcription results at start (prefill audio grace)
 }
 
 

@@ -134,7 +134,7 @@ class SpotifyPlaybackTool(BaseTool):
             "properties": {
                 "action": {
                     "type": "string",
-                    "description": "The Spotify action to perform. 'play' resumes or starts playback, 'pause' stops playback, 'next'/'previous' skip tracks, 'volume' adjusts playback volume (0-100), 'search_track' finds and plays a specific song, 'search_artist' finds and plays music by an artist, 'status' gets current playback information, 'devices' lists available playback devices, 'shuffle' toggles shuffle mode, 'repeat' cycles repeat modes (off/track/context).",
+                    "description": "The Spotify action to perform. 'play' resumes playback (or starts a search if 'query' is provided), 'pause' stops playback, 'next'/'previous' skip tracks, 'volume' adjusts playback volume (0-100), 'search_track' finds and plays a specific song, 'search_artist' finds and plays music by an artist, 'status' gets current playback information, 'devices' lists available playback devices, 'shuffle' toggles shuffle mode, 'repeat' cycles repeat modes (off/track/context).",
                     "enum": self.available_actions
                 },
                 "user": {
@@ -145,7 +145,13 @@ class SpotifyPlaybackTool(BaseTool):
                 },
                 "query": {
                     "type": "string",
-                    "description": "Search query for track or artist when using search actions. For 'search_track': use song name and optionally artist (e.g., 'Bohemian Rhapsody Queen' or just 'Bohemian Rhapsody'). For 'search_artist': use artist name (e.g., 'The Beatles', 'Taylor Swift'). Be specific for better results."
+                    "description": "Search query for track or artist when using search actions, or when action is 'play' with a query. For 'search_track' or 'play' with search_type 'track': use song name and optionally artist (e.g., 'Bohemian Rhapsody Queen' or just 'Bohemian Rhapsody'). For 'search_artist' or 'play' with search_type 'artist': use artist name (e.g., 'The Beatles', 'Taylor Swift'). Be specific for better results."
+                },
+                "search_type": {
+                    "type": "string",
+                    "description": "When using 'play' with a query, choose whether to search tracks or artists. Defaults to 'track'.",
+                    "enum": ["track", "artist"],
+                    "default": "track"
                 },
                 "volume_level": {
                     "type": "integer",
@@ -229,7 +235,6 @@ class SpotifyPlaybackTool(BaseTool):
             sp_client = self._get_spotify_client(user)
             if not sp_client:
                 # Check for specific missing components to provide better error messages
-                import os as _os
                 from pathlib import Path as _PathCheck
                 _project_root = _PathCheck(__file__).parent.parent.parent
                 _cache_file = _project_root / "creds" / ".spotify_cache"
@@ -431,6 +436,11 @@ class SpotifyPlaybackTool(BaseTool):
         """Execute a specific Spotify action."""
         try:
             if action == "play":
+                if params.get("query"):
+                    search_type = params.get("search_type", "track")
+                    if search_type == "artist":
+                        return self._handle_search_artist(sp_client, params["query"], params.get("search_limit", 5))
+                    return self._handle_search_track(sp_client, params["query"], params.get("search_limit", 5))
                 return self._handle_play(sp_client, params)
             elif action == "pause":
                 return self._handle_pause(sp_client)

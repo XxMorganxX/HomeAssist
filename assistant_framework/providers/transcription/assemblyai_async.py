@@ -382,12 +382,25 @@ class AssemblyAIAsyncProvider(StreamingProviderBase, TranscriptionInterface):
                     # Small delay between chunks to avoid buffering issues
                     if chunks_sent % 5 == 0:
                         await asyncio.sleep(0.01)
+                else:
+                    # WebSocket closed mid-send, abort prefill silently
+                    break
                 offset += chunk_size
             
-            print(f"✅ Prefill audio sent ({chunks_sent} chunks)")
+            if chunks_sent > 0:
+                print(f"✅ Prefill audio sent ({chunks_sent} chunks)")
             
+        except ConnectionResetError:
+            # Connection was reset - this is fine, just skip prefill
+            pass
         except Exception as e:
-            print(f"⚠️  Error sending prefill audio: {e}")
+            # Check for transport closing errors - these are expected during rapid state changes
+            error_msg = str(e).lower()
+            if "closing transport" in error_msg or "closed" in error_msg:
+                # Expected during cleanup - silently skip
+                pass
+            else:
+                print(f"⚠️  Error sending prefill audio: {e}")
     
     async def _cleanup_stream(self, full_cleanup: bool = False):
         """
