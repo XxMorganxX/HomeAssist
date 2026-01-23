@@ -1072,6 +1072,8 @@ class OpenAIWebSocketResponseProvider(ResponseInterface):
                 context=context,
                 tool_calls_so_far=all_tool_calls,
                 instructions=instructions,
+                iteration=iteration,
+                max_iterations=self.max_tool_iterations,
             )
             
             if not more_tools:
@@ -1142,12 +1144,7 @@ class OpenAIWebSocketResponseProvider(ResponseInterface):
                     args = {}
                 
                 commands = args.get("commands", [])
-                is_write = any(
-                    cmd.get("read_or_write") in ("write", "create_event") or
-                    cmd.get("action") in ("write", "create_event") or
-                    cmd.get("write_type") == "create_event"
-                    for cmd in commands
-                )
+                is_write = any(self._is_calendar_write_command(cmd) for cmd in commands)
                 
                 if is_write:
                     if calendar_write_seen:
@@ -1159,6 +1156,35 @@ class OpenAIWebSocketResponseProvider(ResponseInterface):
         
         return filtered
     
+    def _is_calendar_write_command(self, cmd: Dict[str, Any]) -> bool:
+        """
+        Check if a calendar command is a write/create operation.
+        
+        Handles various formats the model might use:
+        - read_or_write: "write" or "create_event"
+        - action: "write" or "create_event"  
+        - command: "add", "create", "write"
+        - Presence of event_title or nested event.title
+        """
+        # Explicit write indicators
+        if cmd.get("read_or_write") in ("write", "create_event"):
+            return True
+        if cmd.get("action") in ("write", "create_event", "add", "create"):
+            return True
+        if cmd.get("command") in ("add", "create", "write", "create_event"):
+            return True
+        
+        # Presence of event creation fields
+        if cmd.get("event_title"):
+            return True
+        
+        # Nested event object with title
+        event_obj = cmd.get("event")
+        if isinstance(event_obj, dict) and event_obj.get("title"):
+            return True
+        
+        return False
+    
     def _has_calendar_write(self, tool_calls: List[ToolCall]) -> bool:
         """Check if any of the tool calls include a calendar write/create_event operation."""
         for tc in tool_calls:
@@ -1166,8 +1192,7 @@ class OpenAIWebSocketResponseProvider(ResponseInterface):
                 args = tc.arguments or {}
                 commands = args.get("commands", [])
                 for cmd in commands:
-                    if cmd.get("read_or_write") in ("write", "create_event") or \
-                       cmd.get("action") in ("write", "create_event"):
+                    if self._is_calendar_write_command(cmd):
                         return True
         return False
     
@@ -1211,10 +1236,16 @@ class OpenAIWebSocketResponseProvider(ResponseInterface):
         user_message: str,
         context: List[Dict[str, Any]],
         tool_calls_so_far: List[ToolCall],
-        instructions: str = ""
+        instructions: str = "",
+        iteration: int = 1,
+        max_iterations: int = 5
     ) -> List[Dict[str, Any]]:
         """
         Ask the AI if additional tools are needed to complete the user's request.
+        
+        Args:
+            iteration: Current iteration number (1-indexed)
+            max_iterations: Maximum allowed iterations
         
         Returns:
             List of tool calls if more tools needed, empty list otherwise
@@ -1256,9 +1287,15 @@ class OpenAIWebSocketResponseProvider(ResponseInterface):
             if successful_tools:
                 success_note = f"\n\n⚠️ ALREADY COMPLETED: {', '.join(successful_tools)} executed successfully. Do NOT call these again."
             
+            # Build iteration status message
+            iteration_note = f"ITERATION: {iteration}/{max_iterations}"
+            if iteration >= max_iterations - 1:
+                iteration_note += " - APPROACHING LIMIT, prioritize completing the task now"
+            
             # System prompt with tool awareness
             system_content = (
                 f"{instructions}\n\n"
+                f"{iteration_note}\n\n"
                 "You are in the middle of fulfilling a user request. "
                 "Review the tool results below and the original user request carefully.\n\n"
                 "RULES:\n"
@@ -1266,8 +1303,9 @@ class OpenAIWebSocketResponseProvider(ResponseInterface):
                 "2. If the user asked to do multiple things (find something AND text/email it, search AND save, etc.), make sure EACH step is done.\n"
                 "3. Do NOT call the same tool with the same arguments twice - duplicates are forbidden.\n"
                 "4. CALENDAR: Only ONE calendar_data call per request. If calendar_data was already called to create an event, do NOT call it again - the event is already created.\n"
-                "5. If ALL parts of the user's request are fulfilled, respond with: DONE\n"
-                "6. If there are unfulfilled parts, call the appropriate tool(s) to complete them.\n"
+                "5. CALENDAR ARGUMENTS: calendar_data requires a 'commands' array with at least one command object containing 'read_or_write' and 'read_type' (for reads) or event details (for creates).\n"
+                "6. If ALL parts of the user's request are fulfilled, respond with: DONE\n"
+                "7. If there are unfulfilled parts, call the appropriate tool(s) to complete them.\n"
                 f"{success_note}\n\n"
                 f"Tools already executed:\n{tools_summary}"
             )
@@ -1339,11 +1377,7 @@ class OpenAIWebSocketResponseProvider(ResponseInterface):
                     # Block additional calendar writes if one was already executed
                     if tc.function.name == "calendar_data" and calendar_write_already_done:
                         commands = args.get("commands", [])
-                        is_write = any(
-                            cmd.get("read_or_write") in ("write", "create_event") or
-                            cmd.get("action") in ("write", "create_event")
-                            for cmd in commands
-                        )
+                        is_write = any(self._is_calendar_write_command(cmd) for cmd in commands)
                         if is_write:
                             print(f"🚫 Blocking calendar write - event already created in this request")
                             continue

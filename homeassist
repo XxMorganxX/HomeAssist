@@ -404,27 +404,44 @@ case "$1" in
                             break
                         fi
                         
-                        # Check Bluetooth
+                        # Check Bluetooth - with retry tolerance for profile switching (A2DP -> HFP)
+                        # Opening an audio input stream can trigger profile negotiation which briefly disconnects
                         if [ "$("$BLUEUTIL" --is-connected "$DEVICE_ADDRESS" 2>/dev/null)" != "1" ]; then
                             echo ""
-                            echo "🔴 Bluetooth disconnected during boot"
-                            echo "🛑 Stopping all processes..."
+                            echo "⚠️  Bluetooth briefly disconnected (profile switch?)"
+                            echo "   Waiting up to 5 seconds for reconnection..."
                             
-                            # Kill ALL audio-related processes IMMEDIATELY
-                            pkill -9 -f "say " 2>/dev/null
-                            pkill -9 afplay 2>/dev/null
-                            pkill -9 -f "ffplay" 2>/dev/null
-                            pkill -9 -f "mpv" 2>/dev/null
-                            pkill -9 -f "aplay" 2>/dev/null
+                            RECONNECTED=false
+                            for i in {1..10}; do  # 10 x 0.5s = 5 seconds max
+                                sleep 0.5
+                                if [ "$("$BLUEUTIL" --is-connected "$DEVICE_ADDRESS" 2>/dev/null)" = "1" ]; then
+                                    echo "✅ Bluetooth reconnected after ~$((i / 2)).$((i % 2 * 5))s"
+                                    RECONNECTED=true
+                                    break
+                                fi
+                            done
                             
-                            # Kill Python processes
-                            pkill -9 -f "assistant_framework" 2>/dev/null
-                            pkill -9 -f "openwakeword" 2>/dev/null
-                            
-                            # Also try killing by parent PID
-                            pkill -9 -P $$ 2>/dev/null
-                            
-                            break
+                            if [ "$RECONNECTED" != "true" ]; then
+                                echo ""
+                                echo "🔴 Bluetooth still disconnected after 5s"
+                                echo "🛑 Stopping all processes..."
+                                
+                                # Kill ALL audio-related processes IMMEDIATELY
+                                pkill -9 -f "say " 2>/dev/null
+                                pkill -9 afplay 2>/dev/null
+                                pkill -9 -f "ffplay" 2>/dev/null
+                                pkill -9 -f "mpv" 2>/dev/null
+                                pkill -9 -f "aplay" 2>/dev/null
+                                
+                                # Kill Python processes
+                                pkill -9 -f "assistant_framework" 2>/dev/null
+                                pkill -9 -f "openwakeword" 2>/dev/null
+                                
+                                # Also try killing by parent PID
+                                pkill -9 -P $$ 2>/dev/null
+                                
+                                break
+                            fi
                         fi
                     fi
                 done < "$OUTPIPE"

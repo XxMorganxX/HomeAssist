@@ -16,6 +16,14 @@ import os
 import sys
 from pathlib import Path
 from mcp_server.config import LOG_TOOLS
+
+# Natural language date parsing (for "this Saturday", "next Tuesday", etc.)
+try:
+    import dateparser
+    DATEPARSER_AVAILABLE = True
+except ImportError:
+    dateparser = None
+    DATEPARSER_AVAILABLE = False
 try:
     from mcp_server import config
 except ImportError:
@@ -119,7 +127,7 @@ class CalendarTool(BaseTool):
                         "properties": {
                             "read_or_write": {
                                 "type": "string",
-                                "description": "Action: 'read' to view events (default). Use 'create_event' only when the user explicitly asks to add/create/schedule.",
+                                "description": "Action: 'read' to view events (default). Use 'create_event' only when the user explicitly asks to add/create/schedule. Examples: 'what do I have on my calendar next' -> read; 'what do I have on my calendar for the next 3 days' -> read.",
                                 "enum": ["read", "create_event"],
                                 "default": "read"
                             },
@@ -136,7 +144,7 @@ class CalendarTool(BaseTool):
                             },
                             "read_type": {
                                 "type": "string",
-                                "description": "Read only. What to fetch: 'next_events' (upcoming), 'day_summary' (today), 'week_summary', or 'specific_date' (requires 'date').",
+                                "description": "Read only. What to fetch: 'next_events' (upcoming), 'day_summary' (today), 'week_summary', or 'specific_date' (requires 'date'). Examples: 'what do I have on my calendar next' -> next_events; 'what do I have on my calendar for the next 3 days' -> next_events (set limit to cover the window).",
                                 "enum": self.available_read_types,
                                 "default": "next_events"
                             },
@@ -149,7 +157,7 @@ class CalendarTool(BaseTool):
                             },
                             "date": {
                                 "type": "string",
-                                "description": "Format: YYYY-MM-DD. Required for 'specific_date' reads. For create_event: convert 'today'/'tomorrow' to a date, or omit if no date was given."
+                                "description": "Date for the event or query. Accepts YYYY-MM-DD format OR natural language like 'today', 'tomorrow', 'this Saturday', 'next Tuesday', 'in 3 days'. The tool will parse natural language to the correct date."
                             },
                             "event_title": {
                                 "type": "string",
@@ -186,10 +194,7 @@ class CalendarTool(BaseTool):
                     }
                 }
             },
-            # NOTE: commands is validated in execute() rather than Pydantic schema
-            # This allows graceful error messages instead of cryptic Pydantic failures
-            # when LLMs call the tool with empty/malformed arguments
-            "required": []
+            "required": ["commands"]
         }
     
     def execute(self, params: Dict[str, Any]) -> Dict[str, Any]:
@@ -206,7 +211,13 @@ class CalendarTool(BaseTool):
             if not commands:
                 return {
                     "success": False,
-                    "error": "No commands provided. At least one command is required.",
+                    "error": "No commands provided. You must include a 'commands' array with at least one command object.",
+                    "example_read": {
+                        "commands": [{"read_or_write": "read", "read_type": "next_events", "calendar": "all"}]
+                    },
+                    "example_create": {
+                        "commands": [{"read_or_write": "create_event", "event_title": "Meeting", "date": "2026-01-23", "start_time": "14:00", "end_time": "15:00"}]
+                    },
                     "available_calendars": self.available_calendars,
                     "available_actions": self.available_actions
                 }
@@ -502,14 +513,17 @@ class CalendarTool(BaseTool):
         # Limit total results
         limited_events = all_events[:limit]
         
+        # Clean events before returning to agent (strip unnecessary Google API metadata)
+        cleaned_events = [self._clean_event_for_agent(e) for e in limited_events]
+        
         result = {
             "success": True,
             "operation": "read",  # Explicit: this was a READ, not a create
             "command_index": cmd_index,
             "command": cmd,
             "read_type": read_type,
-            "events": limited_events,
-            "event_count": len(limited_events),
+            "events": cleaned_events,
+            "event_count": len(cleaned_events),
             "total_events_found": len(all_events),
             "calendars_read": calendars_read,
             "calendar": "all",
@@ -547,14 +561,17 @@ class CalendarTool(BaseTool):
                     include_past=include_past
                 )
                 
+                # Clean events before returning to agent
+                cleaned_events = [self._clean_event_for_agent(e) for e in events]
+                
                 return {
                     "success": True,
                     "operation": "read",
                     "command_index": cmd_index,
                     "command": cmd,
                     "read_type": read_type,
-                    "events": events,
-                    "event_count": len(events),
+                    "events": cleaned_events,
+                    "event_count": len(cleaned_events),
                     "calendar": calendar,
                     "note": "This was a READ operation - no events were created."
                 }
@@ -568,6 +585,9 @@ class CalendarTool(BaseTool):
                     include_past=include_past
                 )
                 
+                # Clean events before returning to agent
+                cleaned_events = [self._clean_event_for_agent(e) for e in events]
+                
                 return {
                     "success": True,
                     "operation": "read",
@@ -575,8 +595,8 @@ class CalendarTool(BaseTool):
                     "command": cmd,
                     "read_type": read_type,
                     "date": target_date,
-                    "events": events,
-                    "event_count": len(events),
+                    "events": cleaned_events,
+                    "event_count": len(cleaned_events),
                     "calendar": calendar,
                     "note": "This was a READ operation - no events were created."
                 }
@@ -587,14 +607,17 @@ class CalendarTool(BaseTool):
                     include_past=include_past
                 )
                 
+                # Clean events before returning to agent
+                cleaned_events = [self._clean_event_for_agent(e) for e in events]
+                
                 return {
                     "success": True,
                     "operation": "read",
                     "command_index": cmd_index,
                     "command": cmd,
                     "read_type": read_type,
-                    "events": events,
-                    "event_count": len(events),
+                    "events": cleaned_events,
+                    "event_count": len(cleaned_events),
                     "calendar": calendar,
                     "note": "This was a READ operation - no events were created."
                 }
@@ -607,6 +630,9 @@ class CalendarTool(BaseTool):
                     include_past=include_past
                 )
                 
+                # Clean events before returning to agent
+                cleaned_events = [self._clean_event_for_agent(e) for e in events]
+                
                 return {
                     "success": True,
                     "operation": "read",
@@ -614,8 +640,8 @@ class CalendarTool(BaseTool):
                     "command": cmd,
                     "read_type": read_type,
                     "date": target_date,
-                    "events": events,
-                    "event_count": len(events),
+                    "events": cleaned_events,
+                    "event_count": len(cleaned_events),
                     "calendar": calendar,
                     "note": "This was a READ operation - no events were created."
                 }
@@ -953,6 +979,18 @@ class CalendarTool(BaseTool):
                     except Exception:
                         pass
             
+            # Parse natural language dates (e.g., "this Saturday", "tomorrow", "next Tuesday")
+            dval = normalized.get("date")
+            if dval and isinstance(dval, str):
+                # Check if it's NOT already in YYYY-MM-DD format
+                import re
+                if not re.match(r'^\d{4}-\d{2}-\d{2}$', dval):
+                    parsed_date = self._parse_natural_date(dval)
+                    if parsed_date:
+                        if LOG_TOOLS:
+                            self.logger.info(f"Parsed natural date '{dval}' -> '{parsed_date}'")
+                        normalized["date"] = parsed_date
+            
             # Set default calendar_name based on operation type
             # - READ operations: default to "primary" (reads all calendars)
             # - WRITE operations: default to "homeassist" (dedicated assistant calendar)
@@ -1009,6 +1047,105 @@ class CalendarTool(BaseTool):
         except Exception:
             return {}
     
+    def _parse_natural_date(self, value: str) -> Optional[str]:
+        """
+        Parse natural language date strings into YYYY-MM-DD format.
+        
+        Handles expressions like:
+        - "today", "tomorrow", "yesterday"
+        - "this Saturday", "next Tuesday", "this weekend"
+        - "in 3 days", "2 weeks from now"
+        - "January 25th", "Jan 25"
+        - "next week", "next month"
+        
+        Args:
+            value: Natural language date string
+            
+        Returns:
+            Date in YYYY-MM-DD format, or None if parsing fails
+        """
+        if not value or not isinstance(value, str):
+            return None
+        
+        v = value.strip().lower()
+        
+        # Skip if already in YYYY-MM-DD format
+        if len(v) == 10 and v[4] == '-' and v[7] == '-':
+            try:
+                datetime.strptime(v, "%Y-%m-%d")
+                return v
+            except ValueError:
+                pass
+        
+        # Skip if it looks like a time (not a date)
+        import re
+        if re.match(r'^\d{1,2}:\d{2}', v) or re.match(r'^\d{1,2}\s*[ap]m$', v, re.IGNORECASE):
+            return None
+        
+        # Use dateparser if available
+        if DATEPARSER_AVAILABLE and dateparser:
+            try:
+                # Configure dateparser for forward-looking dates (prefer future)
+                settings = {
+                    'PREFER_DATES_FROM': 'future',
+                    'PREFER_DAY_OF_MONTH': 'first',
+                    'RETURN_AS_TIMEZONE_AWARE': False,
+                }
+                parsed = dateparser.parse(value, settings=settings)
+                if parsed:
+                    return parsed.strftime("%Y-%m-%d")
+            except Exception:
+                pass
+        
+        # Fallback: manual parsing for common cases
+        from datetime import timedelta
+        today = datetime.now().date()
+        
+        # Simple keywords
+        if v in ("today", "tonight"):
+            return today.isoformat()
+        elif v == "tomorrow":
+            return (today + timedelta(days=1)).isoformat()
+        elif v == "yesterday":
+            return (today - timedelta(days=1)).isoformat()
+        
+        # Day of week handling: "this Saturday", "next Monday", etc.
+        days_of_week = {
+            "monday": 0, "mon": 0,
+            "tuesday": 1, "tue": 1, "tues": 1,
+            "wednesday": 2, "wed": 2,
+            "thursday": 3, "thu": 3, "thur": 3, "thurs": 3,
+            "friday": 4, "fri": 4,
+            "saturday": 5, "sat": 5,
+            "sunday": 6, "sun": 6,
+        }
+        
+        for day_name, day_num in days_of_week.items():
+            if day_name in v:
+                current_day = today.weekday()
+                days_ahead = day_num - current_day
+                
+                # "next" pushes to next week
+                if "next" in v:
+                    days_ahead += 7
+                # "this" or no prefix: if day has passed this week, go to next week
+                elif days_ahead <= 0:
+                    days_ahead += 7
+                
+                target = today + timedelta(days=days_ahead)
+                return target.isoformat()
+        
+        # "in X days/weeks"
+        in_match = re.match(r'in\s+(\d+)\s+(day|days|week|weeks)', v)
+        if in_match:
+            num = int(in_match.group(1))
+            unit = in_match.group(2)
+            if "week" in unit:
+                num *= 7
+            return (today + timedelta(days=num)).isoformat()
+        
+        return None
+    
     def _get_calendar_instance(self, user: str) -> CalendarComponent:
         """Get or create calendar instance for user."""
         if user not in self.calendar_instances:
@@ -1045,6 +1182,63 @@ class CalendarTool(BaseTool):
             return datetime.now().isoformat()
         except Exception:
             return "unknown"
+    
+    def _clean_event_for_agent(self, event: Dict[str, Any]) -> Dict[str, Any]:
+        """
+        Strip unnecessary Google Calendar API metadata from events before passing to agent.
+        
+        Keeps only: summary, start, end, location, description, source_calendar
+        Removes: kind, etag, id, status, htmlLink, created, updated, creator, organizer,
+                 iCalUID, sequence, reminders, eventType, calendar_id, recurringEventId, etc.
+        
+        Args:
+            event: Raw event dict from Google Calendar API
+            
+        Returns:
+            Cleaned event dict with only agent-relevant fields
+        """
+        if not isinstance(event, dict):
+            return event
+        
+        cleaned = {}
+        
+        # Core event info
+        if "summary" in event:
+            cleaned["summary"] = event["summary"]
+        
+        # Time info (preserve structure for parsing)
+        if "start" in event:
+            start = event["start"]
+            if isinstance(start, dict):
+                cleaned["start"] = {
+                    k: v for k, v in start.items() 
+                    if k in ("dateTime", "date", "timeZone")
+                }
+            else:
+                cleaned["start"] = start
+        
+        if "end" in event:
+            end = event["end"]
+            if isinstance(end, dict):
+                cleaned["end"] = {
+                    k: v for k, v in end.items() 
+                    if k in ("dateTime", "date", "timeZone")
+                }
+            else:
+                cleaned["end"] = end
+        
+        # Optional details
+        if event.get("location"):
+            cleaned["location"] = event["location"]
+        
+        if event.get("description"):
+            cleaned["description"] = event["description"]
+        
+        # Source calendar (added by tool)
+        if "source_calendar" in event:
+            cleaned["source_calendar"] = event["source_calendar"]
+        
+        return cleaned
     
     # ========== Smart Briefing Creation ==========
     # Uses the same AI-powered ReminderAnalyzer and BriefingCreator
