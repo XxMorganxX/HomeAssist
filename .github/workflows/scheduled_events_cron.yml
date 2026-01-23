@@ -4,6 +4,10 @@
 # Runs email summarizer, news summarizer, calendar briefing, and weather briefing
 # Results are stored in Supabase tables
 #
+# SCHEDULE:
+#   - Email & Calendar: 9am EDT (1pm UTC), 1pm EDT (5pm UTC), 5pm EDT (9pm UTC)
+#   - Weather & News: 9am EDT (1pm UTC) only
+#
 # REQUIRED SECRETS (Settings → Secrets → Actions → Repository secrets):
 #   - GEMINI_API_KEY        : Google Gemini API key (email/calendar)
 #   - OPENAI_API_KEY        : OpenAI API key (news analysis)
@@ -40,10 +44,11 @@
 name: Scheduled Events (Email, News, Calendar & Weather)
 
 on:
-  # Run three times daily at 8:00 AM, 2:00 PM, and 6:00 PM UTC
-  # (3 AM, 9 AM, 1 PM EST / 4 AM, 10 AM, 2 PM EDT)
+  # Run at 9am EDT (1pm UTC), 1pm EDT (5pm UTC), 5pm EDT (9pm UTC)
+  # Email & Calendar run at all three times
+  # Weather & News only run at 9am EDT
   schedule:
-    - cron: '0 8,14,18 * * *'
+    - cron: '0 13,17,21 * * *'
   
   # Allow manual trigger from GitHub UI
   workflow_dispatch:
@@ -106,7 +111,7 @@ jobs:
           NEWS_NOTIFICATION_RECIPIENT: ${{ vars.NEWS_NOTIFICATION_RECIPIENT || 'Morgan' }}
       
       # ─────────────────────────────────────────────────────────────
-      # EMAIL SUMMARIZER
+      # EMAIL SUMMARIZER (runs at 9am, 1pm, 5pm EDT)
       # ─────────────────────────────────────────────────────────────
       - name: Run Email Summarizer
         if: ${{ github.event.inputs.skip_email != 'true' }}
@@ -139,10 +144,11 @@ jobs:
           fi
       
       # ─────────────────────────────────────────────────────────────
-      # NEWS SUMMARIZER
+      # NEWS SUMMARIZER (runs at 9am EDT only)
       # ─────────────────────────────────────────────────────────────
       - name: Run News Summarizer
-        if: ${{ github.event.inputs.skip_news != 'true' }}
+        # Only run at 13:00 UTC (9am EDT) or on manual trigger
+        if: ${{ github.event.inputs.skip_news != 'true' && (github.event_name == 'workflow_dispatch' || github.event.schedule == '0 13,17,21 * * *') }}
         working-directory: scripts/scheduled/news_summary
         env:
           OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
@@ -158,21 +164,27 @@ jobs:
           SUPABASE_KEY: ${{ secrets.SUPABASE_KEY }}
           NEWS_NOTIFICATION_RECIPIENT: ${{ vars.NEWS_NOTIFICATION_RECIPIENT || 'Morgan' }}
         run: |
-          echo "📰 Running news summarizer..."
-          
-          # Debug: Check if API keys are set (shows only if set, not the value)
-          echo "Checking NewsAPI keys..."
-          [ -n "$NEWS_API_KEY_1" ] && echo "✅ NEWS_API_KEY_1 is set" || echo "❌ NEWS_API_KEY_1 is NOT set"
-          [ -n "$NEWS_API_KEY_2" ] && echo "✅ NEWS_API_KEY_2 is set" || echo "⚪ NEWS_API_KEY_2 is not set (optional)"
-          
-          # Create ephemeral_data directory
-          mkdir -p ephemeral_data
-          
-          # Run the news summarizer with cleanup
-          python news_main.py --clean || echo "⚠️ News summarizer completed with warnings"
+          # Check if this is the 13:00 UTC (9am EDT) run
+          current_hour=$(date -u +%H)
+          if [ "$current_hour" = "13" ] || [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
+            echo "📰 Running news summarizer..."
+            
+            # Debug: Check if API keys are set (shows only if set, not the value)
+            echo "Checking NewsAPI keys..."
+            [ -n "$NEWS_API_KEY_1" ] && echo "✅ NEWS_API_KEY_1 is set" || echo "❌ NEWS_API_KEY_1 is NOT set"
+            [ -n "$NEWS_API_KEY_2" ] && echo "✅ NEWS_API_KEY_2 is set" || echo "⚪ NEWS_API_KEY_2 is not set (optional)"
+            
+            # Create ephemeral_data directory
+            mkdir -p ephemeral_data
+            
+            # Run the news summarizer with cleanup
+            python news_main.py --clean || echo "⚠️ News summarizer completed with warnings"
+          else
+            echo "⏭️ Skipping news summarizer (only runs at 9am EDT)"
+          fi
       
       # ─────────────────────────────────────────────────────────────
-      # CALENDAR BRIEFING
+      # CALENDAR BRIEFING (runs at 9am, 1pm, 5pm EDT)
       # ─────────────────────────────────────────────────────────────
       - name: Run Calendar Briefing
         if: ${{ github.event.inputs.skip_calendar != 'true' }}
@@ -218,10 +230,11 @@ jobs:
           fi
       
       # ─────────────────────────────────────────────────────────────
-      # WEATHER BRIEFING
+      # WEATHER BRIEFING (runs at 9am EDT only)
       # ─────────────────────────────────────────────────────────────
       - name: Run Weather Briefing
-        if: ${{ github.event.inputs.skip_weather != 'true' }}
+        # Only run at 13:00 UTC (9am EDT) or on manual trigger
+        if: ${{ github.event.inputs.skip_weather != 'true' && (github.event_name == 'workflow_dispatch' || github.event.schedule == '0 13,17,21 * * *') }}
         working-directory: scripts/scheduled/weather_briefing
         env:
           SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
@@ -229,18 +242,24 @@ jobs:
           WEATHER_ZIP_CODE: ${{ vars.WEATHER_ZIP_CODE }}
           WEATHER_USER_ID: ${{ vars.WEATHER_USER_ID || 'Morgan' }}
         run: |
-          echo "🌤️ Running weather briefing..."
-          
-          # Create ephemeral data directory
-          mkdir -p ephemeral_data
-          
-          # Run weather briefing (auto-detects location, alerts on today only)
-          # Uses 7-day forecast for context, only alerts on next 24 hours
-          if [ -n "$WEATHER_ZIP_CODE" ]; then
-            python main.py --zip "$WEATHER_ZIP_CODE" --user "$WEATHER_USER_ID" || echo "⚠️ Weather briefing completed with warnings"
+          # Check if this is the 13:00 UTC (9am EDT) run
+          current_hour=$(date -u +%H)
+          if [ "$current_hour" = "13" ] || [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
+            echo "🌤️ Running weather briefing..."
+            
+            # Create ephemeral data directory
+            mkdir -p ephemeral_data
+            
+            # Run weather briefing (auto-detects location, alerts on today only)
+            # Uses 7-day forecast for context, only alerts on next 24 hours
+            if [ -n "$WEATHER_ZIP_CODE" ]; then
+              python main.py --zip "$WEATHER_ZIP_CODE" --user "$WEATHER_USER_ID" || echo "⚠️ Weather briefing completed with warnings"
+            else
+              echo "📍 No WEATHER_ZIP_CODE set, will auto-detect from IP..."
+              python main.py --user "$WEATHER_USER_ID" || echo "⚠️ Weather briefing completed with warnings"
+            fi
           else
-            echo "📍 No WEATHER_ZIP_CODE set, will auto-detect from IP..."
-            python main.py --user "$WEATHER_USER_ID" || echo "⚠️ Weather briefing completed with warnings"
+            echo "⏭️ Skipping weather briefing (only runs at 9am EDT)"
           fi
       
       # ─────────────────────────────────────────────────────────────
@@ -253,9 +272,21 @@ jobs:
           echo "📊 SCHEDULED EVENTS COMPLETE"
           echo "════════════════════════════════════════════════════════════"
           echo "Time: $(date -u '+%Y-%m-%d %H:%M:%S UTC')"
+          current_hour=$(date -u +%H)
+          echo "Current Hour (UTC): $current_hour"
+          echo ""
+          echo "Jobs run this cycle:"
+          echo "  ✅ Email Summarizer"
+          echo "  ✅ Calendar Briefing"
+          if [ "$current_hour" = "13" ]; then
+            echo "  ✅ News Summarizer (9am EDT only)"
+            echo "  ✅ Weather Briefing (9am EDT only)"
+          else
+            echo "  ⏭️ News Summarizer (skipped - only 9am EDT)"
+            echo "  ⏭️ Weather Briefing (skipped - only 9am EDT)"
+          fi
           echo ""
           echo "Check Supabase tables for results:"
           echo "  - notification_sources: Email/news summaries"
           echo "  - briefing_announcements: Calendar/weather briefings"
           echo "════════════════════════════════════════════════════════════"
-
