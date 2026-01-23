@@ -37,7 +37,7 @@ load_dotenv()
 # If modifying these scopes, delete the file token.json.
 SCOPES = ['https://www.googleapis.com/auth/gmail.readonly']
 STATE_FILE = os.path.join(EMAIL_SUMMARIZER_DIRECTORY, 'email_script_state.json')
-MAX_EMAILS = 10
+MAX_EMAILS = 40
 
 class EmailManager:
     def __init__(self, token_file: str = GOOGLE_TOKEN_FILE, credentials_file: str = GOOGLE_CREDENTIALS_FILE, window_index: int = None):

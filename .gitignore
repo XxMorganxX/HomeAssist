@@ -51,3 +51,6 @@ state_management/*.json
 audio_data/chatterbox_models/
 audio_data/piper_models/
 audio_data/announcement_cache/
+
+mcp_server/tool_response_tests/input.json
+mcp_server/tool_response_tests/output.json

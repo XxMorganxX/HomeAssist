@@ -56,11 +56,41 @@ except ImportError:
     def get_default_calendar_user():
         return "user_personal"
 
+# Import calendar alias map for natural language resolution
+try:
+    from mcp_server.config import CALENDAR_ALIAS_MAP, CALENDAR_USERS
+except ImportError:
+    CALENDAR_ALIAS_MAP = {}
+    CALENDAR_USERS = {}
+
 # Import calendar component with fallback
 try:
     from mcp_server.clients.calendar_client import CalendarComponent
 except ImportError:
     CalendarComponent = None
+
+
+def resolve_calendar_alias(name: str) -> str:
+    """
+    Resolve a calendar name/alias to the canonical calendar key.
+    
+    Examples:
+        "genai" -> "Gen_AI"
+        "personal" -> "morgan_personal"
+        "school" -> "morgan_school"
+        "Gen_AI" -> "Gen_AI" (already canonical)
+    
+    Returns the canonical key if found, otherwise returns the input unchanged.
+    """
+    if not name:
+        return name
+    
+    # Check exact match first (case-sensitive)
+    if name in CALENDAR_USERS:
+        return name
+    
+    # Check alias map (case-insensitive)
+    return CALENDAR_ALIAS_MAP.get(name.lower(), name)
 
 
 class CalendarTool(BaseTool):
@@ -83,14 +113,31 @@ class CalendarTool(BaseTool):
     @property
     def description(self) -> str:
         """Dynamic description for tool selection."""
-        calendars = self.available_calendars
+        calendar_info = self._get_calendar_display_info()
         return (
-            f"Google Calendar. Calendars: {calendars}. "
+            f"Google Calendar. {calendar_info}. "
             "USE FOR: schedule questions ('what's on my calendar'), event creation ('add meeting', 'schedule lunch'). "
             "READ OPERATIONS: Always search ALL calendars by default (omit 'calendar' param or use 'all'). "
             "DO NOT USE FOR: general conversation, greetings, non-calendar topics. "
             "CRITICAL: Never invent times. If user didn't say a time, omit start_time/end_time - tool will prompt for it."
         )
+    
+    def _get_calendar_display_info(self) -> str:
+        """Get human-readable calendar info including aliases."""
+        try:
+            parts = []
+            for key in self.available_calendars:
+                config = CALENDAR_USERS.get(key, {})
+                display = config.get("display_name", key)
+                aliases = config.get("aliases", [])
+                if aliases:
+                    alias_str = ", ".join(aliases[:3])  # Show first 3 aliases
+                    parts.append(f"{key} ({display}, aliases: {alias_str})")
+                else:
+                    parts.append(f"{key} ({display})")
+            return "Calendars: " + ", ".join(parts)
+        except Exception:
+            return f"Calendars: {self.available_calendars}"
     
     @property
     def available_calendars(self) -> List[str]:
@@ -112,7 +159,22 @@ class CalendarTool(BaseTool):
             Detailed JSON schema dictionary
         """
         # Build calendar options: "all" FIRST for reading (preferred), then individual calendars
-        calendar_options = ["all"] + self.available_calendars
+        # Include both canonical keys AND their aliases so the model knows all valid options
+        calendar_options = ["all"]
+        calendar_desc_parts = ["Use 'all' to search across calendars (default). Specific calendars:"]
+        
+        for key in self.available_calendars:
+            calendar_options.append(key)
+            config = CALENDAR_USERS.get(key, {})
+            aliases = config.get("aliases", [])
+            if aliases:
+                # Add aliases to enum options so model can use them directly
+                calendar_options.extend(aliases)
+                calendar_desc_parts.append(f"'{key}' (aliases: {', '.join(aliases[:3])})")
+            else:
+                calendar_desc_parts.append(f"'{key}'")
+        
+        calendar_description = " ".join(calendar_desc_parts)
         
         return {
             "type": "object",
@@ -133,14 +195,14 @@ class CalendarTool(BaseTool):
                             },
                             "calendar": {
                                 "type": "string",
-                                "description": "Read only. Use 'all' to search across calendars (default). Choose a specific calendar only if the user names it explicitly.",
+                                "description": f"Read only. {calendar_description}",
                                 "enum": calendar_options,
                                 "default": "all"
                             },
                             "calendars": {
                                 "type": "array",
-                                "items": {"type": "string", "enum": self.available_calendars},
-                                "description": "Create only. Calendars to add the event to. Example: ['morgan_personal'] or ['morgan_personal', 'homeassist'] for multiple."
+                                "items": {"type": "string", "enum": calendar_options[1:]},  # Exclude "all", include aliases
+                                "description": "Create only. Calendars to add the event to. Example: ['morgan_personal'] or ['morgan_personal', 'homeassist'] for multiple. Aliases accepted."
                             },
                             "read_type": {
                                 "type": "string",
@@ -824,11 +886,18 @@ class CalendarTool(BaseTool):
             
             # Handle 'calendar' and 'user' params - prefer 'calendar', fallback to 'user'
             # NOTE: Default calendar is set LATER based on read vs write operation
+            # Resolve aliases (e.g., "genai" -> "Gen_AI", "personal" -> "morgan_personal")
             if normalized.get("calendar"):
+                normalized["calendar"] = resolve_calendar_alias(normalized["calendar"])
                 normalized["user"] = normalized["calendar"]
             elif normalized.get("user"):
+                normalized["user"] = resolve_calendar_alias(normalized["user"])
                 normalized["calendar"] = normalized["user"]
             # else: calendar default will be set after determining read/write
+            
+            # Also resolve aliases in 'calendars' array if present
+            if normalized.get("calendars") and isinstance(normalized["calendars"], list):
+                normalized["calendars"] = [resolve_calendar_alias(c) for c in normalized["calendars"]]
             
             # Map common title synonyms to event_title
             if not normalized.get("event_title"):
@@ -938,14 +1007,20 @@ class CalendarTool(BaseTool):
                 else:
                     normalized["read_or_write"] = "read"
             
-            # NOW set default calendar based on operation type (if not already specified)
+            # NOW set default calendar based on operation type
             # - READ: defaults to "all" (read from all calendars combined)
-            # - WRITE: defaults to "morgan_personal"
-            if not normalized.get("calendar") and not normalized.get("user"):
-                if normalized.get("read_or_write") in ["write", "create_event"]:
+            # - WRITE: defaults to "morgan_personal" (cannot write to "all")
+            is_write = normalized.get("read_or_write") in ["write", "create_event"]
+            current_calendar = normalized.get("calendar") or normalized.get("user")
+            
+            if is_write:
+                # For write operations: "all" is invalid, default to personal calendar
+                if not current_calendar or current_calendar == "all":
                     normalized["calendar"] = "morgan_personal"
                     normalized["user"] = "morgan_personal"
-                else:
+            else:
+                # For read operations: default to "all" if not specified
+                if not current_calendar:
                     normalized["calendar"] = "all"
                     normalized["user"] = "all"
             

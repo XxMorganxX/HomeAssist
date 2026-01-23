@@ -96,22 +96,57 @@ CALENDAR_SCOPES = [
 #
 # The "calendar_id" is the email address of the calendar owner (for main calendars)
 # or the calendar ID from Settings > Integrate calendar (for secondary calendars)
+#
+# Optional fields:
+#   - display_name: Human-friendly name shown to users
+#   - aliases: List of alternative names the user might say (lowercase)
 CALENDAR_USERS = {
     # Calendar 1: Morgan's personal Gmail calendar
     "morgan_personal": {
         "calendar_id": "morgannstuart@gmail.com",
+        "display_name": "Personal",
+        "aliases": ["personal", "main", "gmail", "my calendar"],
     },
     
     # Calendar 2: Morgan's Cornell calendar
     "morgan_school": {
         "calendar_id": "mns66@cornell.edu",
+        "display_name": "School",
+        "aliases": ["school", "cornell", "university", "class", "classes"],
     },
     
-    # Calendar 3: HomeAssist calendar (secondary calendar under morgannstuart@gmail.com)
+    # Calendar 3: Gen AI class calendar
+    "Gen_AI": {
+        "calendar_id": "c_a9971ca39f405c3c8c855332f1d5bc8721378fef7845b1e3fc7b62601e0911bc@group.calendar.google.com",
+        "display_name": "Gen AI Class",
+        "aliases": ["genai", "gen ai", "gen_ai", "ai", "ai class", "generative ai"],
+    },
+    
+    # Calendar 4: HomeAssist calendar (secondary calendar under morgannstuart@gmail.com)
     "homeassist": {
         "calendar_id": "bd7409eb309d624908ee53c2adf02cfc3d087e50dd1139909df8d13e2b8bb8e4@group.calendar.google.com",
+        "display_name": "HomeAssist",
+        "aliases": ["assistant", "home assistant", "homeassist", "reminders"],
     },
 }
+
+
+def get_calendar_alias_map() -> dict:
+    """Build a mapping of aliases -> calendar keys for natural language matching."""
+    alias_map = {}
+    for key, config in CALENDAR_USERS.items():
+        # Map the key itself
+        alias_map[key.lower()] = key
+        # Map display name
+        if config.get("display_name"):
+            alias_map[config["display_name"].lower()] = key
+        # Map all aliases
+        for alias in config.get("aliases", []):
+            alias_map[alias.lower()] = key
+    return alias_map
+
+
+CALENDAR_ALIAS_MAP = get_calendar_alias_map()
 
 
 # =============================================================================
