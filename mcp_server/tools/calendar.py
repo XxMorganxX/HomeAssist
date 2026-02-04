@@ -117,7 +117,9 @@ class CalendarTool(BaseTool):
         return (
             f"Google Calendar. {calendar_info}. "
             "USE FOR: schedule questions ('what's on my calendar'), event creation ('add meeting', 'schedule lunch'). "
-            "READ OPERATIONS: Always search ALL calendars by default (omit 'calendar' param or use 'all'). "
+            "REQUIRED FORMAT: Always include 'commands' array with at least one command object. "
+            "MINIMAL READ EXAMPLE: {\"commands\": [{\"read_or_write\": \"read\", \"read_type\": \"next_events\"}]}. "
+            "READ OPERATIONS: Default searches ALL calendars. "
             "DO NOT USE FOR: general conversation, greetings, non-calendar topics. "
             "CRITICAL: Never invent times. If user didn't say a time, omit start_time/end_time - tool will prompt for it."
         )
@@ -181,9 +183,10 @@ class CalendarTool(BaseTool):
             "properties": {
                 "commands": {
                     "type": "array",
-                    "description": "Use exactly ONE command per tool call. Put all parameters in that single object; do not call the tool multiple times for one request.",
+                    "description": "REQUIRED. Use exactly ONE command per tool call. Example for reading: [{\"read_or_write\": \"read\", \"read_type\": \"next_events\"}]. Put all parameters in that single object.",
                     "minItems": 1,
                     "maxItems": 1,
+                    "default": [],
                     "items": {
                         "type": "object",
                         "properties": {
@@ -256,7 +259,7 @@ class CalendarTool(BaseTool):
                     }
                 }
             },
-            "required": ["commands"]
+            "required": []
         }
     
     def execute(self, params: Dict[str, Any]) -> Dict[str, Any]:
@@ -847,8 +850,8 @@ class CalendarTool(BaseTool):
         """Normalize inputs for calendar commands.
         - Handle 'calendar' param (new) and 'user' param (legacy) - prefer 'calendar'
         - Default calendar based on operation:
-          - READ: defaults to "all" (read from all calendars)
-          - WRITE: defaults to "morgan_personal"
+          - READ: defaults to "all" (read from all configured calendars)
+          - WRITE: defaults to "morgan_personal" (personal calendar)
         - Default read_or_write to 'read' unless explicitly creating an event
         - Accept 'write_type': 'create_event' alias by mapping to read_or_write
         - Accept ISO datetimes in start_time/end_time and derive date/HH:MM
@@ -1066,12 +1069,12 @@ class CalendarTool(BaseTool):
                             self.logger.info(f"Parsed natural date '{dval}' -> '{parsed_date}'")
                         normalized["date"] = parsed_date
             
-            # Set default calendar_name based on operation type
-            # - READ operations: default to "primary" (reads all calendars)
-            # - WRITE operations: default to "homeassist" (dedicated assistant calendar)
+            # Set default calendar_name based on operation type (legacy/compat)
+            # - READ operations: default to "primary"
+            # - WRITE operations: default to "morgan_personal"
             if not normalized.get("calendar_name"):
                 if normalized.get("read_or_write") in ["write", "create_event"]:
-                    normalized["calendar_name"] = "homeassist"
+                    normalized["calendar_name"] = "morgan_personal"
                 else:
                     normalized["calendar_name"] = "primary"
             

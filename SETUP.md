@@ -647,8 +647,8 @@ Place credentials in `creds/`:
 
 **Calendar Selection Behavior:**
 
-- **READ operations** — Default to `primary` which queries ALL calendars (shows events from Morgan Stuart, Birthdays, Family, HomeAssist, etc.)
-- **WRITE operations** — Default to `homeassist` calendar to keep assistant-created events separate
+- **READ operations** — Default to ALL calendars (the tool uses `calendar: "all"` internally, which aggregates across all configured calendars)
+- **WRITE operations** — Default to `morgan_personal` if the user doesn’t specify a target calendar
 
 > 💡 **Tip:** Create a calendar named "HomeAssist" in Google Calendar to keep assistant events organized separately from your main calendar.
 

@@ -10,7 +10,7 @@ from .tones import (
     beep_tool_success,
     beep_tool_failure,
 )
-from .device_manager import get_emeet_device, get_audio_device_config
+from .device_manager import get_emeet_device, get_audio_device_config, is_meta_glasses_active_audio_device
 
 __all__ = [
     # audio_manager
@@ -31,5 +31,6 @@ __all__ = [
     # device_manager
     "get_emeet_device",
     "get_audio_device_config",
+    "is_meta_glasses_active_audio_device",
 ]
 

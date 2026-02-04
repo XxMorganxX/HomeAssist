@@ -203,88 +203,53 @@ case "$1" in
         }
         
         has_wifi() {
-            # Check if WiFi interface has an IP address
             ipconfig getifaddr en0 > /dev/null 2>&1
+        }
+        
+        is_meta_audio_active() {
+            python3 "${PROJECT_DIR}/scripts/check_meta_audio_active.py" 2>/dev/null
         }
         
         wait_for_wifi() {
             echo ""
-            echo "📶 Waiting for WiFi connection..."
-            echo "   (polling every 2 seconds)"
-            echo ""
-            
+            echo "📶 Waiting for WiFi..."
             while ! has_wifi; do
-                printf "\r🔍 Searching for WiFi... "
                 sleep 2
             done
-            
-            echo ""
-            echo "✅ WiFi connected!"
+            echo "✅ WiFi connected"
         }
         
-        aggressive_connect() {
+        wait_for_bluetooth() {
             echo ""
-            echo "🔵 Searching for $DEVICE_NAME..."
-            echo "   (polling every 1 second)"
-            echo ""
-            
-            while true; do
-                # Reconfirm WiFi is still connected
-                if ! has_wifi; then
-                    echo ""
-                    echo "🔴 WiFi lost during Bluetooth search"
-                    return 1
-                fi
-                
-                # Try to connect
-                "$BLUEUTIL" --connect "$DEVICE_ADDRESS" 2>/dev/null &
-                CONNECT_PID=$!
-                
-                # Wait up to 2 seconds for connection
-                for i in {1..2}; do
-                    if is_connected; then
-                        kill $CONNECT_PID 2>/dev/null
-                        wait $CONNECT_PID 2>/dev/null
-                        echo ""
-                        echo "✅ $DEVICE_NAME connected!"
-                        sleep 0.5
-                        return 0
-                    fi
-                    sleep 1
-                done
-                
-                kill $CONNECT_PID 2>/dev/null
-                wait $CONNECT_PID 2>/dev/null
-                
-                # Show searching indicator
-                printf "\r🔍 Searching... "
+            echo "🔵 Waiting for $DEVICE_NAME..."
+            while ! is_connected; do
+                "$BLUEUTIL" --connect "$DEVICE_ADDRESS" 2>/dev/null
+                sleep 2
             done
+            echo "✅ $DEVICE_NAME connected"
+        }
+        
+        wait_for_audio_io() {
+            echo ""
+            echo "🎧 Waiting for audio I/O..."
+            # Give macOS a moment to set up audio after BT connects
+            sleep 1
+            while ! is_meta_audio_active; do
+                sleep 2
+            done
+            echo "✅ Audio I/O ready"
         }
         
         cleanup() {
             echo ""
             echo "👋 Shutting down..."
-            
-            # Kill ALL audio processes FIRST (stop noise immediately)
             pkill -9 -f "say " 2>/dev/null
             pkill -9 afplay 2>/dev/null
             pkill -9 -f "ffplay" 2>/dev/null
             pkill -9 -f "mpv" 2>/dev/null
-            pkill -9 -f "aplay" 2>/dev/null
-            
-            # Kill Python processes (assistant, termination detection, etc.)
             pkill -9 -f "assistant_framework" 2>/dev/null
             pkill -9 -f "openwakeword" 2>/dev/null
-            
-            # Kill WiFi monitor if running
-            [ -n "$WIFI_MONITOR_PID" ] && kill $WIFI_MONITOR_PID 2>/dev/null
-            
-            # Stop caffeinate
             [ -n "$CAFFEINATE_PID" ] && kill $CAFFEINATE_PID 2>/dev/null
-            
-            # Clean up pipe if exists
-            [ -n "$OUTPIPE" ] && rm -f "$OUTPIPE"
-            
             exit 0
         }
         trap cleanup SIGINT SIGTERM
@@ -296,191 +261,46 @@ case "$1" in
         echo ""
         echo "Press Ctrl+C to exit"
         
-        # Initial WiFi check before anything else
-        if ! has_wifi; then
-            wait_for_wifi
-        fi
-        
-        # Main loop - keeps running until user exits
+        # Main loop
         while true; do
-            # Phase 0: WiFi connection (network is foundational)
+            # Step 1: Ensure WiFi
             if ! has_wifi; then
                 wait_for_wifi
             fi
             
-            # Phase 1: Aggressive Bluetooth connection
+            # Step 2: Ensure Bluetooth connection
             if ! is_connected; then
-                if ! aggressive_connect; then
-                    # WiFi was lost during Bluetooth search, loop back to WiFi check
-                    continue
-                fi
+                wait_for_bluetooth
             fi
             
+            # Step 3: Ensure audio I/O is routed to Meta glasses
+            if ! is_meta_audio_active; then
+                wait_for_audio_io
+            fi
+            
+            # Step 4: Boot the program
             echo ""
             echo "🚀 Starting HomeAssist..."
             echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
             echo ""
             
-            # Activate venv - identical to manually running in terminal
+            afplay /System/Library/Sounds/Glass.aiff &
             source ./venv/bin/activate
             
-            # Prevent sleep while assistant is running
             caffeinate -is &
             CAFFEINATE_PID=$!
             
-            # Background WiFi monitor (runs every 5 seconds, non-blocking)
-            (
-                while true; do
-                    sleep 5
-                    if ! ipconfig getifaddr en0 > /dev/null 2>&1; then
-                        echo ""
-                        echo "🔴 WiFi lost during operation"
-                        echo "🛑 Stopping all processes..."
-                        pkill -9 -f "assistant_framework" 2>/dev/null
-                        pkill -9 -f "openwakeword" 2>/dev/null
-                        break
-                    fi
-                done
-            ) &
-            WIFI_MONITOR_PID=$!
-            
-            # Create a named pipe for output monitoring (PaMacCore goes to stdout)
-            OUTPIPE=$(mktemp -u)
-            mkfifo "$OUTPIPE"
-            
-            # Monitor ALL output for PaMacCore error AND verify BT on wake word ready
-            (
-                while IFS= read -r line; do
-                    echo "$line"
-                    
-                    # Check for PaMacCore err=-50 (glasses disconnected during audio use)
-                    if [[ "$line" == *"PaMacCore"*"-50"* ]]; then
-                        echo ""
-                        echo "🔴 PaMacCore error - glasses disconnected"
-                        echo "🛑 Stopping all processes..."
-                        
-                        # Kill ALL audio-related processes IMMEDIATELY
-                        pkill -9 -f "say " 2>/dev/null
-                        pkill -9 afplay 2>/dev/null
-                        pkill -9 -f "ffplay" 2>/dev/null
-                        pkill -9 -f "mpv" 2>/dev/null
-                        pkill -9 -f "aplay" 2>/dev/null
-                        
-                        # Kill Python processes (assistant framework, termination detection)
-                        pkill -9 -f "assistant_framework" 2>/dev/null
-                        pkill -9 -f "openwakeword" 2>/dev/null
-                        
-                        # Also try killing by parent PID
-                        pkill -9 -P $$ 2>/dev/null
-                        
-                        break
-                    fi
-                    
-                    # Verify WiFi and Bluetooth when wake word becomes ready (catches disconnect during boot)
-                    if [[ "$line" == *"Listening for wake word"* ]] || [[ "$line" == *"Audio stream started"* ]]; then
-                        # Give a tiny moment for state to settle
-                        sleep 0.2
-                        
-                        # Check WiFi first (network is foundational)
-                        if ! ipconfig getifaddr en0 > /dev/null 2>&1; then
-                            echo ""
-                            echo "🔴 WiFi disconnected during boot"
-                            echo "🛑 Stopping all processes..."
-                            
-                            # Kill ALL audio-related processes IMMEDIATELY
-                            pkill -9 -f "say " 2>/dev/null
-                            pkill -9 afplay 2>/dev/null
-                            pkill -9 -f "ffplay" 2>/dev/null
-                            pkill -9 -f "mpv" 2>/dev/null
-                            pkill -9 -f "aplay" 2>/dev/null
-                            
-                            # Kill Python processes
-                            pkill -9 -f "assistant_framework" 2>/dev/null
-                            pkill -9 -f "openwakeword" 2>/dev/null
-                            
-                            # Also try killing by parent PID
-                            pkill -9 -P $$ 2>/dev/null
-                            
-                            break
-                        fi
-                        
-                        # Check Bluetooth - with retry tolerance for profile switching (A2DP -> HFP)
-                        # Opening an audio input stream can trigger profile negotiation which briefly disconnects
-                        if [ "$("$BLUEUTIL" --is-connected "$DEVICE_ADDRESS" 2>/dev/null)" != "1" ]; then
-                            echo ""
-                            echo "⚠️  Bluetooth briefly disconnected (profile switch?)"
-                            echo "   Waiting up to 5 seconds for reconnection..."
-                            
-                            RECONNECTED=false
-                            for i in {1..10}; do  # 10 x 0.5s = 5 seconds max
-                                sleep 0.5
-                                if [ "$("$BLUEUTIL" --is-connected "$DEVICE_ADDRESS" 2>/dev/null)" = "1" ]; then
-                                    echo "✅ Bluetooth reconnected after ~$((i / 2)).$((i % 2 * 5))s"
-                                    RECONNECTED=true
-                                    break
-                                fi
-                            done
-                            
-                            if [ "$RECONNECTED" != "true" ]; then
-                                echo ""
-                                echo "🔴 Bluetooth still disconnected after 5s"
-                                echo "🛑 Stopping all processes..."
-                                
-                                # Kill ALL audio-related processes IMMEDIATELY
-                                pkill -9 -f "say " 2>/dev/null
-                                pkill -9 afplay 2>/dev/null
-                                pkill -9 -f "ffplay" 2>/dev/null
-                                pkill -9 -f "mpv" 2>/dev/null
-                                pkill -9 -f "aplay" 2>/dev/null
-                                
-                                # Kill Python processes
-                                pkill -9 -f "assistant_framework" 2>/dev/null
-                                pkill -9 -f "openwakeword" 2>/dev/null
-                                
-                                # Also try killing by parent PID
-                                pkill -9 -P $$ 2>/dev/null
-                                
-                                break
-                            fi
-                        fi
-                    fi
-                done < "$OUTPIPE"
-            ) &
-            MONITOR_PID=$!
-            
-            # Run assistant - both stdout and stderr through pipe for monitoring
-            python -u -m assistant_framework.main continuous > "$OUTPIPE" 2>&1
+            # Run the assistant
+            python -u -m assistant_framework.main continuous
             EXIT_CODE=$?
             
-            # Cleanup
-            kill $MONITOR_PID 2>/dev/null
-            kill $WIFI_MONITOR_PID 2>/dev/null
             kill $CAFFEINATE_PID 2>/dev/null
-            wait $MONITOR_PID 2>/dev/null
-            wait $WIFI_MONITOR_PID 2>/dev/null
             wait $CAFFEINATE_PID 2>/dev/null
-            rm -f "$OUTPIPE"
             
             echo ""
             echo "🔴 Assistant exited (code: $EXIT_CODE)"
-            
-            # Check exit reason (WiFi first, then Bluetooth)
-            if ! has_wifi; then
-                echo ""
-                echo "🔴 WiFi disconnected"
-                echo "🔄 Returning to WiFi search..."
-                sleep 2
-            elif ! is_connected; then
-                echo ""
-                echo "🔴 $DEVICE_NAME disconnected"
-                echo "🔄 Returning to Bluetooth search..."
-                sleep 2
-            else
-                echo ""
-                echo "⚠️  Assistant exited unexpectedly"
-                echo "🔄 Restarting in 3 seconds..."
-                sleep 3
-            fi
+            echo "🔄 Checking connectivity..."
+            sleep 2
         done
         ;;
     

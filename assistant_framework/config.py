@@ -30,9 +30,18 @@ VERBOSE_LOGGING = os.getenv("VERBOSE_LOGGING", "true").lower() in ("true", "1", 
 
 ENABLE_TTS_ANNOUNCEMENTS = os.getenv("ENABLE_TTS_ANNOUNCEMENTS", "true").lower() in ("true", "1", "yes")
 
+# =============================================================================
+# SECTION 0B: TOOL SIGNAL MODE
+# =============================================================================
+# When enabled, the realtime model outputs a brief tool signal instead of
+# full function calls. o4-mini then handles parameter construction and execution.
+# This reduces latency by having realtime do less work on tool calls.
+
+TOOL_SIGNAL_MODE = os.getenv("TOOL_SIGNAL_MODE", "true").lower() in ("true", "1", "yes")
+
 
 # =============================================================================
-# SECTION 0B: DYNAMIC USER CONFIG
+# SECTION 0C: DYNAMIC USER CONFIG
 # =============================================================================
 
 def _get_primary_user() -> str:
@@ -282,7 +291,14 @@ def build_system_prompt(config: dict) -> str:
                 lines.append(f"- {key}: {val}")
         sections.append("\n".join(lines))
     
-    # Tools
+    # CRITICAL: Tool signal mode instruction comes FIRST if enabled
+    # This ensures the model sees this instruction early in the prompt
+    if "tools" in config:
+        tools = config["tools"]
+        if tools.get("signal_mode") and "signal_instruction" in tools:
+            sections.insert(0, tools["signal_instruction"])  # Insert at the very beginning
+    
+    # Tools (regular tools guidance)
     if "tools" in config:
         tools = config["tools"]
         lines = ["TOOLS:"]
@@ -452,6 +468,25 @@ SYSTEM_PROMPT_CONFIG = {
       "IMPORTANT: Call google_search at most ONCE per user request. "
       "Combine multiple aspects of a question into a single comprehensive search query. "
       "Do NOT call google_search multiple times for different aspects of the same question."
+    ),
+    # Tool signal mode - when enabled, output brief signals instead of full tool calls
+    "signal_mode": TOOL_SIGNAL_MODE,
+    "signal_instruction": (
+      "CRITICAL RULE: If the user needs a tool, say only the word TOOL - nothing else. No JSON. No explanation. Just: TOOL\n\n"
+      "Needs tool (output TOOL): calendar, weather, lights, music, text/SMS, search, notifications, clipboard\n"
+      "No tool needed (answer normally): math, jokes, opinions, general knowledge, conversation\n\n"
+      "Any question related to events, calendar, reminders, schedules -> TOOL\n"
+      "Any question pertaining to weather -> TOOL\n"
+      "If the user asks about you (the assistant/agent) can do or is capable of or what your capabilities are or how you work -> TOOL\n"
+      "Any questions about briefings -> TOOL\n"
+      "Any question asking to send a notification to a phone -> TOOL\n"
+      "Any question that requires an online web search -> TOOL\n"
+      "Any question that asks to write a prompt or cursor instructions -> TOOL\n"
+      "Any question that asks to read/summarize the device clipboard or what the user copied -> TOOL\n"
+      "Any question that asks that asks about music or Spotify -> TOOL\n"
+      "Any question that asks to learn or read the news or headlines -> TOOL\n"
+      "Any question that asks to read an email -> TOOL\n"
+      "Any question pertaining to controlling house lights -> TOOL\n"""
     )
   },
 
@@ -515,6 +550,96 @@ OPENAI_WS_CONFIG = {
     # Composed tool calling - allows AI to chain multiple tools for multi-step tasks
     "composed_tool_calling_enabled": True,
     "max_tool_iterations": 5,  # Maximum rounds of tool calls to prevent infinite loops
+    # Model for tool subagent (iterative tool planning + final answer composition)
+    # Options: "gpt-4o-mini" (fast, cheap), "o4-mini" (reasoning, slower but smarter)
+    "tool_subagent_model": os.getenv("TOOL_SUBAGENT_MODEL", "o4-mini"),
+}
+
+
+# =============================================================================
+# SECTION 4B: TOOL SUBAGENT CONFIGURATION
+# =============================================================================
+# Configuration for tool subagents that handle iterative tool execution and
+# final answer composition. These prompts ensure voice/style continuity when
+# handing off from the primary realtime provider.
+
+TOOL_SUBAGENT_CONFIG = {
+    # Tool Decision Agent prompt - analytical, task-focused
+    # Used by _check_for_additional_tools to decide if more tools are needed
+    # Placeholders: {user_intent}, {relevant_context}, {iteration_note}, {success_note}, {tools_summary}
+    "tool_decision_prompt": """You are a task completion agent. Your job is to determine if additional tools are needed to fulfill the user's request.
+
+USER INTENT: {user_intent}
+
+RELEVANT CONTEXT:
+{relevant_context}
+
+{iteration_note}
+
+CALENDAR NAME MAPPINGS (use these exact keys when calling calendar_data):
+- "morgan_personal" = Personal calendar (aliases: personal, main, gmail, my calendar) **DEFAULT - use this if user doesn't specify a calendar**
+- "morgan_school" = School/Cornell calendar (aliases: school, cornell, university, class, classes)
+- "Gen_AI" = Gen AI Class calendar (aliases: genai, gen ai, ai, ai class, generative ai)
+- "homeassist" = HomeAssist/Reminders calendar (aliases: assistant, home assistant, reminders)
+- "all" = Read from ALL configured calendars (default for read operations)
+
+DEFAULT CALENDAR: When creating events and the user does not specify which calendar, always use "morgan_personal".
+
+RULES:
+1. Analyze if ALL parts of the user's request are fulfilled
+2. Multi-step requests (e.g., "find X AND send it to Y") require MULTIPLE tools - ensure EACH step is done
+3. Never call the same tool with identical arguments twice - duplicates are forbidden
+4. CALENDAR: Only ONE calendar_data call per request. If calendar_data was already called to create an event, do NOT call it again
+5. CALENDAR ARGUMENTS: calendar_data requires a 'commands' array with at least one command object. Use the calendar keys above (e.g., "morgan_personal"), not the aliases.
+6. If ALL parts of the user's request are fulfilled, respond with: DONE
+7. If there are unfulfilled parts, call the appropriate tool(s) to complete them
+{success_note}
+
+Tools already executed:
+{tools_summary}""",
+
+    # Composition Agent prompt - matches primary assistant voice
+    # Used by _compose_final_answer to generate the final response
+    # Placeholders: {voice_description}, {response_style}, {tone}, {max_response_length}, {tools_block}
+    "composition_prompt": """You are Sol, composing a final response from tool results.
+
+VOICE: {voice_description}
+RESPONSE STYLE: {response_style}
+TONE: {tone}
+MAX LENGTH: {max_response_length}
+
+You have executed tools for the user's request. Synthesize the tool results below into a natural response that matches this voice. Do not include raw JSON unless it improves clarity.
+
+{tools_block}""",
+    
+    # Voice description extracted from primary system prompt
+    # Should match SYSTEM_PROMPT_CONFIG voice characteristics
+    "voice_description": (
+        "Calm, grounded, quietly sharp but warm. Natural conversation, thoughtful, philosophical. "
+        "Answer directly, then let the thought breathe. Varied sentence length, loose paragraphs like natural speech. "
+        "On the user's side - not impressed, not judgmental."
+    ),
+    
+    # Default response style settings (can be overridden by handoff context)
+    "default_response_style": "conversational",
+    "default_tone": "casual",
+    "default_max_length": "1-2 sentences",
+    
+    # Tool Orchestration prompt - used when TOOL_SIGNAL_MODE is enabled
+    # o4-mini receives full context and decides what tools to call
+    # Placeholders: {user_message}
+    "tool_orchestration_prompt": """You are a tool executor. The user needs a tool to fulfill their request. Analyze their request and call the appropriate tool(s).
+
+USER REQUEST: {user_message}
+
+CALENDAR DEFAULTS:
+- Read operations: use calendar="all" to search all calendars
+- Write operations: use calendar="morgan_personal" as default
+- Calendar keys: "morgan_personal", "morgan_school", "Gen_AI", "homeassist", "all"
+
+Call the appropriate tool based on the user's request. If they ask about calendar/schedule/appointments, call calendar_data. If they ask about weather, call weather. If they ask about lights, call kasa_lighting. Etc.
+
+You MUST call at least one tool. Do not respond with text.""",
 }
 
 
@@ -595,8 +720,8 @@ WAKEWORD_CONFIG = {
     # - If briefing_wake_words is empty: ALL wake words announce briefings (default)
     # - If briefing_wake_words is configured: only those wake words announce briefings
     # Example: ["hey_honey_whats_new"] → only "hey_honey_whats_new" triggers briefings
-    "model_names": ["hey_honey_v2", "hey_tolis", "sol"],  # Add second model name here when ready
-    "briefing_wake_words": ["sol"],  # Empty = always announce briefings; set to specific wake words to be selective
+    "model_names": ["hey_tolis", "hey_jarvis", "wake_up", "sol"],  # Add second model name here when ready
+    "briefing_wake_words": ["sol", "hey_jarvis",],  # Empty = always announce briefings; set to specific wake words to be selective
     "sample_rate": 16000,
     "chunk": 1280,
     "threshold": 0.2,  # Default threshold for models not specified in model_thresholds
@@ -608,8 +733,8 @@ WAKEWORD_CONFIG = {
         "hey_honey_v2": 0.4,
         "sol": 0.15,
          "alexa_v0.1": 0.5,
-         "hey_tolis": 0.03,
-        # "hey_jarvis": 0.3,
+         "hey_tolis": 0.005,
+         "hey_jarvis": 0.3,
     },
     # Bluetooth-specific thresholds (for Meta Ray-Bans and other BT devices)
     # When a Bluetooth device is detected, these thresholds override model_thresholds
@@ -619,6 +744,7 @@ WAKEWORD_CONFIG = {
         "sol": 0.12,          # Lower than 0.15 (non-BT) - more sensitive for Ray-Bans
         "alexa_v0.1": 0.4,    # Lower than 0.5 (non-BT)
         "hey_tolis": 0.02,    # Lower than 0.15 (non-BT) - more sensitive for Ray-Bans
+        "hey_jarvis": 0.15,
         # Add more models as needed
     },
     "bluetooth_threshold": 0.15,  # Default BT threshold if model not in bluetooth_model_thresholds

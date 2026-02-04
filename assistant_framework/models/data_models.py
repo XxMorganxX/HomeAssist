@@ -211,6 +211,42 @@ class ContextBundle:
 
 
 # =============================================================================
+# TOOL SUBAGENT HANDOFF
+# =============================================================================
+
+@dataclass
+class HandoffContext:
+    """
+    Context passed from primary provider to tool subagents.
+    
+    Enables voice/style continuity when handing off from the realtime provider
+    to the tool decision and composition subagents.
+    
+    Attributes:
+        user_intent: Extracted core goal from user message
+        response_style: Expected response format ("brief", "detailed", "conversational")
+        tone: Conversation tone ("casual", "formal", "urgent")
+        relevant_context: Key facts extracted from conversation history
+        max_response_length: Length guidance ("1-2 sentences", "paragraph", etc.)
+    """
+    user_intent: str
+    response_style: str = "conversational"
+    tone: str = "casual"
+    relevant_context: List[str] = field(default_factory=list)
+    max_response_length: str = "1-2 sentences"
+    
+    def to_dict(self) -> Dict[str, Any]:
+        """Convert to dictionary for template substitution."""
+        return {
+            "user_intent": self.user_intent,
+            "response_style": self.response_style,
+            "tone": self.tone,
+            "relevant_context": "\n".join(self.relevant_context) if self.relevant_context else "None",
+            "max_response_length": self.max_response_length,
+        }
+
+
+# =============================================================================
 # STATE TRANSITION TYPES
 # =============================================================================
 

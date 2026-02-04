@@ -91,6 +91,8 @@ cd $HOME/Desktop/HomeAssistV3
 ┌─────────────────────────────────────────────────────────────────┐
 │               homeassist run (in Terminal)                      │
 │  - Waits for Bluetooth connection                               │
+│  - Verifies Meta glasses are active audio I/O device            │
+│  - Alternating WiFi/Bluetooth monitoring (2.5s intervals)       │
 │  - Monitors for PaMacCore errors                                │
 │  - Auto-restarts on disconnect                                  │
 │  - Connects to persistent MCP server                            │
@@ -373,7 +375,10 @@ launchctl kickstart -k gui/$(id -u)/com.homeassist.assistant
 | Login | Bluetooth & MCP services auto-start |
 | Logout | Services stop gracefully |
 | Crash | Auto-restart within 1-2 seconds |
-| Bluetooth disconnect | Auto-reconnect within 3-5 seconds |
+| Bluetooth disconnect | Auto-reconnect within 2.5-5 seconds (alternating monitor) |
+| WiFi disconnect | Detected within 2.5-5 seconds (alternating monitor) |
 | Audio error (PaMacCore) | Assistant restarts, returns to BT search |
 | Glasses off during boot | Waits for connection before starting |
 | Code changes | Requires manual restart |
+
+**Note on Monitoring**: The assistant uses an alternating monitor that checks WiFi and Bluetooth every 2.5 seconds (staggered). This provides faster detection than checking one every 5 seconds, with a maximum detection latency of 2.5 seconds for either type of disconnection.

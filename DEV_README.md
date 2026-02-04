@@ -646,6 +646,10 @@ def get_audio_device_config() -> AudioDeviceConfig:
 - Lower energy threshold (mic quality drops during playback)
 - Higher latency setting
 - Suppress overflow warnings (bursty audio is expected)
+- **Audio Device Verification**: The `homeassist` script verifies that Meta glasses are not only connected via Bluetooth, but also set as the active audio input/output device. This is checked when the wake word listener becomes ready to prevent situations where audio is routed to built-in mic/speakers instead.
+  - Uses `is_meta_glasses_active_audio_device()` from `device_manager.py`
+  - Queries macOS `system_profiler SPAudioDataType` to check "Default Input Device" and "Default Output Device" status
+  - Allows 5-second grace period for audio routing to switch automatically
 
 ---
 
