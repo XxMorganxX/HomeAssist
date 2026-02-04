@@ -117,6 +117,23 @@ class EmailManager:
                         token.write(creds.to_json())
                 except Exception:
                     pass
+                
+                # Check if Google returned a new refresh token (token rotation)
+                if creds.refresh_token and creds.refresh_token != refresh_token:
+                    print("🔄 Google issued a new refresh token!")
+                    # Write new token to file for GitHub Actions to update the secret
+                    try:
+                        new_token_file = os.path.join(
+                            os.path.dirname(self.token_file) or ".",
+                            "new_refresh_token.txt"
+                        )
+                        os.makedirs(os.path.dirname(new_token_file) or ".", exist_ok=True)
+                        with open(new_token_file, 'w') as f:
+                            f.write(creds.refresh_token)
+                        print(f"📝 New refresh token written to {new_token_file}")
+                    except Exception as e:
+                        print(f"⚠️  Could not save new refresh token: {e}")
+                
                 print("🔑 Using environment-based refresh token for Gmail API.")
                 return creds
             except Exception as e:

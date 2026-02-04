@@ -19,6 +19,8 @@
 #   - GMAIL_CLIENT_ID       : From Google Cloud Console OAuth credentials
 #   - GMAIL_CLIENT_SECRET   : From Google Cloud Console OAuth credentials
 #   - GMAIL_REFRESH_TOKEN   : From your token.json (get via reauth_gmail.py locally)
+#   - GH_PAT                : GitHub Personal Access Token with 'repo' scope
+#                             (enables auto-update of GMAIL_REFRESH_TOKEN if Google rotates it)
 #   - NEWS_API_KEY_2 to _5  : Additional NewsAPI keys for quota rotation
 #
 # OPTIONAL SECRETS (for calendar briefing):
@@ -114,7 +116,9 @@ jobs:
       # EMAIL SUMMARIZER (runs at 9am, 1pm, 5pm EDT)
       # ─────────────────────────────────────────────────────────────
       - name: Run Email Summarizer
+        id: email_summarizer
         if: ${{ github.event.inputs.skip_email != 'true' }}
+        continue-on-error: true
         working-directory: scripts/scheduled/email_summarizer
         env:
           GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
@@ -133,15 +137,60 @@ jobs:
           
           # Create ephemeral data directory
           mkdir -p ephemeral_data
+          mkdir -p creds
           
           # Check if Gmail credentials are configured
           if [ -n "$GMAIL_CLIENT_ID" ] && [ -n "$GMAIL_CLIENT_SECRET" ] && [ -n "$GMAIL_REFRESH_TOKEN" ]; then
             echo "✅ Gmail OAuth credentials found (via environment variables)"
-            python mail_main.py || echo "⚠️ Email summarizer completed with warnings"
+            python mail_main.py
           else
             echo "⏭️ Skipping email summarizer (Gmail credentials not configured)"
             echo "   To enable, add these secrets: GMAIL_CLIENT_ID, GMAIL_CLIENT_SECRET, GMAIL_REFRESH_TOKEN"
           fi
+      
+      - name: Update Refresh Token if Rotated
+        if: ${{ github.event.inputs.skip_email != 'true' && steps.email_summarizer.outcome == 'success' }}
+        working-directory: scripts/scheduled/email_summarizer
+        env:
+          GH_TOKEN: ${{ secrets.GH_PAT }}
+        run: |
+          # Check if Google issued a new refresh token
+          if [ -f "creds/new_refresh_token.txt" ]; then
+            NEW_TOKEN=$(cat creds/new_refresh_token.txt)
+            if [ -n "$NEW_TOKEN" ] && [ -n "$GH_TOKEN" ]; then
+              echo "🔄 Updating GMAIL_REFRESH_TOKEN secret with rotated token..."
+              gh secret set GMAIL_REFRESH_TOKEN --body "$NEW_TOKEN" --repo ${{ github.repository }}
+              echo "✅ Secret updated successfully"
+              rm -f creds/new_refresh_token.txt
+            elif [ -z "$GH_TOKEN" ]; then
+              echo "⚠️ New refresh token found but GH_PAT secret not configured"
+              echo "   Add a Personal Access Token with 'repo' scope as GH_PAT secret to enable auto-update"
+            fi
+          fi
+      
+      - name: Notify on Email Auth Failure
+        if: ${{ steps.email_summarizer.outcome == 'failure' }}
+        env:
+          SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
+          SUPABASE_KEY: ${{ secrets.SUPABASE_KEY }}
+        run: |
+          echo "🚨 Email summarizer failed - likely auth issue"
+          echo "   Run locally: python scripts/scheduled/email_summarizer/reauth_gmail.py"
+          echo "   Then update GMAIL_REFRESH_TOKEN secret in GitHub"
+          
+          # Send notification via Supabase
+          curl -s -X POST "${SUPABASE_URL}/rest/v1/notification_sources" \
+            -H "apikey: ${SUPABASE_KEY}" \
+            -H "Authorization: Bearer ${SUPABASE_KEY}" \
+            -H "Content-Type: application/json" \
+            -H "Prefer: return=minimal" \
+            -d '{
+              "source": "system",
+              "title": "Gmail Reauth Required",
+              "summary": "Email summarizer failed. Run reauth_gmail.py locally and update GMAIL_REFRESH_TOKEN secret in GitHub.",
+              "target_user": "Morgan",
+              "created_at": "'$(date -u +%Y-%m-%dT%H:%M:%SZ)'"
+            }' && echo "✅ Notification sent to Supabase" || echo "⚠️ Failed to send notification"
       
       # ─────────────────────────────────────────────────────────────
       # NEWS SUMMARIZER (runs at 9am EDT only)
