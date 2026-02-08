@@ -41,8 +41,11 @@ class ToolTestUI:
         top_frame = ttk.Frame(main_frame)
         top_frame.grid(row=0, column=0, columnspan=2, sticky="ew", pady=(0, 10))
         
-        self.run_btn = ttk.Button(top_frame, text="▶ Run Tests", command=self._run_tests)
+        self.run_btn = ttk.Button(top_frame, text="▶ Run All Tests", command=self._run_tests)
         self.run_btn.pack(side="left", padx=(0, 10))
+        
+        self.run_single_btn = ttk.Button(top_frame, text="▶ Run Selected", command=self._run_single_test, state="disabled")
+        self.run_single_btn.pack(side="left", padx=(0, 10))
         
         self.refresh_btn = ttk.Button(top_frame, text="🔄 Refresh", command=self._load_data)
         self.refresh_btn.pack(side="left", padx=(0, 10))
@@ -192,6 +195,7 @@ class ToolTestUI:
         """Handle input selection."""
         selection = self.input_tree.selection()
         if not selection:
+            self.run_single_btn.config(state="disabled")
             return
         
         item = selection[0]
@@ -199,7 +203,11 @@ class ToolTestUI:
         
         if not values:
             # Category selected, not a prompt
+            self.run_single_btn.config(state="disabled")
             return
+        
+        # Enable run single test button
+        self.run_single_btn.config(state="normal")
         
         prompt = values[0]
         self._show_result(prompt)
@@ -369,19 +377,52 @@ Final Response
         text_widget.tag_add(tag, start_pos, end_pos)
     
     def _run_tests(self):
-        """Run the tests in a background thread."""
+        """Run all tests in a background thread."""
         self.run_btn.config(state="disabled")
-        self.status_label.config(text="Running tests...", foreground="orange")
+        self.run_single_btn.config(state="disabled")
+        self.status_label.config(text="Running all tests...", foreground="orange")
         self.console_text.delete("1.0", "end")
-        self.console_text.insert("1.0", "Starting tests...\n\n")
+        self.console_text.insert("1.0", "Starting all tests...\n\n")
         self.notebook.select(3)  # Switch to console tab
         
         # Run in background thread
-        thread = threading.Thread(target=self._run_tests_thread, daemon=True)
+        thread = threading.Thread(target=self._run_tests_thread, args=(None,), daemon=True)
         thread.start()
     
-    def _run_tests_thread(self):
-        """Run tests in background thread."""
+    def _run_single_test(self):
+        """Run a single selected test in a background thread."""
+        # Get selected prompt
+        selection = self.input_tree.selection()
+        if not selection:
+            messagebox.showwarning("No Selection", "Please select a prompt to test.")
+            return
+        
+        item = selection[0]
+        values = self.input_tree.item(item, "values")
+        
+        if not values:
+            messagebox.showwarning("Invalid Selection", "Please select a prompt, not a category.")
+            return
+        
+        prompt = values[0]
+        
+        self.run_btn.config(state="disabled")
+        self.run_single_btn.config(state="disabled")
+        self.status_label.config(text=f"Running test: {prompt[:50]}...", foreground="orange")
+        self.console_text.delete("1.0", "end")
+        self.console_text.insert("1.0", f"Running single test:\n{prompt}\n\n")
+        self.notebook.select(3)  # Switch to console tab
+        
+        # Run in background thread
+        thread = threading.Thread(target=self._run_tests_thread, args=(prompt,), daemon=True)
+        thread.start()
+    
+    def _run_tests_thread(self, single_prompt=None):
+        """Run tests in background thread.
+        
+        Args:
+            single_prompt: If provided, run only this prompt. Otherwise run all tests.
+        """
         import subprocess
         import sys
         
@@ -389,8 +430,13 @@ Final Response
             # Run the test script
             test_script = self.tests_dir / "test_tools.py"
             
+            # Build command with optional single prompt argument
+            cmd = [sys.executable, str(test_script)]
+            if single_prompt:
+                cmd.extend(["--single", single_prompt])
+            
             process = subprocess.Popen(
-                [sys.executable, str(test_script)],
+                cmd,
                 stdout=subprocess.PIPE,
                 stderr=subprocess.STDOUT,
                 text=True,
@@ -420,6 +466,14 @@ Final Response
     def _test_complete(self, success):
         """Handle test completion (called from main thread)."""
         self.run_btn.config(state="normal")
+        
+        # Re-enable single test button if there's a selection
+        selection = self.input_tree.selection()
+        if selection:
+            item = selection[0]
+            values = self.input_tree.item(item, "values")
+            if values:  # It's a prompt, not a category
+                self.run_single_btn.config(state="normal")
         
         if success:
             self.status_label.config(text="Tests completed!", foreground="green")

@@ -6,6 +6,10 @@ Tests the tool signal flow:
 1. Realtime model outputs "TOOL" signal (minimal tokens)
 2. gpt-4o-mini orchestrates tool calls
 3. Tool results sent back to realtime for final response
+
+Usage:
+    python test_tools.py                    # Run all tests
+    python test_tools.py --single "prompt"  # Run a single prompt
 """
 
 import asyncio
@@ -15,6 +19,7 @@ import sys
 import io
 import time
 import re
+import argparse
 from pathlib import Path
 from datetime import datetime
 from unittest.mock import MagicMock
@@ -116,8 +121,12 @@ class ToolSignalCapture:
         }
 
 
-async def run_tests():
-    """Run test prompts through the assistant with MCP tools enabled."""
+async def run_tests(single_prompt=None):
+    """Run test prompts through the assistant with MCP tools enabled.
+    
+    Args:
+        single_prompt: If provided, run only this specific prompt. Otherwise run all tests.
+    """
     
     # Paths
     tests_dir = Path(__file__).parent
@@ -129,13 +138,25 @@ async def run_tests():
         categories_data = json.load(f)
     
     # Flatten into list of (category, prompt) tuples while preserving order
-    test_cases = []
+    all_test_cases = []
     for category_obj in categories_data:
         for category, prompts_list in category_obj.items():
             for prompt in prompts_list:
-                test_cases.append({"category": category, "prompt": prompt})
+                all_test_cases.append({"category": category, "prompt": prompt})
     
-    print(f"Loaded {len(test_cases)} test prompts across {len(categories_data)} categories")
+    # Filter to single prompt if specified
+    if single_prompt:
+        test_cases = [tc for tc in all_test_cases if tc["prompt"] == single_prompt]
+        if not test_cases:
+            print(f"ERROR: Prompt not found: {single_prompt}")
+            print(f"Available prompts:")
+            for tc in all_test_cases:
+                print(f"  - {tc['prompt']}")
+            return
+        print(f"Running single test: {single_prompt}")
+    else:
+        test_cases = all_test_cases
+        print(f"Loaded {len(test_cases)} test prompts across {len(categories_data)} categories")
     
     # Now safe to import (audio modules are mocked)
     from assistant_framework.providers.response.openai_websocket import OpenAIWebSocketResponseProvider
@@ -321,15 +342,68 @@ async def run_tests():
         "tool_execution_time": calc_stats(timing_stats["tool_execution_time_ms"]),
     }
     
-    output_data = {
-        "generated_at": generated_at,
-        "total_tests": len(test_cases),
-        "tool_signal_mode": TOOL_SIGNAL_MODE,
-        "categories": categories_list,
-        "tool_signal_stats": stats,
-        "timing_summary": timing_summary,
-        "results": responses
-    }
+    # If running single test, merge with existing results
+    if single_prompt:
+        # Load existing output if it exists
+        existing_data = {}
+        if output_file.exists():
+            try:
+                with open(output_file, "r") as f:
+                    existing_data = json.load(f)
+            except (json.JSONDecodeError, FileNotFoundError):
+                pass
+        
+        # Update or add the single result
+        existing_results = existing_data.get("results", [])
+        
+        # Remove any existing result for this prompt
+        existing_results = [r for r in existing_results if r["prompt"] != single_prompt]
+        
+        # Add the new result
+        existing_results.extend(responses)
+        
+        # Recalculate stats for all results
+        total_tests = len(existing_results)
+        signal_detected_count = sum(1 for r in existing_results if r.get("tool_signal_flow", {}).get("tool_signal_detected"))
+        orch_called_count = sum(1 for r in existing_results if r.get("tool_signal_flow", {}).get("orchestration_called"))
+        realtime_compose_count = sum(1 for r in existing_results if r.get("tool_signal_flow", {}).get("realtime_compose_called"))
+        tools_used_count = sum(1 for r in existing_results if r.get("tools_used"))
+        no_tools_count = total_tests - tools_used_count
+        
+        # Recalculate timing stats
+        all_total_times = [r.get("timing", {}).get("total_time_ms") for r in existing_results if r.get("timing", {}).get("total_time_ms")]
+        all_tool_times = [r.get("timing", {}).get("tool_execution_time_ms") for r in existing_results if r.get("timing", {}).get("tool_execution_time_ms")]
+        
+        output_data = {
+            "generated_at": generated_at,
+            "total_tests": total_tests,
+            "tool_signal_mode": TOOL_SIGNAL_MODE,
+            "categories": categories_list,
+            "tool_signal_stats": {
+                "total_tests": total_tests,
+                "tool_signal_detected": signal_detected_count,
+                "orchestration_called": orch_called_count,
+                "realtime_compose_called": realtime_compose_count,
+                "tools_used": tools_used_count,
+                "no_tools_used": no_tools_count,
+            },
+            "timing_summary": {
+                "total_time": calc_stats(all_total_times),
+                "tool_execution_time": calc_stats(all_tool_times),
+            },
+            "results": existing_results
+        }
+    else:
+        # Running all tests - output complete data
+        output_data = {
+            "generated_at": generated_at,
+            "total_tests": len(test_cases),
+            "tool_signal_mode": TOOL_SIGNAL_MODE,
+            "categories": categories_list,
+            "tool_signal_stats": stats,
+            "timing_summary": timing_summary,
+            "results": responses
+        }
     
     with open(output_file, "w") as f:
         json.dump(output_data, f, indent=2)
@@ -442,39 +516,60 @@ async def run_tests():
     
     # Print summary
     print(f"\n\n{'='*70}")
-    print("TOOL SIGNAL FLOW SUMMARY")
-    print('='*70)
-    print(f"TOOL_SIGNAL_MODE:         {TOOL_SIGNAL_MODE}")
-    print(f"Total tests:              {stats['total_tests']}")
-    print(f"Tool signal detected:     {stats['tool_signal_detected']} ({100*stats['tool_signal_detected']//max(1,stats['total_tests'])}%)")
-    print(f"Orchestration called:     {stats['orchestration_called']} ({100*stats['orchestration_called']//max(1,stats['total_tests'])}%)")
-    print(f"Realtime compose called:  {stats['realtime_compose_called']} ({100*stats['realtime_compose_called']//max(1,stats['total_tests'])}%)")
-    print(f"Tests with tools:         {stats['tools_used']}")
-    print(f"Tests without tools:      {stats['no_tools_used']}")
+    if single_prompt:
+        print("SINGLE TEST COMPLETE")
+    else:
+        print("TOOL SIGNAL FLOW SUMMARY")
     print('='*70)
     
-    # Print timing summary
-    print("\n⏱️ TIMING SUMMARY")
-    print('='*70)
-    ts = timing_summary["total_time"]
-    if ts["avg"] is not None:
-        print("Total Response Time:")
-        print(f"  Average:  {ts['avg']}ms ({ts['avg']/1000:.2f}s)")
-        print(f"  Min:      {ts['min']}ms ({ts['min']/1000:.2f}s)")
-        print(f"  Max:      {ts['max']}ms ({ts['max']/1000:.2f}s)")
+    if single_prompt:
+        # Show just the single test result
+        if responses:
+            result = responses[0]
+            flow = result.get("tool_signal_flow", {})
+            timing = result.get("timing", {})
+            print(f"Prompt: {result['prompt']}")
+            print(f"Tool signal detected:     {flow.get('tool_signal_detected')}")
+            print(f"Orchestration called:     {flow.get('orchestration_called')}")
+            print(f"Realtime compose called:  {flow.get('realtime_compose_called')}")
+            print(f"Tools used:               {len(result.get('tools_used', []))}")
+            print(f"Total time:               {timing.get('total_time_ms')}ms")
+            if timing.get('tool_execution_time_ms'):
+                print(f"Tool execution time:      {timing.get('tool_execution_time_ms')}ms")
     else:
-        print("Total Response Time:  N/A")
+        # Show full stats
+        print(f"TOOL_SIGNAL_MODE:         {TOOL_SIGNAL_MODE}")
+        print(f"Total tests:              {stats['total_tests']}")
+        print(f"Tool signal detected:     {stats['tool_signal_detected']} ({100*stats['tool_signal_detected']//max(1,stats['total_tests'])}%)")
+        print(f"Orchestration called:     {stats['orchestration_called']} ({100*stats['orchestration_called']//max(1,stats['total_tests'])}%)")
+        print(f"Realtime compose called:  {stats['realtime_compose_called']} ({100*stats['realtime_compose_called']//max(1,stats['total_tests'])}%)")
+        print(f"Tests with tools:         {stats['tools_used']}")
+        print(f"Tests without tools:      {stats['no_tools_used']}")
+    print('='*70)
     
-    te = timing_summary["tool_execution_time"]
-    if te["avg"] is not None:
-        print("Tool Execution Time:")
-        print(f"  Average:  {te['avg']}ms")
-        print(f"  Min:      {te['min']}ms")
-        print(f"  Max:      {te['max']}ms")
-        print(f"  Total:    {te['total']}ms ({te['total']/1000:.2f}s)")
-    else:
-        print("Tool Execution Time:  N/A (no tool timing captured)")
-    print('='*70)
+    if not single_prompt:
+        # Print timing summary for full test runs
+        print("\n⏱️ TIMING SUMMARY")
+        print('='*70)
+        ts = timing_summary["total_time"]
+        if ts["avg"] is not None:
+            print("Total Response Time:")
+            print(f"  Average:  {ts['avg']}ms ({ts['avg']/1000:.2f}s)")
+            print(f"  Min:      {ts['min']}ms ({ts['min']/1000:.2f}s)")
+            print(f"  Max:      {ts['max']}ms ({ts['max']/1000:.2f}s)")
+        else:
+            print("Total Response Time:  N/A")
+        
+        te = timing_summary["tool_execution_time"]
+        if te["avg"] is not None:
+            print("Tool Execution Time:")
+            print(f"  Average:  {te['avg']}ms")
+            print(f"  Min:      {te['min']}ms")
+            print(f"  Max:      {te['max']}ms")
+            print(f"  Total:    {te['total']}ms ({te['total']/1000:.2f}s)")
+        else:
+            print("Tool Execution Time:  N/A (no tool timing captured)")
+        print('='*70)
     
     print("\nResults written to:")
     print(f"  - {output_file}")
@@ -485,4 +580,9 @@ async def run_tests():
 
 
 if __name__ == "__main__":
-    asyncio.run(run_tests())
+    # Parse command line arguments
+    parser = argparse.ArgumentParser(description="Run MCP tool tests")
+    parser.add_argument("--single", type=str, help="Run a single test prompt")
+    args = parser.parse_args()
+    
+    asyncio.run(run_tests(single_prompt=args.single))
