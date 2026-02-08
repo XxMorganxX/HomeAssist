@@ -33,4 +33,5 @@ __all__ = [
 # Conditionally add macOS-only tools
 if platform.system() == "Darwin":
     __all__.append('SendSMSTool')
+    __all__.append('StickiesTool')
 

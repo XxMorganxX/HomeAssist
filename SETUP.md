@@ -629,6 +629,13 @@ The `system_info` tool allows the assistant to explain its own architecture and 
 - No configuration required
 - Supports section filtering: `overview`, `structure`, `tools`, `memory`, `config`, `framework`, `troubleshooting`, or `all`
 
+#### Stickies Tool (macOS)
+
+The `stickies` tool lets the assistant list, read, and edit macOS Stickies notes by UUID.
+
+- Enabled by default in `mcp_server/tools_config.py` on macOS
+- No configuration required
+
 #### Kasa Smart Lights
 
 ```python

@@ -30,6 +30,7 @@ ENABLED_TOOLS = {
     "send_sms": platform.system() == "Darwin",  # Only enable on macOS
     "cursor_composer": platform.system() == "Darwin",  # Only enable on macOS
     "read_clipboard": platform.system() == "Darwin",  # Only enable on macOS
+    "stickies": platform.system() == "Darwin",  # Only enable on macOS
 }
 
 # Tools that should NEVER be loaded (overrides ENABLED_TOOLS)

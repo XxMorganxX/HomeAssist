@@ -1,6 +1,6 @@
 MCP Tool Test Results
-Generated: 2026-02-08T00:21:35.875889
-Total Tests: 1 across 13 categories
+Generated: 2026-02-08T00:52:57.669944
+Total Tests: 1 across 14 categories
 TOOL_SIGNAL_MODE: True
 ======================================================================
 
@@ -17,23 +17,23 @@ Tests without tools:      0
 TIMING STATISTICS
 ----------------------------------------------------------------------
 Total Response Time:
-  Average:  33337ms
-  Min:      33337ms
-  Max:      33337ms
+  Average:  14734ms
+  Min:      14734ms
+  Max:      14734ms
 Tool Execution Time:  N/A
 ======================================================================
 
 
 ######################################################################
-#  CATEGORY: CALENDAR
+#  CATEGORY: STICKIES
 #  Tests: 1
 ######################################################################
 
-TEST 1: What meetings do I have this week?
+TEST 1: What's on my to-do list?
 ----------------------------------------------------------------------
 
 TIMING:
-  Total time:       33337ms
+  Total time:       14734ms
   Tool execution:   N/A
 
 TOOL SIGNAL FLOW:
@@ -44,208 +44,72 @@ TOOL SIGNAL FLOW:
   Realtime compose:    True
 
 RESPONSE:
-You've got a couple of meetings this week. First, there's the "Applications Due - CGAI" on February 7th from 11:59 PM to 12:59 AM. Then, the "Open Team Delib" on February 8th from 12:30 PM to 3:00 PM. Mark your calendar! 📅
+I couldn't access your to-do list right now. Let's try again, or if you have specific tasks in mind, you can share them with me.
 
 TOOLS USED (3):
 
-  Tool: calendar_data
+  Tool: state_tool
   Arguments: {
-    "commands": [
-        {
-            "type": "get_events",
-            "params": {
-                "start_time": "2023-10-16T00:00:00",
-                "end_time": "2023-10-22T23:59:59"
-            }
-        }
-    ]
-}
-  Result:
-    {
-        "success": true,
-        "total_commands": 1,
-        "successful_commands": 1,
-        "failed_commands": 0,
-        "results": [
-            {
-                "success": true,
-                "operation": "read",
-                "command_index": 0,
-                "command": {
-                    "type": "get_events",
-                    "params": {
-                        "start_time": "2023-10-16T00:00:00",
-                        "end_time": "2023-10-22T23:59:59"
-                    },
-                    "read_or_write": "read",
-                    "calendar": "all",
-                    "user": "all",
-                    "read_type": "next_events",
-                    "calendar_name": "primary"
-                },
-                "read_type": "next_events",
-                "events": [
-                    {
-                        "summary": "Applications Due - CGAI",
-                        "start": {
-                            "dateTime": "2026-02-07T23:59:00-05:00",
-                            "timeZone": "America/New_York"
-                        },
-                        "end": {
-                            "dateTime": "2026-02-08T00:59:00-05:00",
-                            "timeZone": "America/New_York"
-                        },
-                        "source_calendar": "Gen_AI"
-                    },
-                    {
-                        "summary": "Open Team Delib",
-                        "start": {
-                            "dateTime": "2026-02-08T12:30:00-05:00",
-                            "timeZone": "America/New_York"
-                        },
-                        "end": {
-                            "dateTime": "2026-02-08T15:00:00-05:00",
-                            "timeZone": "America/New_York"
-                        },
-                        "source_calendar": "Gen_AI"
-                    },
-                    {
-                        "summary": "Mann.",
-                        "start": {
-                            "dateTime": "2026-02-09T12:30:00-05:00",
-                            "timeZone": "America/New_York"
-                        },
-                        "end": {
-                            "dateTime": "2026-02-09T14:30:00-05:00",
-                            "timeZone": "America/New_York"
-                        },
-                        "source_calendar": "morgan_school"
-                    },
-                    {
-                        "summary": "Mann.",
-                        "start": {
-                            "dateTime": "2026-02-11T12:30:00-05:00",
-                            "timeZone": "America/New_York"
-                        },
-                        "end": {
-                            "dateTime": "2026-02-11T14:30:00-05:00",
-                            "timeZone": "America/New_York"
-                        },
-                        "source_calendar": "morgan_school"
-                    },
-                    {
-                        "summary": "Deep Learning Hw#1",
-                        "start": {
-                            "dateTime": "2026-02-12T22:30:00-05:00",
-                            "timeZone": "America/New_York"
-                        },
-                        "end": {
-                            "dateTime": "2026-02-12T23:30:00-05:00",
-                            "timeZone": "America/New_York"
-                        },
-                        "source_calendar": "morgan_school"
-                    },
-                    {
-                        "summary": "Decisions Returned - CGAI",
-                        "start": {
-                            "dateTime": "2026-02-13T23:59:00-05:00",
-                            "timeZone": "America/New_York"
-                        },
-                        "end": {
-                            "dateTime": "2026-02-14T00:59:00-05:00",
-                            "timeZone": "America/New_York"
-                        },
-                        "source_calendar": "Gen_AI"
-                    },
-                    {
-                        "summary": "Check discover debt",
-                        "start": {
-                            "dateTime": "2026-02-14T13:00:00-05:00",
-                            "timeZone": "America/New_York"
-                        },
-                        "end": {
-                            "dateTime": "2026-02-14T14:00:00-05:00",
-                            "timeZone": "America/New_York"
-                        },
-                        "source_calendar": "morgan_personal"
-                    },
-                    {
-                        "summary": "Mann.",
-                        "start": {
-                            "dateTime": "2026-02-16T12:30:00-05:00",
-                            "timeZone": "America/New_York"
-                        },
-                        "end": {
-                            "dateTime": "2026-02-16T14:30:00-05:00",
-                            "timeZone": "America/New_York"
-                        },
-                        "source_calendar": "morgan_school"
-                    },
-                    {
-                        "summary": "Mann.",
-                        "start": {
-                            "dateTime": "2026-02-18T12:30:00-05:00",
-                            "timeZone": "America/New_York"
-                        },
-                        "end": {
-                            "dateTime": "2026-02-18T14:30:00-05:00",
-                            "timeZone": "America/New_York"
-                        },
-                        "source_calendar": "morgan_school"
-                    },
-                    {
-                        "summary": "Seminar Quiz",
-                        "start": {
-                            "dateTime": "2026-02-20T14:00:00-05:00",
-                            "timeZone": "America/New_York"
-                        },
-                        "end": {
-                            "dateTime": "2026-02-20T15:00:00-05:00",
-                            "timeZone": "America/New_York"
-                        },
-                        "source_calendar": "morgan_school"
-                    }
-                ],
-                "event_count": 10,
-                "total_events_found": 30,
-                "calendars_read": [
-                    "morgan_personal",
-                    "morgan_school",
-                    "Gen_AI",
-                    "homeassist"
-                ],
-                "calendar": "all",
-                "note": "This was a READ operation - no events were created."
-            }
-        ],
-        "calendars": [
-            "all"
-        ],
-        "timestamp": "2026-02-08T00:21:07.097650"
-    }
-
-  Tool: calendar_data
-  Arguments: {
-    "commands": [
-        {
-            "type": "get_events",
-            "params": {
-                "start_time": "2024-06-17T00:00:00",
-                "end_time": "2024-06-23T23:59:59"
-            },
-            "read_or_write": "read",
-            "calendar": "all",
-            "read_type": "events"
-        }
-    ]
+    "state_type": "stickies",
+    "new_state": "list"
 }
   Result:
     {
         "success": false,
-        "error": "Command validation failed",
-        "validation_errors": [
-            "Command 1: Invalid read_type 'events'. Must be one of: ['next_events', 'day_summary', 'week_summary', 'specific_date']"
-        ],
+        "error": "Invalid state_type 'stickies'. Valid options: ['current_spotify_user', 'lighting_scene', 'volume_level', 'do_not_disturb']",
+        "valid_state_types": [
+            "current_spotify_user",
+            "lighting_scene",
+            "volume_level",
+            "do_not_disturb"
+        ]
+    }
+
+  Tool: state_tool
+  Arguments: {
+    "state_type": "stickies",
+    "new_state": ""
+}
+  Result:
+    {
+        "success": false,
+        "error": "Missing required parameters: state_type and new_state are both required",
+        "valid_state_types": [
+            "current_spotify_user",
+            "lighting_scene",
+            "volume_level",
+            "do_not_disturb"
+        ]
+    }
+
+  Tool: calendar_data
+  Arguments: {
+    "commands": []
+}
+  Result:
+    {
+        "success": false,
+        "error": "No commands provided. You must include a 'commands' array with at least one command object.",
+        "example_read": {
+            "commands": [
+                {
+                    "read_or_write": "read",
+                    "read_type": "next_events",
+                    "calendar": "all"
+                }
+            ]
+        },
+        "example_create": {
+            "commands": [
+                {
+                    "read_or_write": "create_event",
+                    "event_title": "Meeting",
+                    "date": "2026-01-23",
+                    "start_time": "14:00",
+                    "end_time": "15:00"
+                }
+            ]
+        },
         "available_calendars": [
             "morgan_personal",
             "morgan_school",
@@ -256,81 +120,6 @@ TOOLS USED (3):
             "read",
             "create_event"
         ]
-    }
-
-  Tool: calendar_data
-  Arguments: {
-    "commands": [
-        {
-            "type": "get_events",
-            "read_or_write": "read",
-            "read_type": "week_summary",
-            "calendar": "all"
-        }
-    ]
-}
-  Result:
-    {
-        "success": true,
-        "total_commands": 1,
-        "successful_commands": 1,
-        "failed_commands": 0,
-        "results": [
-            {
-                "success": true,
-                "operation": "read",
-                "command_index": 0,
-                "command": {
-                    "type": "get_events",
-                    "read_or_write": "read",
-                    "read_type": "week_summary",
-                    "calendar": "all",
-                    "user": "all",
-                    "calendar_name": "primary"
-                },
-                "read_type": "week_summary",
-                "events": [
-                    {
-                        "summary": "Applications Due - CGAI",
-                        "start": {
-                            "dateTime": "2026-02-07T23:59:00-05:00",
-                            "timeZone": "America/New_York"
-                        },
-                        "end": {
-                            "dateTime": "2026-02-08T00:59:00-05:00",
-                            "timeZone": "America/New_York"
-                        },
-                        "source_calendar": "Gen_AI"
-                    },
-                    {
-                        "summary": "Open Team Delib",
-                        "start": {
-                            "dateTime": "2026-02-08T12:30:00-05:00",
-                            "timeZone": "America/New_York"
-                        },
-                        "end": {
-                            "dateTime": "2026-02-08T15:00:00-05:00",
-                            "timeZone": "America/New_York"
-                        },
-                        "source_calendar": "Gen_AI"
-                    }
-                ],
-                "event_count": 2,
-                "total_events_found": 2,
-                "calendars_read": [
-                    "morgan_personal",
-                    "morgan_school",
-                    "Gen_AI",
-                    "homeassist"
-                ],
-                "calendar": "all",
-                "note": "This was a READ operation - no events were created."
-            }
-        ],
-        "calendars": [
-            "all"
-        ],
-        "timestamp": "2026-02-08T00:21:29.605305"
     }
 
 ======================================================================

@@ -449,7 +449,8 @@ SYSTEM_PROMPT_CONFIG = {
       "calendar",
       "music",
       "weather",
-      "searches"
+      "searches",
+      "notes"
     ],
     "dont_use_when": [
       "general knowledge",
@@ -473,7 +474,7 @@ SYSTEM_PROMPT_CONFIG = {
     "signal_mode": TOOL_SIGNAL_MODE,
     "signal_instruction": (
       "CRITICAL RULE: If the user needs a tool, say only the word TOOL - nothing else. No JSON. No explanation. Just: TOOL\n\n"
-      "Needs tool (output TOOL): calendar, weather, lights, music, text/SMS, search, notifications, clipboard\n"
+      "Needs tool (output TOOL): calendar, weather, lights, music, text/SMS, search, notifications, clipboard, desktop notes/to-do list/stickies\n"
       "No tool needed (answer normally): math, jokes, opinions, general knowledge, conversation\n\n"
       "IMPORTANT: If the user asks how YOUR system works, always output TOOL even if you think you know.\n"
       "This includes questions like \"How does your X work?\" or \"How do you do X?\" where X is about the assistant itself.\n"
@@ -498,7 +499,8 @@ SYSTEM_PROMPT_CONFIG = {
       "Any question that asks that asks about music or Spotify -> TOOL\n"
       "Any question that asks to learn or read the news or headlines -> TOOL\n"
       "Any question that asks to read an email -> TOOL\n"
-      "Any question pertaining to controlling house lights -> TOOL\n"""
+      "Any question pertaining to controlling house lights -> TOOL\n"
+      "Any question about desktop notes, notes, to-do list, sticky notes, stickies, or what the user wrote down -> TOOL\n"""
     )
   },
 
@@ -598,14 +600,26 @@ CALENDAR NAME MAPPINGS (use these exact keys when calling calendar_data):
 
 DEFAULT CALENDAR: When creating events and the user does not specify which calendar, always use "morgan_personal".
 
+TOOL ROUTING (match keywords to tools):
+- "desktop notes", "my notes", "to-do list", "sticky notes", "stickies" -> stickies tool (action: list/read/write)
+- Calendar, schedule, events, appointments -> calendar_data
+- Weather, temperature, forecast -> weather
+- Lights, lighting, brightness -> kasa_lighting
+
+CRITICAL - STICKIES vs CALENDAR:
+- "desktop notes" or "notes" or "to-do list" or "stickies" = stickies tool (user's personal notes on their desktop)
+- "calendar" or "events" or "appointments" or "schedule" = calendar_data (Google Calendar events)
+- These are DIFFERENT tools. Do NOT confuse them.
+
 RULES:
 1. Analyze if ALL parts of the user's request are fulfilled
 2. Multi-step requests (e.g., "find X AND send it to Y") require MULTIPLE tools - ensure EACH step is done
 3. Never call the same tool with identical arguments twice - duplicates are forbidden
 4. CALENDAR: Only ONE calendar_data call per request. If calendar_data was already called to create an event, do NOT call it again
 5. CALENDAR ARGUMENTS: calendar_data requires a 'commands' array with at least one command object. Use the calendar keys above (e.g., "morgan_personal"), not the aliases.
-6. If ALL parts of the user's request are fulfilled, respond with: DONE
-7. If there are unfulfilled parts, call the appropriate tool(s) to complete them
+6. STICKIES: If the user asks about their desktop notes, notes, to-do list, sticky notes, or what they wrote down, call the stickies tool with action="list" first. Do NOT use state_tool or calendar_data for notes.
+7. If ALL parts of the user's request are fulfilled, respond with: DONE
+8. If there are unfulfilled parts, call the appropriate tool(s) to complete them
 {success_note}
 
 Tools already executed:
@@ -645,12 +659,28 @@ You have executed tools for the user's request. Synthesize the tool results belo
 
 USER REQUEST: {user_message}
 
-CALENDAR DEFAULTS:
+TOOL ROUTING (use these mappings):
+- "desktop notes", "my notes", "to-do list", "sticky notes", "stickies", "what I wrote down" -> stickies
+- Calendar/schedule/appointments/events -> calendar_data
+- Weather/temperature/forecast -> weather
+- Lights/lighting/lamps/brightness -> kasa_lighting
+- Music/Spotify/songs/playlists -> spotify_playback
+- Text/SMS/message someone -> send_sms
+- Search/look up/find online -> google_search
+- Clipboard/what I copied -> read_clipboard
+- System info/how do you work/capabilities -> system_info
+
+CRITICAL - STICKIES TOOL (for user's desktop notes/to-do list):
+- Use stickies when user asks about "desktop notes", "notes", "to-do list", "sticky notes", or "what I wrote down"
+- action="list" -> get all note IDs (call this FIRST to see what notes exist)
+- action="read" with sticky_id -> read a specific note's content
+- action="write" with sticky_id and content -> update a note
+- This is NOT calendar_data. This is NOT state_tool. This is the stickies tool.
+
+CALENDAR DEFAULTS (only for calendar_data, NOT for notes):
 - Read operations: use calendar="all" to search all calendars
 - Write operations: use calendar="morgan_personal" as default
 - Calendar keys: "morgan_personal", "morgan_school", "Gen_AI", "homeassist", "all"
-
-Call the appropriate tool based on the user's request. If they ask about calendar/schedule/appointments, call calendar_data. If they ask about weather, call weather. If they ask about lights, call kasa_lighting. Etc.
 
 You MUST call at least one tool. Do not respond with text.""",
 }

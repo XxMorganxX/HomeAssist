@@ -8,8 +8,13 @@ import json
 import asyncio
 import threading
 import re
+import sys
 from pathlib import Path
 from datetime import datetime
+
+# Project root for imports
+_PROJECT_ROOT = Path(__file__).parent.parent.parent
+sys.path.insert(0, str(_PROJECT_ROOT))
 
 _EMOJI_RE = re.compile(
     "["
@@ -43,17 +48,38 @@ class ToolTestUI:
         # Data
         self.input_data = []
         self.output_data = {}
+        self.tools_registry_data = {}  # Cached tool registry info
         
         self._create_ui()
         self._load_data()
     
     def _create_ui(self):
         """Create the UI layout."""
+        # Main container with tabs for different views
+        self.main_notebook = ttk.Notebook(self.root)
+        self.main_notebook.pack(fill="both", expand=True, padx=10, pady=10)
+        
+        # Tab 1: Test Runner (existing functionality)
+        test_runner_frame = ttk.Frame(self.main_notebook)
+        self.main_notebook.add(test_runner_frame, text="Test Runner")
+        
+        # Tab 2: Tools Registry (new)
+        tools_registry_frame = ttk.Frame(self.main_notebook)
+        self.main_notebook.add(tools_registry_frame, text="Tools Registry")
+        
+        # Build the test runner UI in its tab
+        self._create_test_runner_ui(test_runner_frame)
+        
+        # Build the tools registry UI in its tab
+        self._create_tools_registry_ui(tools_registry_frame)
+    
+    def _create_test_runner_ui(self, parent_frame):
+        """Create the test runner UI (original functionality)."""
         # Main container
-        main_frame = ttk.Frame(self.root, padding="10")
+        main_frame = ttk.Frame(parent_frame, padding="10")
         main_frame.grid(row=0, column=0, sticky="nsew")
-        self.root.columnconfigure(0, weight=1)
-        self.root.rowconfigure(0, weight=1)
+        parent_frame.columnconfigure(0, weight=1)
+        parent_frame.rowconfigure(0, weight=1)
         
         # Top bar with buttons and status
         top_frame = ttk.Frame(main_frame)
@@ -147,6 +173,107 @@ class ToolTestUI:
         
         self.console_text = scrolledtext.ScrolledText(console_frame, wrap="word", height=10, font=("Courier", 10))
         self.console_text.pack(fill="both", expand=True)
+    
+    def _create_tools_registry_ui(self, parent_frame):
+        """Create the tools registry UI."""
+        # Main container
+        main_frame = ttk.Frame(parent_frame, padding="10")
+        main_frame.grid(row=0, column=0, sticky="nsew")
+        parent_frame.columnconfigure(0, weight=1)
+        parent_frame.rowconfigure(0, weight=1)
+        
+        # Top bar with buttons
+        top_frame = ttk.Frame(main_frame)
+        top_frame.grid(row=0, column=0, columnspan=2, sticky="ew", pady=(0, 10))
+        
+        self.load_tools_btn = ttk.Button(top_frame, text="Load/Refresh Tools", command=self._load_tools_registry)
+        self.load_tools_btn.pack(side="left", padx=(0, 10))
+        
+        self.tools_status_label = ttk.Label(top_frame, text="Click 'Load/Refresh Tools' to view registered tools", foreground="gray")
+        self.tools_status_label.pack(side="left", padx=(10, 0))
+        
+        # Tool count
+        self.tools_count_label = ttk.Label(top_frame, text="")
+        self.tools_count_label.pack(side="right")
+        
+        # Left panel - Tools list
+        left_frame = ttk.LabelFrame(main_frame, text="Registered Tools", padding="5")
+        left_frame.grid(row=1, column=0, sticky="nsew", padx=(0, 5))
+        main_frame.columnconfigure(0, weight=1)
+        main_frame.rowconfigure(1, weight=1)
+        
+        # Tools tree view
+        self.tools_tree = ttk.Treeview(left_frame, columns=("enabled", "version"), show="tree headings")
+        self.tools_tree.heading("#0", text="Tool Name")
+        self.tools_tree.heading("enabled", text="Enabled")
+        self.tools_tree.heading("version", text="Version")
+        self.tools_tree.column("#0", width=180)
+        self.tools_tree.column("enabled", width=60)
+        self.tools_tree.column("version", width=60)
+        self.tools_tree.pack(fill="both", expand=True, side="left")
+        
+        tools_scroll = ttk.Scrollbar(left_frame, orient="vertical", command=self.tools_tree.yview)
+        tools_scroll.pack(side="right", fill="y")
+        self.tools_tree.configure(yscrollcommand=tools_scroll.set)
+        
+        self.tools_tree.bind("<<TreeviewSelect>>", self._on_tool_select)
+        
+        # Right panel - Tool details
+        right_frame = ttk.LabelFrame(main_frame, text="Tool Details", padding="5")
+        right_frame.grid(row=1, column=1, sticky="nsew", padx=(5, 0))
+        main_frame.columnconfigure(1, weight=2)
+        
+        # Create notebook for tool detail tabs
+        self.tool_detail_notebook = ttk.Notebook(right_frame)
+        self.tool_detail_notebook.pack(fill="both", expand=True)
+        
+        # Overview tab
+        overview_frame = ttk.Frame(self.tool_detail_notebook)
+        self.tool_detail_notebook.add(overview_frame, text="Overview")
+        
+        self.tool_overview_text = scrolledtext.ScrolledText(overview_frame, wrap="word", height=10, font=("Courier", 11))
+        self.tool_overview_text.pack(fill="both", expand=True)
+        
+        # Configure tags for overview
+        self.tool_overview_text.tag_config("header", foreground="#2563eb", font=("Courier", 12, "bold"))
+        self.tool_overview_text.tag_config("section", foreground="#7c3aed", font=("Courier", 11, "bold"))
+        self.tool_overview_text.tag_config("label", foreground="#059669", font=("Courier", 10, "bold"))
+        self.tool_overview_text.tag_config("value", foreground="#374151")
+        
+        # Parameters tab
+        params_frame = ttk.Frame(self.tool_detail_notebook)
+        self.tool_detail_notebook.add(params_frame, text="Parameters")
+        
+        self.tool_params_text = scrolledtext.ScrolledText(params_frame, wrap="word", height=10, font=("Courier", 10))
+        self.tool_params_text.pack(fill="both", expand=True)
+        
+        # Configure tags for parameters
+        self.tool_params_text.tag_config("param_name", foreground="#7c3aed", font=("Courier", 10, "bold"))
+        self.tool_params_text.tag_config("required", foreground="#dc2626", font=("Courier", 9, "bold"))
+        self.tool_params_text.tag_config("optional", foreground="#059669", font=("Courier", 9))
+        self.tool_params_text.tag_config("type", foreground="#0891b2")
+        self.tool_params_text.tag_config("description", foreground="#374151")
+        self.tool_params_text.tag_config("enum", foreground="#ea580c")
+        self.tool_params_text.tag_config("default", foreground="#6b7280")
+        
+        # Full Schema tab (raw JSON)
+        schema_frame = ttk.Frame(self.tool_detail_notebook)
+        self.tool_detail_notebook.add(schema_frame, text="Full Schema")
+        
+        self.tool_schema_text = scrolledtext.ScrolledText(schema_frame, wrap="word", height=10, font=("Courier", 10))
+        self.tool_schema_text.pack(fill="both", expand=True)
+        
+        # Agent Context tab (what the agent sees)
+        context_frame = ttk.Frame(self.tool_detail_notebook)
+        self.tool_detail_notebook.add(context_frame, text="Agent Context")
+        
+        self.tool_context_text = scrolledtext.ScrolledText(context_frame, wrap="word", height=10, font=("Courier", 10))
+        self.tool_context_text.pack(fill="both", expand=True)
+        
+        # Configure tags for agent context
+        self.tool_context_text.tag_config("header", foreground="#2563eb", font=("Courier", 11, "bold"))
+        self.tool_context_text.tag_config("function_name", foreground="#7c3aed", font=("Courier", 10, "bold"))
+        self.tool_context_text.tag_config("json", foreground="#059669")
     
     def _load_data(self):
         """Load input and output data."""
@@ -404,6 +531,221 @@ Final Response
         end_pos = text_widget.index("end-1c")
         text_widget.tag_add(tag, start_pos, end_pos)
     
+    def _load_tools_registry(self):
+        """Load all registered tools from the MCP tool registry."""
+        self.tools_status_label.config(text="Loading tools...", foreground="orange")
+        self.load_tools_btn.config(state="disabled")
+        
+        # Run in background thread to avoid blocking UI
+        thread = threading.Thread(target=self._load_tools_registry_thread, daemon=True)
+        thread.start()
+    
+    def _load_tools_registry_thread(self):
+        """Background thread to load tools registry."""
+        try:
+            from mcp_server.tool_registry import ToolRegistry
+            from mcp_server.tools_config import ENABLED_TOOLS, is_tool_enabled
+            
+            registry = ToolRegistry()
+            registry.discover_tools()
+            
+            tools_data = {}
+            available_tools = registry.get_available_tools()
+            
+            for tool_name in available_tools:
+                try:
+                    tool_instance = registry.get_tool_instance(tool_name)
+                    schema = tool_instance.get_schema()
+                    
+                    # Get the FastMCP function for agent context
+                    fastmcp_func = tool_instance.to_fastmcp_function()
+                    
+                    tools_data[tool_name] = {
+                        "name": tool_name,
+                        "description": tool_instance.description,
+                        "version": getattr(tool_instance, 'version', '1.0.0'),
+                        "enabled": is_tool_enabled(tool_name),
+                        "class_name": tool_instance.__class__.__name__,
+                        "module": tool_instance.__class__.__module__,
+                        "schema": schema,
+                        "docstring": fastmcp_func.__doc__ if fastmcp_func else None,
+                    }
+                except Exception as e:
+                    tools_data[tool_name] = {
+                        "name": tool_name,
+                        "description": f"Error loading: {e}",
+                        "version": "?",
+                        "enabled": is_tool_enabled(tool_name),
+                        "error": str(e),
+                    }
+            
+            # Also include disabled tools from config
+            for tool_name, enabled in ENABLED_TOOLS.items():
+                if tool_name not in tools_data and not enabled:
+                    tools_data[tool_name] = {
+                        "name": tool_name,
+                        "description": "(Disabled in config)",
+                        "version": "-",
+                        "enabled": False,
+                        "disabled_in_config": True,
+                    }
+            
+            self.tools_registry_data = tools_data
+            self.root.after(0, self._populate_tools_tree)
+            
+        except Exception as ex:
+            error_msg = str(ex)
+            self.root.after(0, lambda: self._tools_load_error(error_msg))
+    
+    def _tools_load_error(self, error_msg):
+        """Handle tools loading error."""
+        self.tools_status_label.config(text=f"Error: {error_msg}", foreground="red")
+        self.load_tools_btn.config(state="normal")
+    
+    def _populate_tools_tree(self):
+        """Populate the tools tree view."""
+        # Clear existing items
+        for item in self.tools_tree.get_children():
+            self.tools_tree.delete(item)
+        
+        # Sort tools: enabled first, then alphabetically
+        sorted_tools = sorted(
+            self.tools_registry_data.items(),
+            key=lambda x: (not x[1].get("enabled", False), x[0])
+        )
+        
+        for tool_name, tool_info in sorted_tools:
+            enabled = "Yes" if tool_info.get("enabled") else "No"
+            version = tool_info.get("version", "-")
+            self.tools_tree.insert("", "end", text=tool_name, values=(enabled, version), iid=tool_name)
+        
+        # Update status
+        enabled_count = sum(1 for t in self.tools_registry_data.values() if t.get("enabled"))
+        total_count = len(self.tools_registry_data)
+        self.tools_status_label.config(text="Tools loaded", foreground="green")
+        self.tools_count_label.config(text=f"{enabled_count} enabled / {total_count} total")
+        self.load_tools_btn.config(state="normal")
+    
+    def _on_tool_select(self, event):
+        """Handle tool selection."""
+        selection = self.tools_tree.selection()
+        if not selection:
+            return
+        
+        tool_name = selection[0]
+        tool_info = self.tools_registry_data.get(tool_name)
+        
+        if not tool_info:
+            return
+        
+        self._show_tool_details(tool_name, tool_info)
+    
+    def _show_tool_details(self, tool_name, tool_info):
+        """Show details for a selected tool."""
+        # Overview tab
+        self.tool_overview_text.delete("1.0", "end")
+        
+        self._insert_colored(self.tool_overview_text, f"{tool_name.upper()}\n", "header")
+        self._insert_colored(self.tool_overview_text, "=" * 50 + "\n\n", "value")
+        
+        self._insert_colored(self.tool_overview_text, "Description:\n", "section")
+        self._insert_colored(self.tool_overview_text, f"  {tool_info.get('description', 'N/A')}\n\n", "value")
+        
+        self._insert_colored(self.tool_overview_text, "Metadata:\n", "section")
+        self._insert_colored(self.tool_overview_text, "  Status:     ", "label")
+        enabled = tool_info.get("enabled", False)
+        self._insert_colored(self.tool_overview_text, f"{'Enabled' if enabled else 'Disabled'}\n", "value")
+        
+        self._insert_colored(self.tool_overview_text, "  Version:    ", "label")
+        self._insert_colored(self.tool_overview_text, f"{tool_info.get('version', 'N/A')}\n", "value")
+        
+        self._insert_colored(self.tool_overview_text, "  Class:      ", "label")
+        self._insert_colored(self.tool_overview_text, f"{tool_info.get('class_name', 'N/A')}\n", "value")
+        
+        self._insert_colored(self.tool_overview_text, "  Module:     ", "label")
+        self._insert_colored(self.tool_overview_text, f"{tool_info.get('module', 'N/A')}\n", "value")
+        
+        # Parameters tab
+        self.tool_params_text.delete("1.0", "end")
+        schema = tool_info.get("schema", {})
+        properties = schema.get("properties", {})
+        required = schema.get("required", [])
+        
+        if not properties:
+            self.tool_params_text.insert("1.0", "No parameters defined for this tool.")
+        else:
+            self.tool_params_text.insert("end", f"Parameters ({len(properties)} total):\n")
+            self.tool_params_text.insert("end", "=" * 50 + "\n\n")
+            
+            for param_name, param_info in properties.items():
+                is_required = param_name in required
+                
+                # Parameter name with required indicator
+                self._insert_colored(self.tool_params_text, f"{param_name}", "param_name")
+                if is_required:
+                    self._insert_colored(self.tool_params_text, " [REQUIRED]", "required")
+                else:
+                    self._insert_colored(self.tool_params_text, " [optional]", "optional")
+                self.tool_params_text.insert("end", "\n")
+                
+                # Type
+                param_type = param_info.get("type", "any")
+                self._insert_colored(self.tool_params_text, f"  Type: ", "label")
+                self._insert_colored(self.tool_params_text, f"{param_type}\n", "type")
+                
+                # Description
+                description = param_info.get("description", "No description")
+                self._insert_colored(self.tool_params_text, f"  Description: ", "label")
+                self._insert_colored(self.tool_params_text, f"{description}\n", "description")
+                
+                # Enum values
+                if "enum" in param_info:
+                    self._insert_colored(self.tool_params_text, f"  Allowed values: ", "label")
+                    self._insert_colored(self.tool_params_text, f"{param_info['enum']}\n", "enum")
+                
+                # Default
+                if "default" in param_info:
+                    self._insert_colored(self.tool_params_text, f"  Default: ", "label")
+                    self._insert_colored(self.tool_params_text, f"{param_info['default']}\n", "default")
+                
+                self.tool_params_text.insert("end", "\n")
+        
+        # Full Schema tab
+        self.tool_schema_text.delete("1.0", "end")
+        if schema:
+            schema_json = json.dumps(schema, indent=2)
+            self.tool_schema_text.insert("1.0", schema_json)
+        else:
+            self.tool_schema_text.insert("1.0", "No schema available.")
+        
+        # Agent Context tab (what gets passed to the LLM)
+        self.tool_context_text.delete("1.0", "end")
+        
+        self._insert_colored(self.tool_context_text, "AGENT TOOL CONTEXT\n", "header")
+        self._insert_colored(self.tool_context_text, "=" * 50 + "\n", "header")
+        self.tool_context_text.insert("end", "This is the information passed to the LLM when this tool is available.\n\n")
+        
+        # Function definition (OpenAI function calling format)
+        self._insert_colored(self.tool_context_text, "OpenAI Function Definition:\n", "header")
+        self.tool_context_text.insert("end", "-" * 40 + "\n")
+        
+        function_def = {
+            "type": "function",
+            "function": {
+                "name": tool_name,
+                "description": tool_info.get("description", ""),
+                "parameters": schema
+            }
+        }
+        self._insert_colored(self.tool_context_text, json.dumps(function_def, indent=2) + "\n\n", "json")
+        
+        # Docstring (what FastMCP generates)
+        docstring = tool_info.get("docstring")
+        if docstring:
+            self._insert_colored(self.tool_context_text, "Generated Docstring (FastMCP):\n", "header")
+            self.tool_context_text.insert("end", "-" * 40 + "\n")
+            self.tool_context_text.insert("end", docstring + "\n")
+
     def _run_tests(self):
         """Run all tests in a background thread."""
         self._disable_all_run_buttons()
