@@ -567,7 +567,7 @@ OPENAI_WS_CONFIG = {
     "max_tool_iterations": 5,  # Maximum rounds of tool calls to prevent infinite loops
     # Model for tool subagent (iterative tool planning + final answer composition)
     # Options: "gpt-4o-mini" (fast, cheap), "o4-mini" (reasoning, slower but smarter)
-    "tool_subagent_model": os.getenv("TOOL_SUBAGENT_MODEL", "o4-mini"),
+    "tool_subagent_model": os.getenv("TOOL_SUBAGENT_MODEL", "gpt-4o-mini"),
 }
 
 
@@ -617,7 +617,7 @@ RULES:
 3. Never call the same tool with identical arguments twice - duplicates are forbidden
 4. CALENDAR: Only ONE calendar_data call per request. If calendar_data was already called to create an event, do NOT call it again
 5. CALENDAR ARGUMENTS: calendar_data requires a 'commands' array with at least one command object. Use the calendar keys above (e.g., "morgan_personal"), not the aliases.
-6. STICKIES: If the user asks about their desktop notes, notes, to-do list, sticky notes, or what they wrote down, call the stickies tool with action="list" first. Do NOT use state_tool or calendar_data for notes.
+6. STICKIES: Only ONE stickies call per request. If stickies was already called, do NOT call it again. Use action="list" to see all notes first.
 7. If ALL parts of the user's request are fulfilled, respond with: DONE
 8. If there are unfulfilled parts, call the appropriate tool(s) to complete them
 {success_note}
@@ -672,6 +672,7 @@ TOOL ROUTING (use these mappings):
 
 CRITICAL - STICKIES TOOL (for user's desktop notes/to-do list):
 - Use stickies when user asks about "desktop notes", "notes", "to-do list", "sticky notes", or "what I wrote down"
+- Only ONE stickies call per request - do not call it multiple times
 - action="list" -> get all note IDs (call this FIRST to see what notes exist)
 - action="read" with sticky_id -> read a specific note's content
 - action="write" with sticky_id and content -> update a note

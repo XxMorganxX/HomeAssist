@@ -83,10 +83,13 @@ class OpenAIWebSocketResponseProvider(ResponseInterface):
         self.mcp_server_path = config.get('mcp_server_path')
         self.mcp_venv_python = config.get('mcp_venv_python')
         self.mcp_sse_url = config.get('mcp_sse_url', 'http://127.0.0.1:3000/sse')
+        self.mcp_sse_port = 3000  # Port for SSE server
         self._mcp_sse_client = None  # Persistent SSE client context
+        self._mcp_connection_mode = None  # Track connection mode: "sse" or "stdio"
+        self._mcp_auto_start_attempted = False  # Prevent repeated auto-start attempts
         
         # Composed tool calling configuration
-        self.composed_tool_calling_enabled = config.get('composed_tool_calling_enabled', True)
+        self.composed_tool_calling_enabled = config.get('composed_tool_calling_enabled', False)
         self.max_tool_iterations = config.get('max_tool_iterations', 5)
         self.tool_subagent_model = config.get('tool_subagent_model', 'o4-mini')
         
@@ -161,21 +164,110 @@ class OpenAIWebSocketResponseProvider(ResponseInterface):
         """Initialize MCP connection and discover tools.
         
         Tries to connect to a persistent SSE server first (fast, ~50ms).
-        Falls back to spawning a stdio subprocess if SSE fails (~2s).
+        If SSE fails, attempts to auto-start the MCP server.
+        Falls back to spawning a stdio subprocess if SSE still fails (~2s).
         """
         # Try SSE first (persistent background server)
         if await self._try_mcp_sse():
+            self._mcp_connection_mode = "sse"
             return
+        
+        # SSE failed - try to auto-start the MCP server
+        if not self._mcp_auto_start_attempted:
+            self._mcp_auto_start_attempted = True
+            if await self._auto_start_mcp_server():
+                # Wait briefly for server to be ready
+                await asyncio.sleep(0.5)
+                # Try SSE again
+                if await self._try_mcp_sse():
+                    self._mcp_connection_mode = "sse"
+                    return
         
         # Fall back to stdio subprocess
         if self.mcp_server_path:
-            await self._try_mcp_stdio()
+            if await self._try_mcp_stdio():
+                self._mcp_connection_mode = "stdio"
+    
+    async def _is_mcp_server_running(self) -> bool:
+        """Quick check if MCP SSE server is responding on the expected port."""
+        import socket
+        try:
+            # Fast socket check (much faster than HTTP request)
+            sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+            sock.settimeout(0.5)
+            result = sock.connect_ex(('127.0.0.1', self.mcp_sse_port))
+            sock.close()
+            return result == 0
+        except Exception:
+            return False
+    
+    async def _auto_start_mcp_server(self) -> bool:
+        """Auto-start the MCP SSE server if not running.
+        
+        Returns True if server was started successfully.
+        """
+        import subprocess
+        
+        # Check if already running
+        if await self._is_mcp_server_running():
+            return True
+        
+        print("🚀 Auto-starting MCP SSE server...")
+        
+        try:
+            # Get project directory
+            project_dir = Path(__file__).parent.parent.parent.parent
+            venv_python = project_dir / "venv" / "bin" / "python"
+            log_file = project_dir / "logs" / "mcp_server.log"
+            
+            # Ensure logs directory exists
+            log_file.parent.mkdir(parents=True, exist_ok=True)
+            
+            # Load environment variables
+            env = os.environ.copy()
+            env_file = project_dir / ".env"
+            if env_file.exists():
+                with open(env_file) as f:
+                    for line in f:
+                        line = line.strip()
+                        if line and not line.startswith('#') and '=' in line:
+                            key, value = line.split('=', 1)
+                            env[key.strip()] = value.strip().strip('"').strip("'")
+            
+            # Start MCP server in background
+            with open(log_file, 'a') as log:
+                subprocess.Popen(
+                    [str(venv_python), "-m", "mcp_server.server", "--transport", "sse", "--port", str(self.mcp_sse_port), "--quiet"],
+                    cwd=str(project_dir),
+                    env=env,
+                    stdout=log,
+                    stderr=log,
+                    start_new_session=True  # Detach from parent process
+                )
+            
+            # Wait for server to be ready (poll up to 3 seconds)
+            for _ in range(6):
+                await asyncio.sleep(0.5)
+                if await self._is_mcp_server_running():
+                    print(f"✅ MCP SSE server auto-started on port {self.mcp_sse_port}")
+                    return True
+            
+            print("⚠️  MCP server started but not responding yet")
+            return False
+            
+        except Exception as e:
+            print(f"⚠️  Failed to auto-start MCP server: {e}")
+            return False
     
     async def _try_mcp_sse(self) -> bool:
         """Try to connect to persistent MCP server via SSE."""
         try:
             import time
             start = time.time()
+            
+            # Quick check if server is even running before attempting connection
+            if not await self._is_mcp_server_running():
+                return False
             
             # Try to connect to SSE server
             self._mcp_sse_client = sse_client(self.mcp_sse_url, timeout=2.0)
@@ -632,6 +724,9 @@ class OpenAIWebSocketResponseProvider(ResponseInterface):
                 }
             })
             
+            # Track timing for realtime response
+            realtime_start = time.time()
+            
             # Stream response chunks
             response_completed = False
             while not response_completed:
@@ -759,17 +854,23 @@ class OpenAIWebSocketResponseProvider(ResponseInterface):
                                 print(f"   Is JSON fallback: {is_json_signal}")
                                 
                                 if TOOL_SIGNAL_MODE and (is_tool_signal or is_json_signal):
-                                    print("\n🎯 [Response Handler] Tool handoff detected!")
+                                    # Log realtime signal timing
+                                    realtime_signal_ms = int((time.time() - realtime_start) * 1000)
+                                    print(f"\n🎯 [Response Handler] Tool handoff detected!")
+                                    print(f"⏱️ [TIMING] realtime_signal_ms={realtime_signal_ms}")
                                     user_msg = next((m.get("content", "") for m in messages if m.get("role") == "user"), "")
                                     context = [m for m in messages if m.get("role") in ("user", "assistant")]
                                     
                                     # Hand off to o4-mini for full tool orchestration
                                     print("🎯 [Response Handler] Handing off to o4-mini with full context...")
+                                    orchestration_start = time.time()
                                     final_text, fallback_tool_calls = await self._orchestrate_tools(
                                         user_message=user_msg,
                                         context=context,
                                     )
+                                    orchestration_total_ms = int((time.time() - orchestration_start) * 1000)
                                     print(f"🎯 [Response Handler] Orchestration complete, {len(fallback_tool_calls)} tool calls")
+                                    print(f"⏱️ [TIMING] orchestration_total_ms={orchestration_total_ms}")
                                 else:
                                     if TOOL_SIGNAL_MODE:
                                         print("ℹ️ [Response Handler] No tool signal - natural response")
@@ -902,14 +1003,62 @@ class OpenAIWebSocketResponseProvider(ResponseInterface):
         """Get list of available tools/functions."""
         return self.openai_functions
     
+    async def _ensure_mcp_connected(self) -> bool:
+        """Ensure MCP connection is alive, reconnect if needed.
+        
+        Returns True if connected, False if connection failed.
+        """
+        if self.mcp_session:
+            # Quick health check for SSE mode
+            if self._mcp_connection_mode == "sse":
+                if await self._is_mcp_server_running():
+                    return True
+                # Server died, try to reconnect
+                print("⚠️  MCP SSE connection lost, attempting reconnect...")
+                await self._cleanup_mcp_connection()
+        
+        # Try to reconnect
+        await self._initialize_mcp()
+        return self.mcp_session is not None
+    
+    async def _cleanup_mcp_connection(self):
+        """Clean up existing MCP connection."""
+        if self.mcp_session:
+            try:
+                await self.mcp_session.__aexit__(None, None, None)
+            except Exception:
+                pass
+            self.mcp_session = None
+        
+        if self._mcp_sse_client:
+            try:
+                await self._mcp_sse_client.__aexit__(None, None, None)
+            except Exception:
+                pass
+            self._mcp_sse_client = None
+        
+        if self.stdio_client:
+            try:
+                await self.stdio_client.__aexit__(None, None, None)
+            except Exception:
+                pass
+            self.stdio_client = None
+        
+        self._mcp_connection_mode = None
+    
     async def execute_tool(self, tool_name: str, arguments: Dict[str, Any]) -> str:
         """Execute a tool/function call via MCP."""
         import time
         from assistant_framework.utils.logging import format_tool_call, format_tool_result, format_tool_error
         from assistant_framework.utils.audio.tones import beep_tool_call
         
-        if not self.mcp_session:
-            return "Error: MCP not initialized"
+        total_start = time.time()
+        
+        # Ensure MCP is connected (with auto-reconnect)
+        mcp_check_start = time.time()
+        if not await self._ensure_mcp_connected():
+            return "Error: MCP not initialized and reconnection failed"
+        mcp_check_ms = int((time.time() - mcp_check_start) * 1000)
         
         try:
             # Play sound to indicate tool is being called
@@ -919,11 +1068,12 @@ class OpenAIWebSocketResponseProvider(ResponseInterface):
             print(format_tool_call(tool_name, arguments))
             
             # Execute and time the tool
-            start_time = time.time()
+            mcp_call_start = time.time()
             result = await self.mcp_session.call_tool(tool_name, arguments)
-            execution_time_ms = (time.time() - start_time) * 1000
+            mcp_call_ms = int((time.time() - mcp_call_start) * 1000)
             
             # Extract text content from result
+            parse_start = time.time()
             if hasattr(result, 'content') and result.content:
                 content_parts = []
                 for content_item in result.content:
@@ -932,28 +1082,24 @@ class OpenAIWebSocketResponseProvider(ResponseInterface):
                     else:
                         content_parts.append(str(content_item))
                 result_text = '\n'.join(content_parts)
-                
-                # Log formatted result
-                print(format_tool_result(tool_name, result_text, execution_time_ms=execution_time_ms))
-                
-                # Play audio feedback and TTS announcement based on result
-                success = self._determine_tool_success(result_text)
-                self._play_tool_feedback(result_text)
-                self._announce_tool_result(tool_name, success)
-                
-                return result_text
             else:
                 result_text = str(result)
-                
-                # Log formatted result
-                print(format_tool_result(tool_name, result_text, execution_time_ms=execution_time_ms))
-                
-                # Play audio feedback and TTS announcement based on result
-                success = self._determine_tool_success(result_text)
-                self._play_tool_feedback(result_text)
-                self._announce_tool_result(tool_name, success)
-                
-                return result_text
+            parse_ms = int((time.time() - parse_start) * 1000)
+            
+            # Log formatted result
+            print(format_tool_result(tool_name, result_text, execution_time_ms=mcp_call_ms))
+            
+            # Play audio feedback and TTS announcement based on result
+            feedback_start = time.time()
+            success = self._determine_tool_success(result_text)
+            self._play_tool_feedback(result_text)
+            self._announce_tool_result(tool_name, success)
+            feedback_ms = int((time.time() - feedback_start) * 1000)
+            
+            total_ms = int((time.time() - total_start) * 1000)
+            print(f"⏱️ [execute_tool] {tool_name}: total={total_ms}ms (mcp_connect={mcp_check_ms}ms, mcp_call={mcp_call_ms}ms, parse={parse_ms}ms, feedback={feedback_ms}ms)")
+            
+            return result_text
                 
         except Exception as e:
             import traceback
@@ -971,6 +1117,9 @@ class OpenAIWebSocketResponseProvider(ResponseInterface):
             # Play failure sound and TTS announcement
             beep_tool_failure()
             self._announce_tool_result(tool_name, success=False)
+            
+            total_ms = int((time.time() - total_start) * 1000)
+            print(f"⏱️ [execute_tool] {tool_name}: FAILED total={total_ms}ms (mcp_connect={mcp_check_ms}ms)")
             
             # Return simple error message to model (details in webconsole)
             return f"Error during {tool_name} tool call"
@@ -1501,6 +1650,7 @@ class OpenAIWebSocketResponseProvider(ResponseInterface):
             print("   Tool choice: required")
             
             # Force tool calling
+            orch_api_start = time.time()
             result = await client.chat.completions.create(
                 model=orchestration_model,
                 messages=messages,
@@ -1508,6 +1658,8 @@ class OpenAIWebSocketResponseProvider(ResponseInterface):
                 tool_choice="required",
                 max_tokens=500,
             )
+            orch_api_ms = int((time.time() - orch_api_start) * 1000)
+            print(f"⏱️ [TIMING] orchestration_api_ms={orch_api_ms}")
             
             # Track token usage
             if result and result.usage:
@@ -1525,7 +1677,11 @@ class OpenAIWebSocketResponseProvider(ResponseInterface):
             if choice.message.tool_calls:
                 print(f"🔧 [Tool Orchestration] Executing {len(choice.message.tool_calls)} tool call(s)")
                 
+                tools_exec_start = time.time()
                 all_tool_calls = []
+                
+                # --- Phase A: Execute initial tool calls from orchestration ---
+                phase_a_start = time.time()
                 for i, tc in enumerate(choice.message.tool_calls):
                     try:
                         args = json.loads(tc.function.arguments) if tc.function.arguments else {}
@@ -1543,14 +1699,27 @@ class OpenAIWebSocketResponseProvider(ResponseInterface):
                     print(f"   Result: {result_preview}...")
                     
                     all_tool_calls.append(tool_call)
+                phase_a_ms = int((time.time() - phase_a_start) * 1000)
+                print(f"⏱️ [TIMING] phase_a_initial_tools_ms={phase_a_ms}")
                 
-                # Extract handoff context for voice/style continuity
+                # --- Phase B: Handoff context extraction ---
+                phase_b_start = time.time()
                 handoff = self._extract_handoff_context(user_message, context)
+                phase_b_ms = int((time.time() - phase_b_start) * 1000)
+                print(f"⏱️ [TIMING] phase_b_handoff_ms={phase_b_ms}")
                 
-                # Check if we need more tools (iterative execution)
-                if self.composed_tool_calling_enabled and len(all_tool_calls) > 0:
+                # Tools that are blocked from further calls in _check_for_additional_tools.
+                # Iterative checking is futile for these because any follow-up calls get rejected.
+                _ONE_SHOT_TOOLS = {"stickies", "google_search", "calendar_data"}
+                all_one_shot = all(tc.name in _ONE_SHOT_TOOLS for tc in all_tool_calls)
+                
+                # --- Phase C: Iterative tool check loop ---
+                phase_c_start = time.time()
+                # Skip when all executed tools are one-shot (the loop would just waste API calls)
+                if self.composed_tool_calling_enabled and len(all_tool_calls) > 0 and not all_one_shot:
                     iteration = 1
                     while iteration < self.max_tool_iterations:
+                        iter_start = time.time()
                         more_tools = await self._check_for_additional_tools(
                             user_message=user_message,
                             context=context,
@@ -1560,18 +1729,27 @@ class OpenAIWebSocketResponseProvider(ResponseInterface):
                             max_iterations=self.max_tool_iterations,
                             handoff=handoff,
                         )
+                        iter_ms = int((time.time() - iter_start) * 1000)
                         
                         if not more_tools:
-                            print("✅ [Tool Orchestration] No more tools needed")
+                            print(f"✅ [Tool Orchestration] No more tools needed (check took {iter_ms}ms)")
                             break
                         
                         iteration += 1
-                        print(f"🔄 [Tool Orchestration] Iteration {iteration}: {[t['name'] for t in more_tools]}")
+                        print(f"🔄 [Tool Orchestration] Iteration {iteration}: {[t['name'] for t in more_tools]} (check took {iter_ms}ms)")
                         
                         for fc in more_tools:
                             tool_call = ToolCall(name=fc["name"], arguments=fc.get("arguments", {}))
                             tool_call.result = await self.execute_tool(fc["name"], fc.get("arguments", {}))
                             all_tool_calls.append(tool_call)
+                elif all_one_shot:
+                    print(f"⚡ [Tool Orchestration] Skipping iterative check — all tools are one-shot: {[tc.name for tc in all_tool_calls]}")
+                phase_c_ms = int((time.time() - phase_c_start) * 1000)
+                print(f"⏱️ [TIMING] phase_c_iterative_check_ms={phase_c_ms}")
+                
+                # Log total tool execution time
+                tools_exec_ms = int((time.time() - tools_exec_start) * 1000)
+                print(f"⏱️ [TIMING] tool_execution_ms={tools_exec_ms} (tools={phase_a_ms}ms + handoff={phase_b_ms}ms + iterative={phase_c_ms}ms)")
                 
                 # Play tools complete sound
                 from assistant_framework.utils.audio.tones import beep_tools_complete
@@ -1579,11 +1757,14 @@ class OpenAIWebSocketResponseProvider(ResponseInterface):
                 
                 # Send tool results back to realtime model for final response
                 print("📝 [Tool Orchestration] Sending tool results to realtime for final response...")
+                compose_start = time.time()
                 final_text = await self._realtime_compose_response(
                     user_message=user_message,
                     context=context,
                     tool_calls=all_tool_calls,
                 )
+                compose_ms = int((time.time() - compose_start) * 1000)
+                print(f"⏱️ [TIMING] realtime_compose_ms={compose_ms}")
                 
                 print("\n" + "="*60)
                 print("✅ [Tool Orchestration] Complete")
@@ -1989,12 +2170,18 @@ class OpenAIWebSocketResponseProvider(ResponseInterface):
                 handoff = self._extract_handoff_context(user_message, context)
                 print(f"📋 [Signal Orchestration] Handoff context: tone={handoff.tone}, style={handoff.response_style}")
                 
+                # Tools that are blocked from further calls in _check_for_additional_tools.
+                _ONE_SHOT_TOOLS = {"stickies", "google_search", "calendar_data"}
+                all_one_shot = all(tc.name in _ONE_SHOT_TOOLS for tc in all_tool_calls)
+                
                 # Check if we need more tools (iterative execution)
-                if self.composed_tool_calling_enabled and len(all_tool_calls) > 0:
+                # Skip when all executed tools are one-shot (the loop would just waste API calls)
+                if self.composed_tool_calling_enabled and len(all_tool_calls) > 0 and not all_one_shot:
                     print(f"🔄 [Signal Orchestration] Checking for additional tools (max {self.max_tool_iterations} iterations)")
                     # Check for additional tools needed
                     iteration = 1
                     while iteration < self.max_tool_iterations:
+                        iter_start = time.time()
                         more_tools = await self._check_for_additional_tools(
                             user_message=user_message,
                             context=context,
@@ -2004,18 +2191,21 @@ class OpenAIWebSocketResponseProvider(ResponseInterface):
                             max_iterations=self.max_tool_iterations,
                             handoff=handoff,
                         )
+                        iter_ms = int((time.time() - iter_start) * 1000)
                         
                         if not more_tools:
-                            print(f"✅ [Signal Orchestration] No more tools needed after iteration {iteration}")
+                            print(f"✅ [Signal Orchestration] No more tools needed after iteration {iteration} ({iter_ms}ms)")
                             break
                         
                         iteration += 1
-                        print(f"🔄 [Signal Iteration {iteration}] Additional tools: {[t['name'] for t in more_tools]}")
+                        print(f"🔄 [Signal Iteration {iteration}] Additional tools: {[t['name'] for t in more_tools]} ({iter_ms}ms)")
                         
                         for fc in more_tools:
                             tool_call = ToolCall(name=fc["name"], arguments=fc.get("arguments", {}))
                             tool_call.result = await self.execute_tool(fc["name"], fc.get("arguments", {}))
                             all_tool_calls.append(tool_call)
+                elif all_one_shot:
+                    print(f"⚡ [Signal Orchestration] Skipping iterative check — all tools are one-shot: {[tc.name for tc in all_tool_calls]}")
                 
                 # Play tools complete sound
                 from assistant_framework.utils.audio.tones import beep_tools_complete
@@ -2328,37 +2518,27 @@ class OpenAIWebSocketResponseProvider(ResponseInterface):
     
     def _filter_duplicate_calendar_writes(self, function_calls: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
         """
-        Filter out duplicate calendar_data write operations.
-        Only ONE calendar_data create_event call is allowed per user request to prevent
-        duplicate events being created on the calendar.
+        Filter out duplicate calendar_data calls.
+        Only ONE calendar_data call is allowed per user request to prevent
+        duplicate events or redundant queries.
         
         Args:
             function_calls: List of function calls with 'name' and 'arguments' keys
             
         Returns:
-            Filtered list with only ONE calendar write operation allowed
+            Filtered list with only ONE calendar_data call allowed
         """
         filtered = []
-        calendar_write_seen = False
+        calendar_seen = False
         
         for fc in function_calls:
             name = fc.get("name", "")
             
             if name == "calendar_data":
-                # Parse arguments to check if it's a write operation
-                try:
-                    args = json.loads(fc.get("arguments", "{}")) if isinstance(fc.get("arguments"), str) else fc.get("arguments", {})
-                except json.JSONDecodeError:
-                    args = {}
-                
-                commands = args.get("commands", [])
-                is_write = any(self._is_calendar_write_command(cmd) for cmd in commands)
-                
-                if is_write:
-                    if calendar_write_seen:
-                        print(f"🚫 Blocking duplicate calendar write operation to prevent event duplication")
-                        continue
-                    calendar_write_seen = True
+                if calendar_seen:
+                    print(f"🚫 Blocking duplicate calendar_data call — only one per request")
+                    continue
+                calendar_seen = True
             
             filtered.append(fc)
         
@@ -2436,6 +2616,13 @@ class OpenAIWebSocketResponseProvider(ResponseInterface):
         """Check if any of the tool calls include a google_search operation."""
         for tc in tool_calls:
             if tc and tc.name == "google_search":
+                return True
+        return False
+    
+    def _has_stickies(self, tool_calls: List[ToolCall]) -> bool:
+        """Check if any of the tool calls include a stickies operation."""
+        for tc in tool_calls:
+            if tc and tc.name == "stickies":
                 return True
         return False
     
@@ -2570,10 +2757,10 @@ class OpenAIWebSocketResponseProvider(ResponseInterface):
             if choice.message.tool_calls:
                 additional_tools = []
                 
-                # Check if a calendar write was already executed - block any further calendar writes
-                calendar_write_already_done = self._has_calendar_write(tool_calls_so_far)
-                # Check if a google_search was already executed - block any further searches
+                # Check which one-shot tools have already been executed
+                calendar_already_done = any(tc and tc.name == "calendar_data" for tc in tool_calls_so_far)
                 search_already_done = self._has_google_search(tool_calls_so_far)
+                stickies_already_done = self._has_stickies(tool_calls_so_far)
                 
                 for tc in choice.message.tool_calls:
                     try:
@@ -2587,17 +2774,19 @@ class OpenAIWebSocketResponseProvider(ResponseInterface):
                         print(f"🚫 Skipping duplicate tool call: {tc.function.name}")
                         continue
                     
-                    # Block additional calendar writes if one was already executed
-                    if tc.function.name == "calendar_data" and calendar_write_already_done:
-                        commands = args.get("commands", [])
-                        is_write = any(self._is_calendar_write_command(cmd) for cmd in commands)
-                        if is_write:
-                            print(f"🚫 Blocking calendar write - event already created in this request")
-                            continue
+                    # Block additional calendar_data calls — only one per request
+                    if tc.function.name == "calendar_data" and calendar_already_done:
+                        print(f"🚫 Blocking calendar_data — only one call per request")
+                        continue
                     
                     # Block additional google_search if one was already executed
                     if tc.function.name == "google_search" and search_already_done:
                         print(f"🚫 Blocking google_search - search already completed in this request")
+                        continue
+                    
+                    # Block additional stickies if one was already executed
+                    if tc.function.name == "stickies" and stickies_already_done:
+                        print(f"🚫 Blocking stickies - notes already accessed in this request")
                         continue
                     
                     additional_tools.append({
