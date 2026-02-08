@@ -1,5 +1,5 @@
 MCP Tool Test Results
-Generated: 2026-02-05T13:38:54.472075
+Generated: 2026-02-08T00:21:35.875889
 Total Tests: 1 across 13 categories
 TOOL_SIGNAL_MODE: True
 ======================================================================
@@ -17,23 +17,23 @@ Tests without tools:      0
 TIMING STATISTICS
 ----------------------------------------------------------------------
 Total Response Time:
-  Average:  17416ms
-  Min:      17416ms
-  Max:      17416ms
+  Average:  33337ms
+  Min:      33337ms
+  Max:      33337ms
 Tool Execution Time:  N/A
 ======================================================================
 
 
 ######################################################################
-#  CATEGORY: CAPABILITIES
+#  CATEGORY: CALENDAR
 #  Tests: 1
 ######################################################################
 
-TEST 1: What can you do?
+TEST 1: What meetings do I have this week?
 ----------------------------------------------------------------------
 
 TIMING:
-  Total time:       17416ms
+  Total time:       33337ms
   Tool execution:   N/A
 
 TOOL SIGNAL FLOW:
@@ -44,32 +44,293 @@ TOOL SIGNAL FLOW:
   Realtime compose:    True
 
 RESPONSE:
-I can help you with a range of tasks, Morgan. From managing your calendar and reminders to controlling your smart home devices like lights and music, I've got it covered. I can also provide weather updates, send texts, and even search the web for you. Just let me know what you need.
+You've got a couple of meetings this week. First, there's the "Applications Due - CGAI" on February 7th from 11:59 PM to 12:59 AM. Then, the "Open Team Delib" on February 8th from 12:30 PM to 3:00 PM. Mark your calendar! 📅
 
-TOOLS USED (2):
+TOOLS USED (3):
 
-  Tool: system_info
-  Arguments: {}
-  Result:
-    {
-        "success": true,
-        "message": "Architecture overview retrieved",
-        "summary": "HomeAssist V3 is a fully local, always-listening voice assistant built in Python. V3 improvements include dramatically faster response times and proactive jump-in briefings.\n\nKey components:\n\u2022 Wake word detection (OpenWakeWord, process-isolated)\n\u2022 Real-time transcription (AssemblyAI or OpenAI Whisper)\n\u2022 GPT-4o Realtime for responses with MCP tool calling\n\u2022 Text-to-speech (Piper, Google, Chatterbox)\n\u2022 Three-tier memory: conversation context, persistent facts, vector search\n\u2022 Smart home tools: Spotify, Kasa lights, Google Calendar, weather, SMS, etc.\n\u2022 Scheduled briefings: email summaries, news digests, calendar reminders\n\nThe codebase uses a provider pattern with swappable implementations for each component.",
-        "architecture_overview": "## Architecture Overview\n\n### Directory Structure\n\n```\nHomeAssistV3/\n\u251c\u2500\u2500 assistant_framework/          # Core voice assistant engine\n\u2502   \u251c\u2500\u2500 __main__.py               # Package entry point\n\u2502   \u251c\u2500\u2500 main.py                # CLI and startup logic\n\u2502   \u251c\u2500\u2500 orchestrator.py        # Main coordination (1900 lines)\n\u2502   \u251c\u2500\u2500 config.py                 # All configuration (1185 lines)\n\u2502   \u251c\u2500\u2500 factory.py                # Provider instantiation\n\u2502   \u251c\u2500\u2500 interfaces/               # Abstract base classes (ABCs)\n\u2502   \u2502   \u251c\u2500\u2500 transcription.py      # TranscriptionInterface\n\u2502   \u2502   \u251c\u2500\u2500 response.py           # ResponseInterface  \n\u2502   \u2502   \u251c\u2500\u2500 text_to_speech.py     # TextToSpeechInterface\n\u2502   \u2502   \u251c\u2500\u2500 wake_word.py          # WakeWordInterface\n\u2502   \u2502   \u251c\u2500\u2500 context.py            # ContextInterface\n\u2502   \u2502   \u251c\u2500\u2500 termination.py        # TerminationInterface\n\u2502   \u2502   \u251c\u2500\u2500 embedding.py          # EmbeddingInterface\n\u2502   \u2502   \u2514\u2500\u2500 vector_store.py       # VectorStoreInterface\n\u2502   \u251c\u2500\u2500 providers/                # Concrete implementations\n\u2502   \u2502   \u251c\u2500\u2500 transcription/     # AssemblyAI, OpenAI Whisper\n\u2502   \u2502   \u251c\u2500\u2500 response/             # OpenAI WebSocket\n\u2502   \u2502   \u251c\u2500\u2500 tts/                  # Piper, Google, Local, Chatterbox\n\u2502   \u2502   \u251c\u2500\u2500 wakeword/          # OpenWakeWord (process-isolated)\n\u2502   \u2502   \u251c\u2500\u2500 context/              # UnifiedContextProvider\n\u2502   \u2502   \u251c\u2500\u2500 termination/          # IsolatedTerminationProvider\n\u2502   \u2502   \u251c\u2500\u2500 embedding/            # OpenAI embeddings\n\u2502   \u2502   \u2514\u2500\u2500 vector_store/         # Supabase pgvector\n\u2502   \u251c\u2500\u2500 models/                   # Data structures\n\u2502   \u2502   \u2514\u2500\u2500 data_models.py        # Dataclasses for all components\n\u2502   \u2514\u2500\u2500 utils/                    # Shared utilities (organized by domain)\n\u2502       \u251c\u2500\u2500 state_machine.py      # AudioStateMachine\n\u2502       \u251c\u2500\u2500 error_handling.py     # Recovery strategies\n\u2502       \u251c\u2500\u2500 audio/                # Audio pipeline utilities\n\u2502       \u2502   \u251c\u2500\u2500 audio_manager.py  # Device ownership handling\n\u2502       \u2502   \u251c\u2500\u2500 barge_in.py       # Interrupt detection\n\u2502       \u2502   \u251c\u2500\u2500 shared_audio_bus.py # Zero-latency audio routing\n\u2502       \u2502   \u251c\u2500\u2500 device_manager.py # Bluetooth/device detection\n\u2502       \u2502   \u2514\u2500\u2500 tones.py          # Audio feedback sounds\n\u2502       \u251c\u2500\u2500 memory/               # Memory & persistence\n\u2502       \u2502   \u251c\u2500\u2500 persistent_memory.py  # Long-term fact storage\n\u2502       \u2502   \u251c\u2500\u2500 vector_memory.py      # Semantic search\n\u2502       \u2502   \u251c\u2500\u2500 local_vector_cache.py # Fast numpy cache\n\u2502       \u2502   \u2514\u2500\u2500 conversation_summarizer.py\n\u2502       \u251c\u2500\u2500 logging/              # Logging & metrics\n\u2502       \u2502   \u251c\u2500\u2500 console_logger.py     # Remote dashboard\n\u2502       \u2502   \u251c\u2500\u2500 logging_config.py     # Verbose/quiet modes\n\u2502       \u2502   \u251c\u2500\u2500 metrics.py            # Performance metrics\n\u2502       \u2502   \u2514\u2500\u2500 conversation_recorder.py  # Supabase session logging\n\u2502       \u2514\u2500\u2500 briefing/             # Scheduled briefings\n\u2502           \u251c\u2500\u2500 briefing_manager.py   # Supabase briefing CRUD\n\u2502           \u2514\u2500\u2500 briefing_processor.py # LLM opener generation\n\u2502\n\u251c\u2500\u2500 mcp_server/                   # Model Context Protocol server\n\u2502   \u251c\u2500\u2500 server.py                 # FastMCP entry point\n\u2502   \u251c\u2500\u2500 tool_registry.py          # Dynamic tool discovery\n\u2502   \u251c\u2500\u2500 mcp_adapter.py            # BaseTool \u2192 FastMCP bridge\n\u2502   \u251c\u2500\u2500 base_tool.py              # Abstract tool base class\n\u2502   \u251c\u2500\u2500 tools_config.py           # Enable/disable tools\n\u2502   \u251c\u2500\u2500 config.py                 # MCP server settings\n\u2502   \u251c\u2500\u2500 tools/                    # Tool implementations\n\u2502   \u2502   \u251c\u2500\u2500 weather.py            # Weather forecasts\n\u2502   \u2502   \u251c\u2500\u2500 calendar.py           # Google Calendar\n\u2502   \u2502   \u251c\u2500\u2500 briefing.py           # Create/manage briefing announcements\n\u2502   \u2502   \u251c\u2500\u2500 spotify.py            # Music control\n\u2502   \u2502   \u251c\u2500\u2500 kasa_lighting.py      # Smart lights\n\u2502   \u2502   \u251c\u2500\u2500 sms.py                # macOS Messages\n\u2502   \u2502   \u251c\u2500\u2500 notifications.py      # Email/news retrieval\n\u2502   \u2502   \u251c\u2500\u2500 google_search.py      # Web search\n\u2502   \u2502   \u251c\u2500\u2500 state_tool.py         # App state access\n\u2502   \u2502   \u251c\u2500\u2500 system_info.py        # Self-documentation\n\u2502   \u2502   \u2514\u2500\u2500 cursor.py             # IDE integration\n\u2502   \u2514\u2500\u2500 clients/                  # External service clients\n\u2502       \u251c\u2500\u2500 calendar_client.py    # Google Calendar API\n\u2502       \u251c\u2500\u2500 weather_client.py     # Open-Meteo API\n\u2502       \u251c\u2500\u2500 web_search_client.py  # Google search\n\u2502       \u2514\u2500\u2500 kasa_lighting_client.py\n\u2502\n\u251c\u2500\u2500 scripts/scheduled/            # Background jobs (GitHub Actions)\n\u2502   \u251c\u2500\u2500 scheduled_events.py       # Job runner\n\u2502   \u251c\u2500\u2500 email_summarizer/         # Gmail \u2192 AI summary\n\u2502   \u251c\u2500\u2500 news_summary/             # NewsAPI \u2192 AI digest\n\u2502   \u251c\u2500\u2500 calendar_briefing/        # Reminder announcements\n\u2502   \u251c\u2500\u2500 weather_briefing/         # Unusual weather alerts\n\u2502   \u2514\u2500\u2500 reminder_analyzer/        # Event analysis\n\u2502\n\u251c\u2500\u2500 state_management/             # Runtime state files\n\u2502   \u251c\u2500\u2500 app_state.json            # User prefs, notifications\n\u2502   \u251c\u2500\u2500 persistent_memory.json    # Long-term facts\n\u2502   \u2514\u2500\u2500 conversation_summary.json # Current session\n\u2502\n\u251c\u2500\u2500 audio_data/                   # Model files\n\u2502   \u251c\u2500\u2500 wake_word_models/         # OpenWakeWord .onnx files\n\u2502   \u251c\u2500\u2500 piper_models/             # Piper TTS .onnx files\n\u2502   \u2514\u2500\u2500 chatterbox_models/        # Chatterbox neural TTS\n\u2502\n\u2514\u2500\u2500 creds/                        # OAuth credentials (Google, Spotify, etc.)\n    \u251c\u2500\u2500 google_creds_*.json       # Google client secrets per user\n    \u251c\u2500\u2500 token_*.json              # Access tokens per user\n    \u2514\u2500\u2500 .spotify_cache            # Spotify OAuth tokens\n```\n\n### Execution Flow\n\n```\n1. python -m assistant_framework.main continuous\n\n2. main.py:\n   \u2514\u2500\u2500 ensure_first_time_setup()     # Interactive if app_state.json missing\n   \u2514\u2500\u2500 get_framework_config()         # Assemble all config\n   \u2514\u2500\u2500 RefactoredOrchestrator(config) # Create orchestrator\n   \u2514\u2500\u2500 orchestrator.initialize()      # Start all providers + MCP\n   \u2514\u2500\u2500 orchestrator.run_continuous_loop()\n\n3. Continuous loop:\n   \u250c\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2510\n   \u2502  WAKE_WORD_LISTENING                                            \u2502\n   \u2502  \u2514\u2500\u2500 IsolatedOpenWakeWordProvider runs in subprocess            \u2502\n   \u2502  \u2514\u2500\u2500 Yields WakeWordEvent on detection                          \u2502\n   \u251c\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2524\n   \u2502  [Optional] SYNTHESIZING (briefing announcements)               \u2502\n   \u2502  \u2514\u2500\u2500 BriefingManager.get_pending_briefings_with_opener()        \u2502\n   \u2502  \u2514\u2500\u2500 TTS speaks pre-generated opener (no LLM latency)           \u2502\n   \u251c\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2524\n   \u2502  TRANSCRIBING (with parallel termination detection)             \u2502\n   \u2502  \u2514\u2500\u2500 AssemblyAIAsyncProvider streams to WebSocket               \u2502\n   \u2502  \u2514\u2500\u2500 Detects send phrases (\"sir\", \"send it\")                    \u2502\n   \u2502  \u2514\u2500\u2500 Returns final text                                         \u2502\n   \u251c\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2524\n   \u2502  PROCESSING_RESPONSE                                            \u2502\n   \u2502  \u2514\u2500\u2500 UnifiedContextProvider adds message to history             \u2502\n   \u2502  \u2514\u2500\u2500 VectorMemoryManager.get_context_enrichment() (parallel)    \u2502\n   \u2502  \u2514\u2500\u2500 OpenAIWebSocketResponseProvider.stream_response()          \u2502\n   \u2502      \u2514\u2500\u2500 Persistent WebSocket to OpenAI Realtime API            \u2502\n   \u2502      \u2514\u2500\u2500 MCP tool discovery and execution                       \u2502\n   \u2502      \u2514\u2500\u2500 Composed tool calling (multi-step tasks)               \u2502\n   \u251c\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2524\n   \u2502  SYNTHESIZING (with barge-in detection)                         \u2502\n   \u2502  \u2514\u2500\u2500 PiperTTSProvider.synthesize() or chunked                   \u2502\n   \u2502  \u2514\u2500\u2500 BargeInDetector monitors microphone                        \u2502\n   \u2502  \u2514\u2500\u2500 User speech interrupts and captures audio                  \u2502\n   \u2514\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2518\n   \n4. On conversation end:\n   \u2514\u2500\u2500 ConversationRecorder.end_session()\n   \u2514\u2500\u2500 UnifiedContextProvider.on_conversation_end()\n       \u2514\u2500\u2500 PersistentMemoryManager.update_after_conversation()\n       \u2514\u2500\u2500 VectorMemoryManager.store_conversation()\n```\n\n---",
-        "note": "Use specific section names for detailed info: providers, orchestrator, audio, tools, memory, config, etc."
-    }
-
-  Tool: system_info
+  Tool: calendar_data
   Arguments: {
-    "section": null
+    "commands": [
+        {
+            "type": "get_events",
+            "params": {
+                "start_time": "2023-10-16T00:00:00",
+                "end_time": "2023-10-22T23:59:59"
+            }
+        }
+    ]
 }
   Result:
     {
         "success": true,
-        "message": "Architecture overview retrieved",
-        "summary": "HomeAssist V3 is a fully local, always-listening voice assistant built in Python. V3 improvements include dramatically faster response times and proactive jump-in briefings.\n\nKey components:\n\u2022 Wake word detection (OpenWakeWord, process-isolated)\n\u2022 Real-time transcription (AssemblyAI or OpenAI Whisper)\n\u2022 GPT-4o Realtime for responses with MCP tool calling\n\u2022 Text-to-speech (Piper, Google, Chatterbox)\n\u2022 Three-tier memory: conversation context, persistent facts, vector search\n\u2022 Smart home tools: Spotify, Kasa lights, Google Calendar, weather, SMS, etc.\n\u2022 Scheduled briefings: email summaries, news digests, calendar reminders\n\nThe codebase uses a provider pattern with swappable implementations for each component.",
-        "architecture_overview": "## Architecture Overview\n\n### Directory Structure\n\n```\nHomeAssistV3/\n\u251c\u2500\u2500 assistant_framework/          # Core voice assistant engine\n\u2502   \u251c\u2500\u2500 __main__.py               # Package entry point\n\u2502   \u251c\u2500\u2500 main.py                # CLI and startup logic\n\u2502   \u251c\u2500\u2500 orchestrator.py        # Main coordination (1900 lines)\n\u2502   \u251c\u2500\u2500 config.py                 # All configuration (1185 lines)\n\u2502   \u251c\u2500\u2500 factory.py                # Provider instantiation\n\u2502   \u251c\u2500\u2500 interfaces/               # Abstract base classes (ABCs)\n\u2502   \u2502   \u251c\u2500\u2500 transcription.py      # TranscriptionInterface\n\u2502   \u2502   \u251c\u2500\u2500 response.py           # ResponseInterface  \n\u2502   \u2502   \u251c\u2500\u2500 text_to_speech.py     # TextToSpeechInterface\n\u2502   \u2502   \u251c\u2500\u2500 wake_word.py          # WakeWordInterface\n\u2502   \u2502   \u251c\u2500\u2500 context.py            # ContextInterface\n\u2502   \u2502   \u251c\u2500\u2500 termination.py        # TerminationInterface\n\u2502   \u2502   \u251c\u2500\u2500 embedding.py          # EmbeddingInterface\n\u2502   \u2502   \u2514\u2500\u2500 vector_store.py       # VectorStoreInterface\n\u2502   \u251c\u2500\u2500 providers/                # Concrete implementations\n\u2502   \u2502   \u251c\u2500\u2500 transcription/     # AssemblyAI, OpenAI Whisper\n\u2502   \u2502   \u251c\u2500\u2500 response/             # OpenAI WebSocket\n\u2502   \u2502   \u251c\u2500\u2500 tts/                  # Piper, Google, Local, Chatterbox\n\u2502   \u2502   \u251c\u2500\u2500 wakeword/          # OpenWakeWord (process-isolated)\n\u2502   \u2502   \u251c\u2500\u2500 context/              # UnifiedContextProvider\n\u2502   \u2502   \u251c\u2500\u2500 termination/          # IsolatedTerminationProvider\n\u2502   \u2502   \u251c\u2500\u2500 embedding/            # OpenAI embeddings\n\u2502   \u2502   \u2514\u2500\u2500 vector_store/         # Supabase pgvector\n\u2502   \u251c\u2500\u2500 models/                   # Data structures\n\u2502   \u2502   \u2514\u2500\u2500 data_models.py        # Dataclasses for all components\n\u2502   \u2514\u2500\u2500 utils/                    # Shared utilities (organized by domain)\n\u2502       \u251c\u2500\u2500 state_machine.py      # AudioStateMachine\n\u2502       \u251c\u2500\u2500 error_handling.py     # Recovery strategies\n\u2502       \u251c\u2500\u2500 audio/                # Audio pipeline utilities\n\u2502       \u2502   \u251c\u2500\u2500 audio_manager.py  # Device ownership handling\n\u2502       \u2502   \u251c\u2500\u2500 barge_in.py       # Interrupt detection\n\u2502       \u2502   \u251c\u2500\u2500 shared_audio_bus.py # Zero-latency audio routing\n\u2502       \u2502   \u251c\u2500\u2500 device_manager.py # Bluetooth/device detection\n\u2502       \u2502   \u2514\u2500\u2500 tones.py          # Audio feedback sounds\n\u2502       \u251c\u2500\u2500 memory/               # Memory & persistence\n\u2502       \u2502   \u251c\u2500\u2500 persistent_memory.py  # Long-term fact storage\n\u2502       \u2502   \u251c\u2500\u2500 vector_memory.py      # Semantic search\n\u2502       \u2502   \u251c\u2500\u2500 local_vector_cache.py # Fast numpy cache\n\u2502       \u2502   \u2514\u2500\u2500 conversation_summarizer.py\n\u2502       \u251c\u2500\u2500 logging/              # Logging & metrics\n\u2502       \u2502   \u251c\u2500\u2500 console_logger.py     # Remote dashboard\n\u2502       \u2502   \u251c\u2500\u2500 logging_config.py     # Verbose/quiet modes\n\u2502       \u2502   \u251c\u2500\u2500 metrics.py            # Performance metrics\n\u2502       \u2502   \u2514\u2500\u2500 conversation_recorder.py  # Supabase session logging\n\u2502       \u2514\u2500\u2500 briefing/             # Scheduled briefings\n\u2502           \u251c\u2500\u2500 briefing_manager.py   # Supabase briefing CRUD\n\u2502           \u2514\u2500\u2500 briefing_processor.py # LLM opener generation\n\u2502\n\u251c\u2500\u2500 mcp_server/                   # Model Context Protocol server\n\u2502   \u251c\u2500\u2500 server.py                 # FastMCP entry point\n\u2502   \u251c\u2500\u2500 tool_registry.py          # Dynamic tool discovery\n\u2502   \u251c\u2500\u2500 mcp_adapter.py            # BaseTool \u2192 FastMCP bridge\n\u2502   \u251c\u2500\u2500 base_tool.py              # Abstract tool base class\n\u2502   \u251c\u2500\u2500 tools_config.py           # Enable/disable tools\n\u2502   \u251c\u2500\u2500 config.py                 # MCP server settings\n\u2502   \u251c\u2500\u2500 tools/                    # Tool implementations\n\u2502   \u2502   \u251c\u2500\u2500 weather.py            # Weather forecasts\n\u2502   \u2502   \u251c\u2500\u2500 calendar.py           # Google Calendar\n\u2502   \u2502   \u251c\u2500\u2500 briefing.py           # Create/manage briefing announcements\n\u2502   \u2502   \u251c\u2500\u2500 spotify.py            # Music control\n\u2502   \u2502   \u251c\u2500\u2500 kasa_lighting.py      # Smart lights\n\u2502   \u2502   \u251c\u2500\u2500 sms.py                # macOS Messages\n\u2502   \u2502   \u251c\u2500\u2500 notifications.py      # Email/news retrieval\n\u2502   \u2502   \u251c\u2500\u2500 google_search.py      # Web search\n\u2502   \u2502   \u251c\u2500\u2500 state_tool.py         # App state access\n\u2502   \u2502   \u251c\u2500\u2500 system_info.py        # Self-documentation\n\u2502   \u2502   \u2514\u2500\u2500 cursor.py             # IDE integration\n\u2502   \u2514\u2500\u2500 clients/                  # External service clients\n\u2502       \u251c\u2500\u2500 calendar_client.py    # Google Calendar API\n\u2502       \u251c\u2500\u2500 weather_client.py     # Open-Meteo API\n\u2502       \u251c\u2500\u2500 web_search_client.py  # Google search\n\u2502       \u2514\u2500\u2500 kasa_lighting_client.py\n\u2502\n\u251c\u2500\u2500 scripts/scheduled/            # Background jobs (GitHub Actions)\n\u2502   \u251c\u2500\u2500 scheduled_events.py       # Job runner\n\u2502   \u251c\u2500\u2500 email_summarizer/         # Gmail \u2192 AI summary\n\u2502   \u251c\u2500\u2500 news_summary/             # NewsAPI \u2192 AI digest\n\u2502   \u251c\u2500\u2500 calendar_briefing/        # Reminder announcements\n\u2502   \u251c\u2500\u2500 weather_briefing/         # Unusual weather alerts\n\u2502   \u2514\u2500\u2500 reminder_analyzer/        # Event analysis\n\u2502\n\u251c\u2500\u2500 state_management/             # Runtime state files\n\u2502   \u251c\u2500\u2500 app_state.json            # User prefs, notifications\n\u2502   \u251c\u2500\u2500 persistent_memory.json    # Long-term facts\n\u2502   \u2514\u2500\u2500 conversation_summary.json # Current session\n\u2502\n\u251c\u2500\u2500 audio_data/                   # Model files\n\u2502   \u251c\u2500\u2500 wake_word_models/         # OpenWakeWord .onnx files\n\u2502   \u251c\u2500\u2500 piper_models/             # Piper TTS .onnx files\n\u2502   \u2514\u2500\u2500 chatterbox_models/        # Chatterbox neural TTS\n\u2502\n\u2514\u2500\u2500 creds/                        # OAuth credentials (Google, Spotify, etc.)\n    \u251c\u2500\u2500 google_creds_*.json       # Google client secrets per user\n    \u251c\u2500\u2500 token_*.json              # Access tokens per user\n    \u2514\u2500\u2500 .spotify_cache            # Spotify OAuth tokens\n```\n\n### Execution Flow\n\n```\n1. python -m assistant_framework.main continuous\n\n2. main.py:\n   \u2514\u2500\u2500 ensure_first_time_setup()     # Interactive if app_state.json missing\n   \u2514\u2500\u2500 get_framework_config()         # Assemble all config\n   \u2514\u2500\u2500 RefactoredOrchestrator(config) # Create orchestrator\n   \u2514\u2500\u2500 orchestrator.initialize()      # Start all providers + MCP\n   \u2514\u2500\u2500 orchestrator.run_continuous_loop()\n\n3. Continuous loop:\n   \u250c\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2510\n   \u2502  WAKE_WORD_LISTENING                                            \u2502\n   \u2502  \u2514\u2500\u2500 IsolatedOpenWakeWordProvider runs in subprocess            \u2502\n   \u2502  \u2514\u2500\u2500 Yields WakeWordEvent on detection                          \u2502\n   \u251c\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2524\n   \u2502  [Optional] SYNTHESIZING (briefing announcements)               \u2502\n   \u2502  \u2514\u2500\u2500 BriefingManager.get_pending_briefings_with_opener()        \u2502\n   \u2502  \u2514\u2500\u2500 TTS speaks pre-generated opener (no LLM latency)           \u2502\n   \u251c\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2524\n   \u2502  TRANSCRIBING (with parallel termination detection)             \u2502\n   \u2502  \u2514\u2500\u2500 AssemblyAIAsyncProvider streams to WebSocket               \u2502\n   \u2502  \u2514\u2500\u2500 Detects send phrases (\"sir\", \"send it\")                    \u2502\n   \u2502  \u2514\u2500\u2500 Returns final text                                         \u2502\n   \u251c\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2524\n   \u2502  PROCESSING_RESPONSE                                            \u2502\n   \u2502  \u2514\u2500\u2500 UnifiedContextProvider adds message to history             \u2502\n   \u2502  \u2514\u2500\u2500 VectorMemoryManager.get_context_enrichment() (parallel)    \u2502\n   \u2502  \u2514\u2500\u2500 OpenAIWebSocketResponseProvider.stream_response()          \u2502\n   \u2502      \u2514\u2500\u2500 Persistent WebSocket to OpenAI Realtime API            \u2502\n   \u2502      \u2514\u2500\u2500 MCP tool discovery and execution                       \u2502\n   \u2502      \u2514\u2500\u2500 Composed tool calling (multi-step tasks)               \u2502\n   \u251c\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2524\n   \u2502  SYNTHESIZING (with barge-in detection)                         \u2502\n   \u2502  \u2514\u2500\u2500 PiperTTSProvider.synthesize() or chunked                   \u2502\n   \u2502  \u2514\u2500\u2500 BargeInDetector monitors microphone                        \u2502\n   \u2502  \u2514\u2500\u2500 User speech interrupts and captures audio                  \u2502\n   \u2514\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2518\n   \n4. On conversation end:\n   \u2514\u2500\u2500 ConversationRecorder.end_session()\n   \u2514\u2500\u2500 UnifiedContextProvider.on_conversation_end()\n       \u2514\u2500\u2500 PersistentMemoryManager.update_after_conversation()\n       \u2514\u2500\u2500 VectorMemoryManager.store_conversation()\n```\n\n---",
-        "note": "Use specific section names for detailed info: providers, orchestrator, audio, tools, memory, config, etc."
+        "total_commands": 1,
+        "successful_commands": 1,
+        "failed_commands": 0,
+        "results": [
+            {
+                "success": true,
+                "operation": "read",
+                "command_index": 0,
+                "command": {
+                    "type": "get_events",
+                    "params": {
+                        "start_time": "2023-10-16T00:00:00",
+                        "end_time": "2023-10-22T23:59:59"
+                    },
+                    "read_or_write": "read",
+                    "calendar": "all",
+                    "user": "all",
+                    "read_type": "next_events",
+                    "calendar_name": "primary"
+                },
+                "read_type": "next_events",
+                "events": [
+                    {
+                        "summary": "Applications Due - CGAI",
+                        "start": {
+                            "dateTime": "2026-02-07T23:59:00-05:00",
+                            "timeZone": "America/New_York"
+                        },
+                        "end": {
+                            "dateTime": "2026-02-08T00:59:00-05:00",
+                            "timeZone": "America/New_York"
+                        },
+                        "source_calendar": "Gen_AI"
+                    },
+                    {
+                        "summary": "Open Team Delib",
+                        "start": {
+                            "dateTime": "2026-02-08T12:30:00-05:00",
+                            "timeZone": "America/New_York"
+                        },
+                        "end": {
+                            "dateTime": "2026-02-08T15:00:00-05:00",
+                            "timeZone": "America/New_York"
+                        },
+                        "source_calendar": "Gen_AI"
+                    },
+                    {
+                        "summary": "Mann.",
+                        "start": {
+                            "dateTime": "2026-02-09T12:30:00-05:00",
+                            "timeZone": "America/New_York"
+                        },
+                        "end": {
+                            "dateTime": "2026-02-09T14:30:00-05:00",
+                            "timeZone": "America/New_York"
+                        },
+                        "source_calendar": "morgan_school"
+                    },
+                    {
+                        "summary": "Mann.",
+                        "start": {
+                            "dateTime": "2026-02-11T12:30:00-05:00",
+                            "timeZone": "America/New_York"
+                        },
+                        "end": {
+                            "dateTime": "2026-02-11T14:30:00-05:00",
+                            "timeZone": "America/New_York"
+                        },
+                        "source_calendar": "morgan_school"
+                    },
+                    {
+                        "summary": "Deep Learning Hw#1",
+                        "start": {
+                            "dateTime": "2026-02-12T22:30:00-05:00",
+                            "timeZone": "America/New_York"
+                        },
+                        "end": {
+                            "dateTime": "2026-02-12T23:30:00-05:00",
+                            "timeZone": "America/New_York"
+                        },
+                        "source_calendar": "morgan_school"
+                    },
+                    {
+                        "summary": "Decisions Returned - CGAI",
+                        "start": {
+                            "dateTime": "2026-02-13T23:59:00-05:00",
+                            "timeZone": "America/New_York"
+                        },
+                        "end": {
+                            "dateTime": "2026-02-14T00:59:00-05:00",
+                            "timeZone": "America/New_York"
+                        },
+                        "source_calendar": "Gen_AI"
+                    },
+                    {
+                        "summary": "Check discover debt",
+                        "start": {
+                            "dateTime": "2026-02-14T13:00:00-05:00",
+                            "timeZone": "America/New_York"
+                        },
+                        "end": {
+                            "dateTime": "2026-02-14T14:00:00-05:00",
+                            "timeZone": "America/New_York"
+                        },
+                        "source_calendar": "morgan_personal"
+                    },
+                    {
+                        "summary": "Mann.",
+                        "start": {
+                            "dateTime": "2026-02-16T12:30:00-05:00",
+                            "timeZone": "America/New_York"
+                        },
+                        "end": {
+                            "dateTime": "2026-02-16T14:30:00-05:00",
+                            "timeZone": "America/New_York"
+                        },
+                        "source_calendar": "morgan_school"
+                    },
+                    {
+                        "summary": "Mann.",
+                        "start": {
+                            "dateTime": "2026-02-18T12:30:00-05:00",
+                            "timeZone": "America/New_York"
+                        },
+                        "end": {
+                            "dateTime": "2026-02-18T14:30:00-05:00",
+                            "timeZone": "America/New_York"
+                        },
+                        "source_calendar": "morgan_school"
+                    },
+                    {
+                        "summary": "Seminar Quiz",
+                        "start": {
+                            "dateTime": "2026-02-20T14:00:00-05:00",
+                            "timeZone": "America/New_York"
+                        },
+                        "end": {
+                            "dateTime": "2026-02-20T15:00:00-05:00",
+                            "timeZone": "America/New_York"
+                        },
+                        "source_calendar": "morgan_school"
+                    }
+                ],
+                "event_count": 10,
+                "total_events_found": 30,
+                "calendars_read": [
+                    "morgan_personal",
+                    "morgan_school",
+                    "Gen_AI",
+                    "homeassist"
+                ],
+                "calendar": "all",
+                "note": "This was a READ operation - no events were created."
+            }
+        ],
+        "calendars": [
+            "all"
+        ],
+        "timestamp": "2026-02-08T00:21:07.097650"
+    }
+
+  Tool: calendar_data
+  Arguments: {
+    "commands": [
+        {
+            "type": "get_events",
+            "params": {
+                "start_time": "2024-06-17T00:00:00",
+                "end_time": "2024-06-23T23:59:59"
+            },
+            "read_or_write": "read",
+            "calendar": "all",
+            "read_type": "events"
+        }
+    ]
+}
+  Result:
+    {
+        "success": false,
+        "error": "Command validation failed",
+        "validation_errors": [
+            "Command 1: Invalid read_type 'events'. Must be one of: ['next_events', 'day_summary', 'week_summary', 'specific_date']"
+        ],
+        "available_calendars": [
+            "morgan_personal",
+            "morgan_school",
+            "Gen_AI",
+            "homeassist"
+        ],
+        "available_actions": [
+            "read",
+            "create_event"
+        ]
+    }
+
+  Tool: calendar_data
+  Arguments: {
+    "commands": [
+        {
+            "type": "get_events",
+            "read_or_write": "read",
+            "read_type": "week_summary",
+            "calendar": "all"
+        }
+    ]
+}
+  Result:
+    {
+        "success": true,
+        "total_commands": 1,
+        "successful_commands": 1,
+        "failed_commands": 0,
+        "results": [
+            {
+                "success": true,
+                "operation": "read",
+                "command_index": 0,
+                "command": {
+                    "type": "get_events",
+                    "read_or_write": "read",
+                    "read_type": "week_summary",
+                    "calendar": "all",
+                    "user": "all",
+                    "calendar_name": "primary"
+                },
+                "read_type": "week_summary",
+                "events": [
+                    {
+                        "summary": "Applications Due - CGAI",
+                        "start": {
+                            "dateTime": "2026-02-07T23:59:00-05:00",
+                            "timeZone": "America/New_York"
+                        },
+                        "end": {
+                            "dateTime": "2026-02-08T00:59:00-05:00",
+                            "timeZone": "America/New_York"
+                        },
+                        "source_calendar": "Gen_AI"
+                    },
+                    {
+                        "summary": "Open Team Delib",
+                        "start": {
+                            "dateTime": "2026-02-08T12:30:00-05:00",
+                            "timeZone": "America/New_York"
+                        },
+                        "end": {
+                            "dateTime": "2026-02-08T15:00:00-05:00",
+                            "timeZone": "America/New_York"
+                        },
+                        "source_calendar": "Gen_AI"
+                    }
+                ],
+                "event_count": 2,
+                "total_events_found": 2,
+                "calendars_read": [
+                    "morgan_personal",
+                    "morgan_school",
+                    "Gen_AI",
+                    "homeassist"
+                ],
+                "calendar": "all",
+                "note": "This was a READ operation - no events were created."
+            }
+        ],
+        "calendars": [
+            "all"
+        ],
+        "timestamp": "2026-02-08T00:21:29.605305"
     }
 
 ======================================================================

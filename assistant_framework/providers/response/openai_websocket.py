@@ -7,6 +7,7 @@ import json
 import sys
 import os
 import time
+import re
 from pathlib import Path
 from typing import AsyncIterator, List, Dict, Optional, Any
 
@@ -14,6 +15,23 @@ import aiohttp
 from mcp.client.session import ClientSession
 from mcp.client.stdio import StdioServerParameters, stdio_client
 from mcp.client.sse import sse_client
+
+_EMOJI_RE = re.compile(
+    "["
+    "\U0001F1E6-\U0001F1FF"
+    "\U0001F300-\U0001F5FF"
+    "\U0001F600-\U0001F64F"
+    "\U0001F680-\U0001F6FF"
+    "\U0001F700-\U0001F77F"
+    "\U0001F780-\U0001F7FF"
+    "\U0001F800-\U0001F8FF"
+    "\U0001F900-\U0001F9FF"
+    "\U0001FA00-\U0001FAFF"
+    "\U00002600-\U000026FF"
+    "\U00002700-\U000027BF"
+    "]",
+    flags=re.UNICODE,
+)
 
 try:
     # Try relative imports first (when used as package)
@@ -92,6 +110,12 @@ class OpenAIWebSocketResponseProvider(ResponseInterface):
         # TTS provider for tool call announcements (set by orchestrator)
         self._tts_provider = None
     
+    def _sanitize_output(self, text: str) -> str:
+        """Remove emojis from output text."""
+        if not text:
+            return text
+        return _EMOJI_RE.sub("", text)
+
     async def initialize(self) -> bool:
         """Initialize the OpenAI WebSocket provider and MCP connection."""
         try:
@@ -627,10 +651,12 @@ class OpenAIWebSocketResponseProvider(ResponseInterface):
                                 collected_text.append(delta)
                                 if not tools_enabled:
                                     # Only stream deltas when tools are not used
-                                    yield ResponseChunk(
-                                        content=delta,
-                                        is_complete=False
-                                    )
+                                    sanitized_delta = self._sanitize_output(delta)
+                                    if sanitized_delta:
+                                        yield ResponseChunk(
+                                            content=sanitized_delta,
+                                            is_complete=False
+                                        )
                         
                         elif etype == "response.function_call_arguments.delta":
                             # Streaming function call args; accumulate per active call
@@ -685,7 +711,7 @@ class OpenAIWebSocketResponseProvider(ResponseInterface):
                                         initial_tool_calls=list(tool_calls),
                                         instructions=instructions,
                                     )
-                                    
+                                    final_text = self._sanitize_output(final_text)
                                     yield ResponseChunk(
                                         content=final_text,
                                         is_complete=True,
@@ -703,6 +729,7 @@ class OpenAIWebSocketResponseProvider(ResponseInterface):
                                     final_text = self._generate_tool_response_summary(list(tool_calls), user_msg)
                                     print(f"📝 Tool response summary: {final_text}")
 
+                                    final_text = self._sanitize_output(final_text)
                                     yield ResponseChunk(
                                         content=final_text,
                                         is_complete=True,
@@ -762,6 +789,7 @@ class OpenAIWebSocketResponseProvider(ResponseInterface):
                                     except Exception:
                                         pass
 
+                                final_text = self._sanitize_output(final_text)
                                 yield ResponseChunk(
                                     content=final_text,
                                     is_complete=True,
@@ -2617,7 +2645,7 @@ class OpenAIWebSocketResponseProvider(ResponseInterface):
                     print(f"WebSocket session close error: {e}")
             self._ws_session = None
         
-        # Close MCP session
+        # Close MCP session first (it depends on the SSE client)
         if self.mcp_session:
             try:
                 await self.mcp_session.__aexit__(None, None, None)
@@ -2625,6 +2653,15 @@ class OpenAIWebSocketResponseProvider(ResponseInterface):
                 print(f"MCP session cleanup error: {e}")
             finally:
                 self.mcp_session = None
+        
+        # Close SSE client (must be closed after MCP session)
+        if self._mcp_sse_client:
+            try:
+                await self._mcp_sse_client.__aexit__(None, None, None)
+            except Exception as e:
+                print(f"MCP SSE client cleanup error: {e}")
+            finally:
+                self._mcp_sse_client = None
         
         # Close stdio client
         if self.stdio_client:

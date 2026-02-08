@@ -7,8 +7,26 @@ from tkinter import ttk, scrolledtext, messagebox
 import json
 import asyncio
 import threading
+import re
 from pathlib import Path
 from datetime import datetime
+
+_EMOJI_RE = re.compile(
+    "["
+    "\U0001F1E6-\U0001F1FF"
+    "\U0001F300-\U0001F5FF"
+    "\U0001F600-\U0001F64F"
+    "\U0001F680-\U0001F6FF"
+    "\U0001F700-\U0001F77F"
+    "\U0001F780-\U0001F7FF"
+    "\U0001F800-\U0001F8FF"
+    "\U0001F900-\U0001F9FF"
+    "\U0001FA00-\U0001FAFF"
+    "\U00002600-\U000026FF"
+    "\U00002700-\U000027BF"
+    "]",
+    flags=re.UNICODE,
+)
 
 
 class ToolTestUI:
@@ -41,13 +59,16 @@ class ToolTestUI:
         top_frame = ttk.Frame(main_frame)
         top_frame.grid(row=0, column=0, columnspan=2, sticky="ew", pady=(0, 10))
         
-        self.run_btn = ttk.Button(top_frame, text="▶ Run All Tests", command=self._run_tests)
+        self.run_btn = ttk.Button(top_frame, text="Run All Tests", command=self._run_tests)
         self.run_btn.pack(side="left", padx=(0, 10))
         
-        self.run_single_btn = ttk.Button(top_frame, text="▶ Run Selected", command=self._run_single_test, state="disabled")
+        self.run_category_btn = ttk.Button(top_frame, text="Run Category", command=self._run_category_tests, state="disabled")
+        self.run_category_btn.pack(side="left", padx=(0, 10))
+        
+        self.run_single_btn = ttk.Button(top_frame, text="Run Selected", command=self._run_single_test, state="disabled")
         self.run_single_btn.pack(side="left", padx=(0, 10))
         
-        self.refresh_btn = ttk.Button(top_frame, text="🔄 Refresh", command=self._load_data)
+        self.refresh_btn = ttk.Button(top_frame, text="Refresh", command=self._load_data)
         self.refresh_btn.pack(side="left", padx=(0, 10))
         
         self.status_label = ttk.Label(top_frame, text="Ready", foreground="gray")
@@ -196,6 +217,7 @@ class ToolTestUI:
         selection = self.input_tree.selection()
         if not selection:
             self.run_single_btn.config(state="disabled")
+            self.run_category_btn.config(state="disabled")
             return
         
         item = selection[0]
@@ -204,10 +226,16 @@ class ToolTestUI:
         if not values:
             # Category selected, not a prompt
             self.run_single_btn.config(state="disabled")
+            self.run_category_btn.config(state="normal")
             return
         
-        # Enable run single test button
+        # Prompt selected - enable single test, get parent category for category button
         self.run_single_btn.config(state="normal")
+        parent = self.input_tree.parent(item)
+        if parent:
+            self.run_category_btn.config(state="normal")
+        else:
+            self.run_category_btn.config(state="disabled")
         
         prompt = values[0]
         self._show_result(prompt)
@@ -237,7 +265,7 @@ class ToolTestUI:
         total_ms = timing.get("total_time_ms")
         tool_ms = timing.get("tool_execution_time_ms")
         if total_ms:
-            self.response_text.insert("end", f"⏱️ Total: {total_ms}ms ({total_ms/1000:.2f}s)")
+            self.response_text.insert("end", f"Total: {total_ms}ms ({total_ms/1000:.2f}s)")
             if tool_ms:
                 self.response_text.insert("end", f"  |  Tool exec: {tool_ms}ms")
             self.response_text.insert("end", "\n\n")
@@ -322,7 +350,7 @@ Final Response
         self._insert_colored(self.tools_text, "═" * 60 + "\n", "separator")
         
         if total_ms:
-            self._insert_colored(self.tools_text, "⏱️ Timing:\n", "section_label")
+            self._insert_colored(self.tools_text, "Timing:\n", "section_label")
             self._insert_colored(self.tools_text, f"  Total time: {total_ms}ms ({total_ms/1000:.2f}s)\n", "timing")
             if tool_exec_ms:
                 self._insert_colored(self.tools_text, f"  Tool execution: {tool_exec_ms}ms\n", "timing")
@@ -331,7 +359,7 @@ Final Response
         if not tools_used:
             self.tools_text.insert("end", "No tools were used for this prompt.")
         else:
-            self._insert_colored(self.tools_text, f"📦 Tools Called: {len(tools_used)}\n\n", "section_label")
+            self._insert_colored(self.tools_text, f"Tools Called: {len(tools_used)}\n\n", "section_label")
             
             for i, tool in enumerate(tools_used, 1):
                 self._insert_colored(self.tools_text, "─" * 60 + "\n", "separator")
@@ -341,13 +369,13 @@ Final Response
                 self.tools_text.insert("end", "\n")
                 
                 # Arguments
-                self._insert_colored(self.tools_text, "📥 Arguments:\n", "section_label")
+                self._insert_colored(self.tools_text, "Arguments:\n", "section_label")
                 args = tool.get("arguments", {})
                 args_str = json.dumps(args, indent=2)
                 self._insert_colored(self.tools_text, args_str + "\n\n", "arguments")
                 
                 # Result
-                self._insert_colored(self.tools_text, "📤 Result:\n", "section_label")
+                self._insert_colored(self.tools_text, "Result:\n", "section_label")
                 result_data = tool.get("result")
                 if result_data:
                     try:
@@ -363,7 +391,7 @@ Final Response
         
         # Final Response section
         self._insert_colored(self.tools_text, "\n" + "═" * 60 + "\n", "separator")
-        self._insert_colored(self.tools_text, "💬 FINAL RESPONSE\n", "final_response")
+        self._insert_colored(self.tools_text, "FINAL RESPONSE\n", "final_response")
         self._insert_colored(self.tools_text, "═" * 60 + "\n\n", "separator")
         
         final_response = result.get("response", "(no response)")
@@ -378,15 +406,14 @@ Final Response
     
     def _run_tests(self):
         """Run all tests in a background thread."""
-        self.run_btn.config(state="disabled")
-        self.run_single_btn.config(state="disabled")
+        self._disable_all_run_buttons()
         self.status_label.config(text="Running all tests...", foreground="orange")
         self.console_text.delete("1.0", "end")
         self.console_text.insert("1.0", "Starting all tests...\n\n")
         self.notebook.select(3)  # Switch to console tab
         
         # Run in background thread
-        thread = threading.Thread(target=self._run_tests_thread, args=(None,), daemon=True)
+        thread = threading.Thread(target=self._run_tests_thread, args=(None, None), daemon=True)
         thread.start()
     
     def _run_single_test(self):
@@ -406,22 +433,61 @@ Final Response
         
         prompt = values[0]
         
-        self.run_btn.config(state="disabled")
-        self.run_single_btn.config(state="disabled")
+        self._disable_all_run_buttons()
         self.status_label.config(text=f"Running test: {prompt[:50]}...", foreground="orange")
         self.console_text.delete("1.0", "end")
         self.console_text.insert("1.0", f"Running single test:\n{prompt}\n\n")
         self.notebook.select(3)  # Switch to console tab
         
         # Run in background thread
-        thread = threading.Thread(target=self._run_tests_thread, args=(prompt,), daemon=True)
+        thread = threading.Thread(target=self._run_tests_thread, args=(prompt, None), daemon=True)
         thread.start()
     
-    def _run_tests_thread(self, single_prompt=None):
+    def _run_category_tests(self):
+        """Run all tests in the selected category in a background thread."""
+        selection = self.input_tree.selection()
+        if not selection:
+            messagebox.showwarning("No Selection", "Please select a category or prompt.")
+            return
+        
+        item = selection[0]
+        values = self.input_tree.item(item, "values")
+        
+        # Get category name
+        if values:
+            # A prompt is selected, get its parent category
+            parent = self.input_tree.parent(item)
+            if not parent:
+                messagebox.showwarning("Error", "Could not determine category.")
+                return
+            category = self.input_tree.item(parent, "text")
+        else:
+            # A category is selected directly
+            category = self.input_tree.item(item, "text")
+        
+        self._disable_all_run_buttons()
+        self.status_label.config(text=f"Running category: {category}...", foreground="orange")
+        self.console_text.delete("1.0", "end")
+        self.console_text.insert("1.0", f"Running all tests in category: {category}\n\n")
+        self.notebook.select(3)  # Switch to console tab
+        
+        # Run in background thread
+        thread = threading.Thread(target=self._run_tests_thread, args=(None, category), daemon=True)
+        thread.start()
+    
+    def _disable_all_run_buttons(self):
+        """Disable all run buttons."""
+        self.run_btn.config(state="disabled")
+        self.run_category_btn.config(state="disabled")
+        self.run_single_btn.config(state="disabled")
+    
+    def _run_tests_thread(self, single_prompt=None, category=None):
         """Run tests in background thread.
         
         Args:
-            single_prompt: If provided, run only this prompt. Otherwise run all tests.
+            single_prompt: If provided, run only this prompt.
+            category: If provided, run all tests in this category.
+            If neither is provided, run all tests.
         """
         import subprocess
         import sys
@@ -430,10 +496,12 @@ Final Response
             # Run the test script
             test_script = self.tests_dir / "test_tools.py"
             
-            # Build command with optional single prompt argument
+            # Build command with optional arguments
             cmd = [sys.executable, str(test_script)]
             if single_prompt:
                 cmd.extend(["--single", single_prompt])
+            elif category:
+                cmd.extend(["--category", category])
             
             process = subprocess.Popen(
                 cmd,
@@ -460,20 +528,28 @@ Final Response
     
     def _append_console(self, text):
         """Append text to console (called from main thread)."""
-        self.console_text.insert("end", text)
+        clean_text = _EMOJI_RE.sub("", text)
+        self.console_text.insert("end", clean_text)
         self.console_text.see("end")
     
     def _test_complete(self, success):
         """Handle test completion (called from main thread)."""
         self.run_btn.config(state="normal")
         
-        # Re-enable single test button if there's a selection
+        # Re-enable buttons based on current selection
         selection = self.input_tree.selection()
         if selection:
             item = selection[0]
             values = self.input_tree.item(item, "values")
-            if values:  # It's a prompt, not a category
+            if values:
+                # It's a prompt - enable single test and category buttons
                 self.run_single_btn.config(state="normal")
+                parent = self.input_tree.parent(item)
+                if parent:
+                    self.run_category_btn.config(state="normal")
+            else:
+                # It's a category - enable category button only
+                self.run_category_btn.config(state="normal")
         
         if success:
             self.status_label.config(text="Tests completed!", foreground="green")

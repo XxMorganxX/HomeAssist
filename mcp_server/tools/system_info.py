@@ -17,9 +17,10 @@ class SystemInfoTool(BaseTool):
     name = "system_info"
     description = (
         "Get information about how this voice assistant works internally. "
-        "Use this tool when the user asks about the assistant's architecture, capabilities, "
-        "how it was built, project structure, configuration options, available tools, "
-        "memory systems, troubleshooting, or any questions about the assistant itself. "
+        "Use this tool when the user asks about: capabilities, what you can do, "
+        "how transcription/speech recognition works, how memory works, how planning works, "
+        "how decision making works, architecture, how you were built, audio pipeline, "
+        "TTS/text-to-speech, configuration, available tools, or any self-reflection questions. "
         "Returns documentation about the assistant's design and features."
     )
     version = "2.0.0"

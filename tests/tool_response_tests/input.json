@@ -15,7 +15,7 @@
   {"Search": ["What's the weather like in Tokyo?"]},
   {"Write": ["Write a prompt for Cursor to write a Python script to calculate the Fibonacci sequence."]},
   {"Read": ["Read the clipboard."]},
-  {"Capabilities": ["What can you do?"]},
+  {"Capabilities": ["What can you do?", "How does your transcription work?", "How does your memory work?", "How does your planning work?", "How does your decision making work?"]},
   {"Briefings": ["What's the briefing for today?"]},
   {"Emails": ["What emails do I have?"]}
 ]

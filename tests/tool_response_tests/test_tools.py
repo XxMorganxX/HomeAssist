@@ -99,7 +99,7 @@ class ToolSignalCapture:
             if "[Realtime Compose]" in line or "Sending tool results to realtime" in line:
                 self.realtime_compose_called = True
             
-            # Parse tool execution timing (e.g., "⏱️ Tool 'calendar_data' executed in 234ms")
+            # Parse tool execution timing (e.g., "Tool 'calendar_data' executed in 234ms")
             if "executed in" in line and "ms" in line:
                 match = re.search(r'executed in (\d+)ms', line)
                 if match:
@@ -121,11 +121,13 @@ class ToolSignalCapture:
         }
 
 
-async def run_tests(single_prompt=None):
+async def run_tests(single_prompt=None, category=None):
     """Run test prompts through the assistant with MCP tools enabled.
     
     Args:
-        single_prompt: If provided, run only this specific prompt. Otherwise run all tests.
+        single_prompt: If provided, run only this specific prompt.
+        category: If provided, run all tests in this category.
+        If neither is provided, run all tests.
     """
     
     # Paths
@@ -139,10 +141,13 @@ async def run_tests(single_prompt=None):
     
     # Flatten into list of (category, prompt) tuples while preserving order
     all_test_cases = []
+    all_categories = []
     for category_obj in categories_data:
-        for category, prompts_list in category_obj.items():
+        for cat_name, prompts_list in category_obj.items():
+            if cat_name not in all_categories:
+                all_categories.append(cat_name)
             for prompt in prompts_list:
-                all_test_cases.append({"category": category, "prompt": prompt})
+                all_test_cases.append({"category": cat_name, "prompt": prompt})
     
     # Filter to single prompt if specified
     if single_prompt:
@@ -154,6 +159,16 @@ async def run_tests(single_prompt=None):
                 print(f"  - {tc['prompt']}")
             return
         print(f"Running single test: {single_prompt}")
+    # Filter to category if specified
+    elif category:
+        test_cases = [tc for tc in all_test_cases if tc["category"] == category]
+        if not test_cases:
+            print(f"ERROR: Category not found: {category}")
+            print(f"Available categories:")
+            for cat in all_categories:
+                print(f"  - {cat}")
+            return
+        print(f"Running {len(test_cases)} tests in category: {category}")
     else:
         test_cases = all_test_cases
         print(f"Loaded {len(test_cases)} test prompts across {len(categories_data)} categories")
@@ -292,14 +307,14 @@ async def run_tests(single_prompt=None):
                 print(f"Tools used: {[t['name'] for t in tool_calls_info]}")
             
             # Print tool signal flow info
-            print("\n📊 Tool Signal Flow:")
+            print("\nTool Signal Flow:")
             print(f"   Signal detected: {signal_capture.tool_signal_detected}")
             print(f"   Realtime output: {signal_capture.realtime_raw_output}")
             print(f"   Orchestration: {signal_capture.orchestration_called} (model: {signal_capture.orchestration_model})")
             print(f"   Realtime compose: {signal_capture.realtime_compose_called}")
             
             # Print timing info
-            print("\n⏱️ Timing:")
+            print("\nTiming:")
             print(f"   Total time: {total_time_ms}ms")
             if signal_capture.tool_execution_time_ms:
                 print(f"   Tool execution: {signal_capture.tool_execution_time_ms}ms")
@@ -342,8 +357,8 @@ async def run_tests(single_prompt=None):
         "tool_execution_time": calc_stats(timing_stats["tool_execution_time_ms"]),
     }
     
-    # If running single test, merge with existing results
-    if single_prompt:
+    # If running single test or category, merge with existing results
+    if single_prompt or category:
         # Load existing output if it exists
         existing_data = {}
         if output_file.exists():
@@ -353,13 +368,17 @@ async def run_tests(single_prompt=None):
             except (json.JSONDecodeError, FileNotFoundError):
                 pass
         
-        # Update or add the single result
+        # Update or add the results
         existing_results = existing_data.get("results", [])
         
-        # Remove any existing result for this prompt
-        existing_results = [r for r in existing_results if r["prompt"] != single_prompt]
+        if single_prompt:
+            # Remove any existing result for this prompt
+            existing_results = [r for r in existing_results if r["prompt"] != single_prompt]
+        elif category:
+            # Remove any existing results for this category
+            existing_results = [r for r in existing_results if r["category"] != category]
         
-        # Add the new result
+        # Add the new results
         existing_results.extend(responses)
         
         # Recalculate stats for all results
@@ -549,7 +568,7 @@ async def run_tests(single_prompt=None):
     
     if not single_prompt:
         # Print timing summary for full test runs
-        print("\n⏱️ TIMING SUMMARY")
+        print("\nTIMING SUMMARY")
         print('='*70)
         ts = timing_summary["total_time"]
         if ts["avg"] is not None:
@@ -583,6 +602,7 @@ if __name__ == "__main__":
     # Parse command line arguments
     parser = argparse.ArgumentParser(description="Run MCP tool tests")
     parser.add_argument("--single", type=str, help="Run a single test prompt")
+    parser.add_argument("--category", type=str, help="Run all tests in a category")
     args = parser.parse_args()
     
-    asyncio.run(run_tests(single_prompt=args.single))
+    asyncio.run(run_tests(single_prompt=args.single, category=args.category))
