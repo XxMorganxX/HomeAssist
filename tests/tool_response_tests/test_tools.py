@@ -1,15 +1,17 @@
 """
-Test harness for MCP tool usage with OpenAI.
+Test harness for MCP tool usage with OpenAI or Anthropic models.
 Reads prompts from input.json and writes assistant responses to output.json and output.txt.
 
 Tests the tool signal flow:
 1. Realtime model outputs "TOOL" signal (minimal tokens)
-2. gpt-4o-mini orchestrates tool calls
+2. Orchestration model (gpt-4o-mini or claude-3-5-haiku) orchestrates tool calls
 3. Tool results sent back to realtime for final response
 
 Usage:
-    python test_tools.py                    # Run all tests
-    python test_tools.py --single "prompt"  # Run a single prompt
+    python test_tools.py                        # Run all tests with OpenAI (default)
+    python test_tools.py --model claude         # Run all tests with Claude Haiku
+    python test_tools.py --single "prompt"      # Run a single prompt
+    python test_tools.py --model claude --single "prompt"  # Single test with Claude
 """
 
 import asyncio
@@ -63,9 +65,12 @@ class ToolSignalCapture:
         self.orchestration_model = None
         self.realtime_compose_called = False
         self.logs = []
-        # Timing from logs (if available)
-        self.tool_execution_time_ms = None
-        self.orchestration_time_ms = None
+        # Detailed timing from logs
+        self.realtime_signal_ms = None      # Time for realtime to output "TOOL"
+        self.orchestration_api_ms = None    # Time for gpt-4o-mini API call
+        self.tool_execution_ms = None       # Time for tool(s) to execute
+        self.realtime_compose_ms = None     # Time for realtime to compose final response
+        self.orchestration_total_ms = None  # Total orchestration time
     
     def parse_logs(self, log_output: str):
         """Parse captured logs to extract tool signal flow info."""
@@ -89,25 +94,39 @@ class ToolSignalCapture:
             
             # Capture orchestration model
             if "[Tool Orchestration] Calling" in line and "messages" in line:
-                # Extract model name
-                if "gpt-4o-mini" in line:
-                    self.orchestration_model = "gpt-4o-mini"
-                elif "o4-mini" in line:
-                    self.orchestration_model = "o4-mini"
+                # Extract model name from log line like "Calling gpt-5-mini with 3 messages"
+                import re as _re
+                model_match = _re.search(r"Calling\s+([\w.-]+)\s+with", line)
+                if model_match:
+                    self.orchestration_model = model_match.group(1)
             
             # Check for realtime compose
             if "[Realtime Compose]" in line or "Sending tool results to realtime" in line:
                 self.realtime_compose_called = True
             
-            # Parse tool execution timing (e.g., "Tool 'calendar_data' executed in 234ms")
-            if "executed in" in line and "ms" in line:
-                match = re.search(r'executed in (\d+)ms', line)
-                if match:
-                    exec_time = int(match.group(1))
-                    if self.tool_execution_time_ms is None:
-                        self.tool_execution_time_ms = exec_time
-                    else:
-                        self.tool_execution_time_ms += exec_time
+            # Parse timing markers: ⏱️ [TIMING] key=value
+            if "[TIMING]" in line:
+                # Extract key=value pairs
+                if "realtime_signal_ms=" in line:
+                    match = re.search(r'realtime_signal_ms=(\d+)', line)
+                    if match:
+                        self.realtime_signal_ms = int(match.group(1))
+                elif "orchestration_api_ms=" in line:
+                    match = re.search(r'orchestration_api_ms=(\d+)', line)
+                    if match:
+                        self.orchestration_api_ms = int(match.group(1))
+                elif "tool_execution_ms=" in line:
+                    match = re.search(r'tool_execution_ms=(\d+)', line)
+                    if match:
+                        self.tool_execution_ms = int(match.group(1))
+                elif "realtime_compose_ms=" in line:
+                    match = re.search(r'realtime_compose_ms=(\d+)', line)
+                    if match:
+                        self.realtime_compose_ms = int(match.group(1))
+                elif "orchestration_total_ms=" in line:
+                    match = re.search(r'orchestration_total_ms=(\d+)', line)
+                    if match:
+                        self.orchestration_total_ms = int(match.group(1))
     
     def to_dict(self):
         """Convert capture to dictionary for output."""
@@ -117,17 +136,25 @@ class ToolSignalCapture:
             "orchestration_called": self.orchestration_called,
             "orchestration_model": self.orchestration_model,
             "realtime_compose_called": self.realtime_compose_called,
-            "tool_execution_time_ms": self.tool_execution_time_ms,
+            # Detailed timing breakdown
+            "timing": {
+                "realtime_signal_ms": self.realtime_signal_ms,
+                "orchestration_api_ms": self.orchestration_api_ms,
+                "tool_execution_ms": self.tool_execution_ms,
+                "realtime_compose_ms": self.realtime_compose_ms,
+                "orchestration_total_ms": self.orchestration_total_ms,
+            }
         }
 
 
-async def run_tests(single_prompt=None, category=None):
+async def run_tests(single_prompt=None, category=None, model="openai"):
     """Run test prompts through the assistant with MCP tools enabled.
     
     Args:
         single_prompt: If provided, run only this specific prompt.
         category: If provided, run all tests in this category.
-        If neither is provided, run all tests.
+        model: Model to use for orchestration ("openai" or "claude").
+        If neither single_prompt nor category is provided, run all tests.
     """
     
     # Paths
@@ -175,22 +202,18 @@ async def run_tests(single_prompt=None, category=None):
     
     # Now safe to import (audio modules are mocked)
     from assistant_framework.providers.response.openai_websocket import OpenAIWebSocketResponseProvider
-    from assistant_framework.config import SYSTEM_PROMPT, TOOL_SIGNAL_MODE
+    from assistant_framework.config import SYSTEM_PROMPT, TOOL_SIGNAL_MODE, OPENAI_WS_CONFIG
     
     print(f"TOOL_SIGNAL_MODE: {TOOL_SIGNAL_MODE}")
+    print(f"MODEL: {model}")
     
-    # Build config
-    config = {
-        "api_key": os.getenv("OPENAI_KEY") or os.getenv("OPENAI_API_KEY"),
-        "model": "gpt-4o-realtime-preview-2024-12-17",
-        "max_tokens": 2000,
-        "temperature": 0.6,
-        "system_prompt": SYSTEM_PROMPT,
-        "mcp_server_path": str(project_root / "mcp_server" / "server.py"),
-        "mcp_venv_python": str(project_root / "venv" / "bin" / "python"),
-    }
+    # Use the actual config from config.py (includes tool_subagent_model, etc.)
+    config = OPENAI_WS_CONFIG.copy()
+    # Override MCP paths for test environment
+    config["mcp_server_path"] = str(project_root / "mcp_server" / "server.py")
+    config["mcp_venv_python"] = str(project_root / "venv" / "bin" / "python")
     
-    # Initialize provider
+    # Initialize OpenAI provider (needed for MCP tool infrastructure in both modes)
     provider = OpenAIWebSocketResponseProvider(config)
     initialized = await provider.initialize()
     
@@ -199,6 +222,28 @@ async def run_tests(single_prompt=None, category=None):
         return
     
     print(f"Provider initialized. Available tools: {len(await provider.get_available_tools())}")
+    
+    # Initialize Anthropic client if using Claude model
+    anthropic_client = None
+    if model == "claude":
+        try:
+            from anthropic_client import AnthropicToolClient
+            anthropic_client = AnthropicToolClient()
+            print(f"Anthropic client initialized. Model: {AnthropicToolClient.MODEL}")
+        except ImportError as e:
+            print(f"ERROR: Failed to import AnthropicToolClient: {e}")
+            print("Make sure anthropic package is installed: pip install anthropic>=0.40.0")
+            return
+        except ValueError as e:
+            print(f"ERROR: {e}")
+            print("Set ANTHROPIC_API_KEY in your .env file")
+            return
+    
+    # Determine orchestration model name for output
+    if model == "claude":
+        orchestration_model_name = AnthropicToolClient.MODEL
+    else:
+        orchestration_model_name = config.get("tool_subagent_model", "gpt-4o-mini")
     
     # Run tests and collect responses
     responses = []
@@ -248,16 +293,51 @@ async def run_tests(single_prompt=None, category=None):
             sys.stdout = log_capture
             
             try:
-                async for chunk in provider.stream_response(prompt):
-                    if chunk.content:
-                        full_response = chunk.content
-                    if chunk.tool_calls:
-                        for tc in chunk.tool_calls:
-                            tool_calls_info.append({
-                                "name": tc.name,
-                                "arguments": tc.arguments,
-                                "result": tc.result if hasattr(tc, 'result') else None
-                            })
+                if model == "claude" and anthropic_client:
+                    # Use Anthropic client for orchestration
+                    # Get available tools in OpenAI format
+                    available_tools = await provider.get_available_tools()
+                    openai_tools = [
+                        {
+                            "type": "function",
+                            "function": func
+                        }
+                        for func in available_tools
+                    ]
+                    
+                    # Run through Claude
+                    full_response, tool_calls = await anthropic_client.run_prompt(
+                        prompt=prompt,
+                        tools=openai_tools,
+                        execute_tool_fn=provider.execute_tool,
+                        system_prompt=SYSTEM_PROMPT,
+                    )
+                    
+                    # Convert tool calls to info format
+                    for tc in tool_calls:
+                        tool_calls_info.append({
+                            "name": tc.name,
+                            "arguments": tc.arguments,
+                            "result": tc.result if hasattr(tc, 'result') else None
+                        })
+                    
+                    # Mark orchestration as called for Claude
+                    signal_capture.orchestration_called = True
+                    signal_capture.orchestration_model = anthropic_client.MODEL
+                    if tool_calls:
+                        signal_capture.tool_signal_detected = True
+                else:
+                    # Use OpenAI provider (default)
+                    async for chunk in provider.stream_response(prompt):
+                        if chunk.content:
+                            full_response = chunk.content
+                        if chunk.tool_calls:
+                            for tc in chunk.tool_calls:
+                                tool_calls_info.append({
+                                    "name": tc.name,
+                                    "arguments": tc.arguments,
+                                    "result": tc.result if hasattr(tc, 'result') else None
+                                })
             finally:
                 sys.stdout = old_stdout
             
@@ -287,8 +367,8 @@ async def run_tests(single_prompt=None, category=None):
             
             # Update timing stats
             timing_stats["total_time_ms"].append(total_time_ms)
-            if signal_capture.tool_execution_time_ms is not None:
-                timing_stats["tool_execution_time_ms"].append(signal_capture.tool_execution_time_ms)
+            if signal_capture.tool_execution_ms is not None:
+                timing_stats["tool_execution_time_ms"].append(signal_capture.tool_execution_ms)
             
             responses.append({
                 "category": category,
@@ -298,7 +378,6 @@ async def run_tests(single_prompt=None, category=None):
                 "tool_signal_flow": signal_capture.to_dict(),
                 "timing": {
                     "total_time_ms": total_time_ms,
-                    "tool_execution_time_ms": signal_capture.tool_execution_time_ms,
                 },
             })
             
@@ -316,8 +395,14 @@ async def run_tests(single_prompt=None, category=None):
             # Print timing info
             print("\nTiming:")
             print(f"   Total time: {total_time_ms}ms")
-            if signal_capture.tool_execution_time_ms:
-                print(f"   Tool execution: {signal_capture.tool_execution_time_ms}ms")
+            if signal_capture.realtime_signal_ms:
+                print(f"   Realtime signal: {signal_capture.realtime_signal_ms}ms")
+            if signal_capture.orchestration_api_ms:
+                print(f"   Orchestration API: {signal_capture.orchestration_api_ms}ms")
+            if signal_capture.tool_execution_ms:
+                print(f"   Tool execution: {signal_capture.tool_execution_ms}ms")
+            if signal_capture.realtime_compose_ms:
+                print(f"   Realtime compose: {signal_capture.realtime_compose_ms}ms")
                 
         except Exception as e:
             import traceback
@@ -395,6 +480,8 @@ async def run_tests(single_prompt=None, category=None):
         
         output_data = {
             "generated_at": generated_at,
+            "model": model,
+            "orchestration_model": orchestration_model_name,
             "total_tests": total_tests,
             "tool_signal_mode": TOOL_SIGNAL_MODE,
             "categories": categories_list,
@@ -416,6 +503,8 @@ async def run_tests(single_prompt=None, category=None):
         # Running all tests - output complete data
         output_data = {
             "generated_at": generated_at,
+            "model": model,
+            "orchestration_model": orchestration_model_name,
             "total_tests": len(test_cases),
             "tool_signal_mode": TOOL_SIGNAL_MODE,
             "categories": categories_list,
@@ -432,6 +521,7 @@ async def run_tests(single_prompt=None, category=None):
     with open(output_txt_file, "w") as f:
         f.write("MCP Tool Test Results\n")
         f.write(f"Generated: {generated_at}\n")
+        f.write(f"Model: {model} ({orchestration_model_name})\n")
         f.write(f"Total Tests: {len(test_cases)} across {len(categories_list)} categories\n")
         f.write(f"TOOL_SIGNAL_MODE: {TOOL_SIGNAL_MODE}\n")
         f.write("=" * 70 + "\n\n")
@@ -547,6 +637,7 @@ async def run_tests(single_prompt=None, category=None):
             result = responses[0]
             flow = result.get("tool_signal_flow", {})
             timing = result.get("timing", {})
+            print(f"Model: {model} ({orchestration_model_name})")
             print(f"Prompt: {result['prompt']}")
             print(f"Tool signal detected:     {flow.get('tool_signal_detected')}")
             print(f"Orchestration called:     {flow.get('orchestration_called')}")
@@ -557,6 +648,7 @@ async def run_tests(single_prompt=None, category=None):
                 print(f"Tool execution time:      {timing.get('tool_execution_time_ms')}ms")
     else:
         # Show full stats
+        print(f"MODEL:                    {model} ({orchestration_model_name})")
         print(f"TOOL_SIGNAL_MODE:         {TOOL_SIGNAL_MODE}")
         print(f"Total tests:              {stats['total_tests']}")
         print(f"Tool signal detected:     {stats['tool_signal_detected']} ({100*stats['tool_signal_detected']//max(1,stats['total_tests'])}%)")
@@ -603,6 +695,8 @@ if __name__ == "__main__":
     parser = argparse.ArgumentParser(description="Run MCP tool tests")
     parser.add_argument("--single", type=str, help="Run a single test prompt")
     parser.add_argument("--category", type=str, help="Run all tests in a category")
+    parser.add_argument("--model", type=str, choices=["openai", "claude"], default="openai",
+                        help="Model to use for orchestration (default: openai)")
     args = parser.parse_args()
     
-    asyncio.run(run_tests(single_prompt=args.single, category=args.category))
+    asyncio.run(run_tests(single_prompt=args.single, category=args.category, model=args.model))

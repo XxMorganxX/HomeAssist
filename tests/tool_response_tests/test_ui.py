@@ -97,6 +97,20 @@ class ToolTestUI:
         self.refresh_btn = ttk.Button(top_frame, text="Refresh", command=self._load_data)
         self.refresh_btn.pack(side="left", padx=(0, 10))
         
+        # Model selector
+        ttk.Separator(top_frame, orient="vertical").pack(side="left", fill="y", padx=10)
+        model_label = ttk.Label(top_frame, text="Model:")
+        model_label.pack(side="left", padx=(0, 5))
+        self.model_var = tk.StringVar(value="openai")
+        self.model_combo = ttk.Combobox(
+            top_frame,
+            textvariable=self.model_var,
+            values=["openai", "claude"],
+            state="readonly",
+            width=12
+        )
+        self.model_combo.pack(side="left", padx=(0, 10))
+        
         self.status_label = ttk.Label(top_frame, text="Ready", foreground="gray")
         self.status_label.pack(side="left", padx=(10, 0))
         
@@ -329,6 +343,10 @@ class ToolTestUI:
         orch = stats.get("orchestration_called", 0)
         tools = stats.get("tools_used", 0)
         
+        # Get model info
+        model = self.output_data.get("model", "openai")
+        orch_model = self.output_data.get("orchestration_model", "")
+        
         signal_pct = f"{100*signal//max(1,total)}%" if total else "N/A"
         
         # Get timing summary
@@ -336,7 +354,10 @@ class ToolTestUI:
         avg_time = timing.get("total_time", {}).get("avg")
         avg_str = f" | Avg: {avg_time}ms" if avg_time else ""
         
-        text = f"Tests: {total} | Signal: {signal} ({signal_pct}) | Tools: {tools}{avg_str}"
+        # Build model display string
+        model_str = orch_model if orch_model else model
+        
+        text = f"[{model_str}] Tests: {total} | Signal: {signal} ({signal_pct}) | Tools: {tools}{avg_str}"
         self.stats_label.config(text=text)
     
     def _on_input_select(self, event):
@@ -404,62 +425,84 @@ class ToolTestUI:
         self.flow_text.delete("1.0", "end")
         flow = result.get("tool_signal_flow", {})
         timing = result.get("timing", {})
+        flow_timing = flow.get("timing", {})
         
         # Format timing values
         total_ms = timing.get("total_time_ms")
-        tool_ms = timing.get("tool_execution_time_ms") or flow.get("tool_execution_time_ms")
         total_str = f"{total_ms}ms" if total_ms else "N/A"
-        tool_str = f"{tool_ms}ms" if tool_ms else "N/A"
+        
+        # Extract detailed timing from flow
+        realtime_signal_ms = flow_timing.get("realtime_signal_ms")
+        orch_api_ms = flow_timing.get("orchestration_api_ms")
+        tool_exec_ms = flow_timing.get("tool_execution_ms")
+        compose_ms = flow_timing.get("realtime_compose_ms")
+        orch_total_ms = flow_timing.get("orchestration_total_ms")
+        
+        # Format timing strings
+        def fmt_ms(val):
+            if val is None:
+                return "N/A"
+            return f"{val}ms"
         
         flow_lines = [
-            f"┌─────────────────────────────────────────┐",
-            f"│         TOOL SIGNAL FLOW                │",
-            f"├─────────────────────────────────────────┤",
+            "┌─────────────────────────────────────────┐",
+            "│         TOOL SIGNAL FLOW                │",
+            "├─────────────────────────────────────────┤",
             f"│ Signal Detected:     {str(flow.get('tool_signal_detected', 'N/A')):>17} │",
             f"│ Realtime Output:     {str(flow.get('realtime_raw_output', 'N/A'))[:17]:>17} │",
             f"│ Orchestration:       {str(flow.get('orchestration_called', 'N/A')):>17} │",
             f"│ Orchestration Model: {str(flow.get('orchestration_model', 'N/A')):>17} │",
             f"│ Realtime Compose:    {str(flow.get('realtime_compose_called', 'N/A')):>17} │",
-            f"├─────────────────────────────────────────┤",
-            f"│             TIMING                      │",
-            f"├─────────────────────────────────────────┤",
+            "├─────────────────────────────────────────┤",
+            "│             TIMING                      │",
+            "├─────────────────────────────────────────┤",
             f"│ Total Time:          {total_str:>17} │",
-            f"│ Tool Execution:      {tool_str:>17} │",
-            f"└─────────────────────────────────────────┘",
+            "│ ──────────────────────────────────────  │",
+            f"│ Realtime Signal:     {fmt_ms(realtime_signal_ms):>17} │",
+            f"│ Orchestration API:   {fmt_ms(orch_api_ms):>17} │",
+            f"│ Tool Execution:      {fmt_ms(tool_exec_ms):>17} │",
+            f"│ Realtime Compose:    {fmt_ms(compose_ms):>17} │",
+            "│ ──────────────────────────────────────  │",
+            f"│ Orchestration Total: {fmt_ms(orch_total_ms):>17} │",
+            "└─────────────────────────────────────────┘",
         ]
         self.flow_text.insert("1.0", "\n".join(flow_lines))
         
-        # Add visual flow diagram
+        # Add visual flow diagram with timing
         if flow.get("tool_signal_detected"):
-            diagram = """
-            
-Flow Diagram:
-─────────────
+            # Build diagram with timing annotations
+            diagram = f"""
+
+Flow Diagram with Timing:
+─────────────────────────
 
 User Request
      │
      ▼
 ┌─────────────┐
-│  Realtime   │ ─── outputs "TOOL"
+│  Realtime   │ ─── outputs "TOOL"     [{fmt_ms(realtime_signal_ms)}]
 └─────────────┘
      │
      ▼
 ┌─────────────┐
-│ gpt-4o-mini │ ─── orchestrates tools
+│ {str(flow.get('orchestration_model', 'subagent')):^11} │ ─── orchestrates tools [{fmt_ms(orch_api_ms)}]
 └─────────────┘
      │
      ▼
 ┌─────────────┐
-│  Tool(s)    │ ─── executes
+│  Tool(s)    │ ─── executes           [{fmt_ms(tool_exec_ms)}]
 └─────────────┘
      │
      ▼
 ┌─────────────┐
-│  Realtime   │ ─── composes response
+│  Realtime   │ ─── composes response  [{fmt_ms(compose_ms)}]
 └─────────────┘
      │
      ▼
 Final Response
+
+───────────────────────────────────────
+Total: {total_str}
 """
             self.flow_text.insert("end", diagram)
         
@@ -476,6 +519,10 @@ Final Response
         self._insert_colored(self.tools_text, "TOOLS EXECUTION SUMMARY\n", "header")
         self._insert_colored(self.tools_text, "═" * 60 + "\n", "separator")
         
+        # Show the prompt that was tested
+        self._insert_colored(self.tools_text, "Prompt:\n", "section_label")
+        self._insert_colored(self.tools_text, f"  \"{prompt}\"\n\n", "timing")
+        
         if total_ms:
             self._insert_colored(self.tools_text, "Timing:\n", "section_label")
             self._insert_colored(self.tools_text, f"  Total time: {total_ms}ms ({total_ms/1000:.2f}s)\n", "timing")
@@ -484,7 +531,7 @@ Final Response
             self.tools_text.insert("end", "\n")
         
         if not tools_used:
-            self.tools_text.insert("end", "No tools were used for this prompt.")
+            self.tools_text.insert("end", "No tools were used for this prompt.\n")
         else:
             self._insert_colored(self.tools_text, f"Tools Called: {len(tools_used)}\n\n", "section_label")
             
@@ -748,14 +795,15 @@ Final Response
 
     def _run_tests(self):
         """Run all tests in a background thread."""
+        model = self.model_var.get()
         self._disable_all_run_buttons()
-        self.status_label.config(text="Running all tests...", foreground="orange")
+        self.status_label.config(text=f"Running all tests ({model})...", foreground="orange")
         self.console_text.delete("1.0", "end")
-        self.console_text.insert("1.0", "Starting all tests...\n\n")
+        self.console_text.insert("1.0", f"Starting all tests with model: {model}\n\n")
         self.notebook.select(3)  # Switch to console tab
         
         # Run in background thread
-        thread = threading.Thread(target=self._run_tests_thread, args=(None, None), daemon=True)
+        thread = threading.Thread(target=self._run_tests_thread, args=(None, None, model), daemon=True)
         thread.start()
     
     def _run_single_test(self):
@@ -774,15 +822,16 @@ Final Response
             return
         
         prompt = values[0]
+        model = self.model_var.get()
         
         self._disable_all_run_buttons()
-        self.status_label.config(text=f"Running test: {prompt[:50]}...", foreground="orange")
+        self.status_label.config(text=f"Running test ({model}): {prompt[:40]}...", foreground="orange")
         self.console_text.delete("1.0", "end")
-        self.console_text.insert("1.0", f"Running single test:\n{prompt}\n\n")
+        self.console_text.insert("1.0", f"Running single test with model: {model}\n{prompt}\n\n")
         self.notebook.select(3)  # Switch to console tab
         
         # Run in background thread
-        thread = threading.Thread(target=self._run_tests_thread, args=(prompt, None), daemon=True)
+        thread = threading.Thread(target=self._run_tests_thread, args=(prompt, None, model), daemon=True)
         thread.start()
     
     def _run_category_tests(self):
@@ -807,14 +856,16 @@ Final Response
             # A category is selected directly
             category = self.input_tree.item(item, "text")
         
+        model = self.model_var.get()
+        
         self._disable_all_run_buttons()
-        self.status_label.config(text=f"Running category: {category}...", foreground="orange")
+        self.status_label.config(text=f"Running category ({model}): {category}...", foreground="orange")
         self.console_text.delete("1.0", "end")
-        self.console_text.insert("1.0", f"Running all tests in category: {category}\n\n")
+        self.console_text.insert("1.0", f"Running all tests in category: {category} (model: {model})\n\n")
         self.notebook.select(3)  # Switch to console tab
         
         # Run in background thread
-        thread = threading.Thread(target=self._run_tests_thread, args=(None, category), daemon=True)
+        thread = threading.Thread(target=self._run_tests_thread, args=(None, category, model), daemon=True)
         thread.start()
     
     def _disable_all_run_buttons(self):
@@ -823,13 +874,14 @@ Final Response
         self.run_category_btn.config(state="disabled")
         self.run_single_btn.config(state="disabled")
     
-    def _run_tests_thread(self, single_prompt=None, category=None):
+    def _run_tests_thread(self, single_prompt=None, category=None, model="openai"):
         """Run tests in background thread.
         
         Args:
             single_prompt: If provided, run only this prompt.
             category: If provided, run all tests in this category.
-            If neither is provided, run all tests.
+            model: Model to use for orchestration ("openai" or "claude").
+            If neither single_prompt nor category is provided, run all tests.
         """
         import subprocess
         import sys
@@ -840,6 +892,7 @@ Final Response
             
             # Build command with optional arguments
             cmd = [sys.executable, str(test_script)]
+            cmd.extend(["--model", model])
             if single_prompt:
                 cmd.extend(["--single", single_prompt])
             elif category:

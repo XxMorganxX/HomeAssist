@@ -10,6 +10,7 @@ Features:
 - K-fold partitioning for long conversations
 """
 
+import asyncio
 import uuid
 from datetime import datetime, timedelta
 from typing import Dict, Any, Optional, List
@@ -195,7 +196,8 @@ class VectorMemoryManager:
             # Limit to max cache size
             query = query.limit(self._local_cache.max_vectors)
             
-            response = query.execute()
+            # Run blocking I/O in thread pool to not block event loop
+            response = await asyncio.to_thread(query.execute)
             
             if response.data:
                 # Initialize cache with the vectors

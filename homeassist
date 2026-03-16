@@ -32,6 +32,7 @@ case "$1" in
         pkill -9 -f "openwakeword" 2>/dev/null
         pkill -9 -f "multiprocessing.spawn" 2>/dev/null
         pkill -9 -f "multiprocessing.resource_tracker" 2>/dev/null
+        pkill -9 -f "discord_bot" 2>/dev/null
         
         # Kill audio processes
         pkill -9 -f "say " 2>/dev/null
@@ -145,22 +146,31 @@ case "$1" in
                 ;;
             
             status)
-                if [ -f "$MCP_PID_FILE" ]; then
-                    MCP_PID=$(cat "$MCP_PID_FILE")
-                    if kill -0 "$MCP_PID" 2>/dev/null; then
-                        echo "✅ MCP server running (PID: $MCP_PID)"
-                        echo "   URL: http://127.0.0.1:$MCP_PORT/sse"
-                        # Show tool count
-                        TOOLS=$(curl -s "http://127.0.0.1:$MCP_PORT/sse" 2>/dev/null | head -1 || echo "")
-                        if [ -n "$TOOLS" ]; then
-                            echo "   Status: Connected"
-                        fi
+                # Check if port 3000 is listening (most reliable check)
+                if lsof -i :$MCP_PORT -sTCP:LISTEN >/dev/null 2>&1; then
+                    MCP_PID=$(lsof -i :$MCP_PORT -sTCP:LISTEN -t 2>/dev/null | head -1)
+                    echo "✅ MCP SSE server running (PID: $MCP_PID)"
+                    echo "   URL: http://127.0.0.1:$MCP_PORT/sse"
+                    echo "   Mode: Fast SSE (~50ms connection)"
+                    # Show active connections
+                    CONN_COUNT=$(lsof -i :$MCP_PORT 2>/dev/null | grep -c ESTABLISHED 2>/dev/null || true)
+                    if [ -n "$CONN_COUNT" ] && [ "$CONN_COUNT" -gt 0 ] 2>/dev/null; then
+                        echo "   Active connections: $CONN_COUNT"
                     else
-                        echo "❌ MCP server not running (stale PID file)"
-                        rm -f "$MCP_PID_FILE"
+                        echo "   Active connections: 0"
                     fi
                 else
-                    echo "❌ MCP server not running"
+                    echo "❌ MCP SSE server not running on port $MCP_PORT"
+                    echo "   ⚠️  Assistant will use slow subprocess mode (~2s)"
+                    echo ""
+                    echo "   To start: homeassist mcp start"
+                fi
+                # Clean up stale PID file
+                if [ -f "$MCP_PID_FILE" ]; then
+                    OLD_PID=$(cat "$MCP_PID_FILE")
+                    if ! kill -0 "$OLD_PID" 2>/dev/null; then
+                        rm -f "$MCP_PID_FILE"
+                    fi
                 fi
                 ;;
             
@@ -178,6 +188,14 @@ case "$1" in
                 echo "Usage: homeassist mcp [start|stop|status|restart|logs]"
                 ;;
         esac
+        ;;
+    
+    discord)
+        cd "${PROJECT_DIR}"
+        source .env 2>/dev/null
+        source ./venv/bin/activate
+        echo "🤖 Starting Discord bot..."
+        python -u -m discord_bot
         ;;
     
     run)
@@ -249,6 +267,7 @@ case "$1" in
             pkill -9 -f "mpv" 2>/dev/null
             pkill -9 -f "assistant_framework" 2>/dev/null
             pkill -9 -f "openwakeword" 2>/dev/null
+            [ -n "$DISCORD_BOT_PID" ] && kill $DISCORD_BOT_PID 2>/dev/null
             [ -n "$CAFFEINATE_PID" ] && kill $CAFFEINATE_PID 2>/dev/null
             exit 0
         }
@@ -260,6 +279,15 @@ case "$1" in
         echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
         echo ""
         echo "Press Ctrl+C to exit"
+        
+        # Start Discord bot in background (runs independently of voice pipeline)
+        DISCORD_BOT_PID=""
+        if [ -n "$DISCORD_BOT_TOKEN" ]; then
+            source ./venv/bin/activate
+            python -u -m discord_bot > "${PROJECT_DIR}/logs/discord_bot.log" 2>&1 &
+            DISCORD_BOT_PID=$!
+            echo "🤖 Discord bot started (PID: $DISCORD_BOT_PID)"
+        fi
         
         # Main loop
         while true; do
@@ -317,6 +345,7 @@ case "$1" in
         echo "  status     - Show service status"
         echo "  logs       - Show live logs"
         echo "  run        - Run assistant with Bluetooth auto-connect"
+        echo "  discord    - Start the Discord bot (text channel)"
         echo "  install    - Run the service installer"
         echo "  uninstall  - Remove all services"
         echo ""

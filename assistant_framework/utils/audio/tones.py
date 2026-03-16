@@ -13,6 +13,32 @@ import sys
 import threading
 import subprocess
 from shutil import which
+from typing import Optional, Dict
+
+
+# =============================================================================
+# MODULE-LEVEL CACHES (avoid repeated filesystem lookups per beep)
+# =============================================================================
+
+# Cache for which() lookups - these don't change during runtime
+_WHICH_CACHE: Dict[str, Optional[str]] = {}
+
+# Cache for sound file existence checks
+_SOUND_FILE_CACHE: Dict[str, bool] = {}
+
+
+def _cached_which(cmd: str) -> Optional[str]:
+    """Cache which() results to avoid repeated PATH searches."""
+    if cmd not in _WHICH_CACHE:
+        _WHICH_CACHE[cmd] = which(cmd)
+    return _WHICH_CACHE[cmd]
+
+
+def _cached_sound_exists(path: str) -> bool:
+    """Cache os.path.exists() for sound files."""
+    if path not in _SOUND_FILE_CACHE:
+        _SOUND_FILE_CACHE[path] = os.path.exists(path)
+    return _SOUND_FILE_CACHE[path]
 
 
 # Public event-specific helpers
@@ -79,12 +105,12 @@ def _beep_platform(mac_sounds, linux_ids, win_tone) -> None:
         # macOS: prefer system beep via AppleScript (does not touch audio devices)
         if sys.platform == "darwin":
             try:
-                afplay = which("afplay")
+                afplay = _cached_which("afplay")
                 if afplay:
                     for sound in mac_sounds:
                         name = f"{sound}.aiff"
                         candidate = f"/System/Library/Sounds/{name}"
-                        if os.path.exists(candidate):
+                        if _cached_sound_exists(candidate):
                             subprocess.run(
                                 [afplay, candidate],
                                 check=False,
@@ -120,7 +146,7 @@ def _beep_platform(mac_sounds, linux_ids, win_tone) -> None:
 
         for player, args in linux_candidates:
             try:
-                if which(player):
+                if _cached_which(player):
                     subprocess.run(
                         [player, *args],
                         check=False,
@@ -320,17 +346,29 @@ def _beep_impl_tools_complete() -> None:
 # Sounds are configured in assistant_framework/config.py under TRANSITION_SOUNDS.
 # =============================================================================
 
+# Cache for transition config (loaded once on first use)
+_TRANSITION_CONFIG_CACHE: Optional[tuple] = None
+
+
 def _get_transition_config():
-    """Lazy-load transition sound config to avoid circular imports."""
+    """
+    Lazy-load transition sound config to avoid circular imports.
+    Caches the result after first successful load.
+    """
+    global _TRANSITION_CONFIG_CACHE
+    if _TRANSITION_CONFIG_CACHE is not None:
+        return _TRANSITION_CONFIG_CACHE
+    
     try:
         from assistant_framework.config import (
             TRANSITION_SOUNDS,
             TRANSITION_SOUNDS_LINUX,
             TRANSITION_SOUNDS_WINDOWS,
         )
-        return TRANSITION_SOUNDS, TRANSITION_SOUNDS_LINUX, TRANSITION_SOUNDS_WINDOWS
+        _TRANSITION_CONFIG_CACHE = (TRANSITION_SOUNDS, TRANSITION_SOUNDS_LINUX, TRANSITION_SOUNDS_WINDOWS)
+        return _TRANSITION_CONFIG_CACHE
     except ImportError:
-        # Fallback defaults if config not available
+        # Fallback defaults if config not available (don't cache failures)
         return {}, {}, {}
 
 

@@ -118,6 +118,14 @@ The assistant recognizes this needs multiple tools (search → SMS), executes th
 | Tool chaining / iterative tool execution | `gpt-4o-mini` | Fast, cost-effective multi-step tool planning + execution loops |
 | Final answer (after tools) | `gpt-4o-mini` | Compose the final response from tool results |
 
+### Tool Calling Subagent API
+
+The [Tool-Calling Mini](https://github.com/XxMorganxX/Tooling-Calling-Mini) inference server (`https://inference.stuart-labs.com`) exposes a fine-tuned Qwen3 model specialized in tool-call routing for the same 12 tools used by HomeAssist. It accepts natural-language messages via `POST /v1/chat/completions` and returns structured `tool_calls` with extracted arguments — handling tool selection and parameter extraction on-device rather than through OpenAI.
+
+This provides an alternative delegation path for the tool subagent (`tool_subagent_model` in config), where tool-call inference can be routed to the local model instead of `gpt-4o-mini`. Auth uses rotating HMAC-SHA256 API keys (5-minute TTL) from a shared refresh token.
+
+Full API spec: [TOOL_CALLING_MINI_API.md](TOOL_CALLING_MINI_API.md)
+
 ---
 
 ## Project Structure

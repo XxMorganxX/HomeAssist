@@ -18,7 +18,8 @@ This document provides detailed implementation documentation for developers work
 8. [Data Models](#data-models)
 9. [Scheduled Jobs](#scheduled-jobs)
 10. [Error Handling](#error-handling)
-11. [Common Development Tasks](#common-development-tasks)
+11. [Discord Bot](#discord-bot)
+12. [Common Development Tasks](#common-development-tasks)
 
 ---
 
@@ -101,6 +102,11 @@ HomeAssistV3/
 │       ├── weather_client.py     # Open-Meteo API
 │       ├── web_search_client.py  # Google search
 │       └── kasa_lighting_client.py
+│
+├── discord_bot/                  # Discord text channel interface
+│   ├── __main__.py               # Entry point (python -m discord_bot)
+│   ├── bot.py                    # Discord client, message handler, briefing poller
+│   └── text_orchestrator.py      # Lightweight orchestrator (no audio)
 │
 ├── scripts/scheduled/            # Background jobs (GitHub Actions)
 │   ├── scheduled_events.py       # Job runner
@@ -1404,6 +1410,62 @@ except Exception as e:
 
 ---
 
+## Discord Bot
+
+The `discord_bot/` module provides a text-based channel to the assistant, running as a fully separate process from the voice assistant.
+
+### Architecture
+
+```
+discord_bot/
+├── __main__.py            # Entry point: loads .env, initializes orchestrator, starts bot
+├── bot.py                 # HomeAssistBot (discord.Client subclass)
+│   ├── on_message()       # Routes channel messages → TextOrchestrator.run_response()
+│   └── _briefing_loop()   # Background task polling Supabase for pending briefings
+└── text_orchestrator.py   # TextOrchestrator
+    ├── initialize()       # Boots response provider (+ MCP), context, vector memory
+    ├── run_response()     # Returns (response_text, tool_names_used)
+    └── cleanup()          # Shuts down MCP and providers
+```
+
+### TextOrchestrator vs RefactoredOrchestrator
+
+`TextOrchestrator` is a stripped-down orchestrator that reuses the same provider code but skips all audio infrastructure:
+
+| Component | RefactoredOrchestrator | TextOrchestrator |
+|-----------|----------------------|------------------|
+| Response provider (MCP) | Yes | Yes |
+| Context manager | Yes | Yes |
+| Vector memory | Yes | Yes |
+| State machine | Yes | No |
+| Wake word | Yes | No |
+| Transcription | Yes | No |
+| TTS | Yes | No |
+| Barge-in detection | Yes | No |
+| Shared audio bus | Yes | No |
+| Conversation recorder | Yes | No |
+
+### Concurrency
+
+A `asyncio.Lock` serializes calls to `run_response()` so concurrent Discord messages don't interleave context. The briefing poller runs as a separate `asyncio.Task` on the same event loop.
+
+### Environment Variables
+
+| Variable | Required | Description |
+|----------|----------|-------------|
+| `DISCORD_BOT_TOKEN` | Yes | Bot token from Discord Developer Portal |
+| `DISCORD_CHANNEL_ID` | Yes | Numeric channel ID the bot listens in |
+| `DISCORD_BRIEFING_POLL_SECONDS` | No | Briefing poll interval (default: 60) |
+
+### Running
+
+```bash
+homeassist discord          # Via CLI
+python -m discord_bot       # Direct
+```
+
+---
+
 ## Common Development Tasks
 
 ### Running the Assistant
@@ -1606,5 +1668,5 @@ else:
 
 ---
 
-*Last updated: January 12, 2026*
+*Last updated: March 16, 2026*
 

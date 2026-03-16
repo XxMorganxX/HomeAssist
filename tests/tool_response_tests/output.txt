@@ -1,5 +1,6 @@
 MCP Tool Test Results
-Generated: 2026-02-08T00:52:57.669944
+Generated: 2026-02-11T12:34:56.239548
+Model: openai (gpt-4o-mini)
 Total Tests: 1 across 14 categories
 TOOL_SIGNAL_MODE: True
 ======================================================================
@@ -17,10 +18,14 @@ Tests without tools:      0
 TIMING STATISTICS
 ----------------------------------------------------------------------
 Total Response Time:
-  Average:  14734ms
-  Min:      14734ms
-  Max:      14734ms
-Tool Execution Time:  N/A
+  Average:  7566ms
+  Min:      7566ms
+  Max:      7566ms
+Tool Execution Time:
+  Average:  3807ms
+  Min:      3807ms
+  Max:      3807ms
+  Total:    3807ms
 ======================================================================
 
 
@@ -29,11 +34,11 @@ Tool Execution Time:  N/A
 #  Tests: 1
 ######################################################################
 
-TEST 1: What's on my to-do list?
+TEST 1: Add hello world to my to-do list
 ----------------------------------------------------------------------
 
 TIMING:
-  Total time:       14734ms
+  Total time:       7566ms
   Tool execution:   N/A
 
 TOOL SIGNAL FLOW:
@@ -44,82 +49,27 @@ TOOL SIGNAL FLOW:
   Realtime compose:    True
 
 RESPONSE:
-I couldn't access your to-do list right now. Let's try again, or if you have specific tasks in mind, you can share them with me.
+Got it—“hello world” has been added to your to-do list. Anything else you’d like to adjust?
 
-TOOLS USED (3):
+TOOLS USED (1):
 
-  Tool: state_tool
+  Tool: stickies
   Arguments: {
-    "state_type": "stickies",
-    "new_state": "list"
+    "action": "write",
+    "edits": [
+        {
+            "op": "add_todo",
+            "item": "hello world"
+        }
+    ]
 }
   Result:
     {
-        "success": false,
-        "error": "Invalid state_type 'stickies'. Valid options: ['current_spotify_user', 'lighting_scene', 'volume_level', 'do_not_disturb']",
-        "valid_state_types": [
-            "current_spotify_user",
-            "lighting_scene",
-            "volume_level",
-            "do_not_disturb"
-        ]
-    }
-
-  Tool: state_tool
-  Arguments: {
-    "state_type": "stickies",
-    "new_state": ""
-}
-  Result:
-    {
-        "success": false,
-        "error": "Missing required parameters: state_type and new_state are both required",
-        "valid_state_types": [
-            "current_spotify_user",
-            "lighting_scene",
-            "volume_level",
-            "do_not_disturb"
-        ]
-    }
-
-  Tool: calendar_data
-  Arguments: {
-    "commands": []
-}
-  Result:
-    {
-        "success": false,
-        "error": "No commands provided. You must include a 'commands' array with at least one command object.",
-        "example_read": {
-            "commands": [
-                {
-                    "read_or_write": "read",
-                    "read_type": "next_events",
-                    "calendar": "all"
-                }
-            ]
-        },
-        "example_create": {
-            "commands": [
-                {
-                    "read_or_write": "create_event",
-                    "event_title": "Meeting",
-                    "date": "2026-01-23",
-                    "start_time": "14:00",
-                    "end_time": "15:00"
-                }
-            ]
-        },
-        "available_calendars": [
-            "morgan_personal",
-            "morgan_school",
-            "Gen_AI",
-            "homeassist"
+        "success": true,
+        "edits_applied": [
+            "Added to-do: hello world"
         ],
-        "available_actions": [
-            "read",
-            "create_event"
-        ]
+        "updated_content": "My Notes\nHiring\nReceived 18 interview applicants.\n\nTo Do List\n    - Buy deodorant\n    - hello world"
     }
 
 ======================================================================

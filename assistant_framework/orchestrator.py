@@ -5,6 +5,7 @@ Simplified, reliable pipeline execution.
 
 import asyncio
 import os
+import re
 import time
 from collections import deque
 from datetime import datetime
@@ -39,7 +40,11 @@ try:
     from .providers.context import UnifiedContextProvider
     from .providers.termination import IsolatedTerminationProvider
     from .utils.briefing.briefing_manager import BriefingManager
-    from .config import get_active_preset, TERMINATION_DETECTION_CONFIG, ENABLE_TTS_ANNOUNCEMENTS
+    from .config import (
+        get_active_preset, TERMINATION_DETECTION_CONFIG, ENABLE_TTS_ANNOUNCEMENTS,
+        SEND_PHRASES, TERMINATION_PHRASES, PREFIX_TRIM_PHRASES,
+        AUTO_SEND_SILENCE_TIMEOUT, AUTO_SEND_SILENCE_TIMEOUT_DURING_TOOLS, ASSEMBLYAI_CONFIG
+    )
     from .models.data_models import TransitionReason, TransitionContext
     from .utils.audio.tts_announcements import announce_termination, announce_conversation_start, precache_announcements
 except ImportError:
@@ -71,9 +76,50 @@ except ImportError:
     from assistant_framework.providers.context import UnifiedContextProvider
     from assistant_framework.providers.termination import IsolatedTerminationProvider
     from assistant_framework.utils.briefing.briefing_manager import BriefingManager
-    from assistant_framework.config import get_active_preset, TERMINATION_DETECTION_CONFIG, ENABLE_TTS_ANNOUNCEMENTS
+    from assistant_framework.config import (
+        get_active_preset, TERMINATION_DETECTION_CONFIG, ENABLE_TTS_ANNOUNCEMENTS,
+        SEND_PHRASES, TERMINATION_PHRASES, PREFIX_TRIM_PHRASES,
+        AUTO_SEND_SILENCE_TIMEOUT, AUTO_SEND_SILENCE_TIMEOUT_DURING_TOOLS, ASSEMBLYAI_CONFIG
+    )
     from assistant_framework.models.data_models import TransitionReason, TransitionContext
     from assistant_framework.utils.audio.tts_announcements import announce_termination, announce_conversation_start, precache_announcements
+
+
+# =============================================================================
+# MODULE-LEVEL HELPER FUNCTIONS (avoid closure recreation per transcription call)
+# =============================================================================
+
+def _apply_trim_phrases(text: str) -> str:
+    """Apply trim phrases - drop all text before and including the phrase (case insensitive)."""
+    if not text:
+        return text
+    result = text
+    text_lower = text.lower()
+    for trim_phrase in PREFIX_TRIM_PHRASES:
+        trim_lower = trim_phrase.lower()
+        if trim_lower in text_lower:
+            idx = text_lower.rfind(trim_lower)  # Use last occurrence
+            result = text[idx + len(trim_phrase):].strip()
+            text_lower = result.lower()
+            print(f"✂️  Trim phrase '{trim_phrase}' applied - dropped preceding text")
+    return result
+
+
+def _apply_custom_spelling(text: str) -> str:
+    """Apply custom spelling corrections (case-insensitive find-and-replace)."""
+    if not text:
+        return text
+    custom_spelling = ASSEMBLYAI_CONFIG.get("custom_spelling", {})
+    if not custom_spelling:
+        return text
+    result = text
+    for correct, wrong_forms in custom_spelling.items():
+        for wrong in wrong_forms:
+            # Case-insensitive replacement using re (imported at module level)
+            pattern = re.compile(re.escape(wrong), re.IGNORECASE)
+            if pattern.search(result):
+                result = pattern.sub(correct, result)
+    return result
 
 
 class RefactoredOrchestrator:
@@ -170,6 +216,40 @@ class RefactoredOrchestrator:
         # Processing-phase barge-in settings
         self._barge_in_during_processing = barge_in_config.get('enable_during_processing', True)
         self._barge_in_processing_cooldown = float(barge_in_config.get('processing_cooldown', 0.1))
+        
+        # Pre-build BargeInConfig objects to avoid re-creating them every turn
+        # Two variants: one for processing phase (shorter cooldown), one for TTS phase (longer cooldown)
+        self._barge_in_config_processing = BargeInConfig(
+            mode=BargeInMode.ENERGY,
+            energy_threshold=self._barge_in_energy_threshold,
+            min_speech_duration=self._barge_in_min_speech_duration,
+            cooldown_after_tts_start=self._barge_in_processing_cooldown,
+            sample_rate=self._barge_in_sample_rate,
+            chunk_size=self._barge_in_chunk_size,
+            buffer_seconds=self._barge_in_buffer_seconds,
+            capture_after_trigger=self._barge_in_capture_after_trigger,
+            device_index=self._barge_in_device_index,
+            latency=self._barge_in_latency,
+            is_bluetooth=self._barge_in_is_bluetooth,
+            require_consecutive_speech=self._barge_in_require_consecutive,
+            silence_reset_threshold=self._barge_in_silence_reset_threshold,
+        )
+        self._barge_in_config_tts = BargeInConfig(
+            mode=BargeInMode.ENERGY,
+            energy_threshold=self._barge_in_energy_threshold,
+            min_speech_duration=self._barge_in_min_speech_duration,
+            cooldown_after_tts_start=self._barge_in_cooldown_after_tts_start,
+            sample_rate=self._barge_in_sample_rate,
+            chunk_size=self._barge_in_chunk_size,
+            buffer_seconds=self._barge_in_buffer_seconds,
+            capture_after_trigger=self._barge_in_capture_after_trigger,
+            device_index=self._barge_in_device_index,
+            latency=self._barge_in_latency,
+            is_bluetooth=self._barge_in_is_bluetooth,
+            require_consecutive_speech=self._barge_in_require_consecutive,
+            silence_reset_threshold=self._barge_in_silence_reset_threshold,
+        )
+        
         # False barge-in recovery: resume TTS if user doesn't speak after interrupting
         self._barge_in_recovery_enabled = barge_in_config.get('recovery_enabled', True)
         self._barge_in_recovery_timeout = float(barge_in_config.get('recovery_timeout', 4.0))
@@ -224,68 +304,143 @@ class RefactoredOrchestrator:
             start_mcp: Whether to start MCP server (default: True)
         """
         try:
-            print("🚀 Initializing RefactoredOrchestrator...")
-            print("📦 Initializing all providers upfront for stable memory usage...")
+            boot_start = time.perf_counter()
+            
+            def elapsed() -> str:
+                """Return formatted elapsed time since boot started."""
+                return f"[{time.perf_counter() - boot_start:.2f}s]"
+            
+            print(f"🚀 {elapsed()} Initializing RefactoredOrchestrator...")
+            print(f"📦 {elapsed()} Initializing all providers upfront for stable memory usage...")
             
             # Register recovery strategies
             self._register_recovery_strategies()
+            print(f"⏱️  {elapsed()} Recovery strategies registered")
             
-            # Initialize ALL providers upfront (not lazy)
-            # This ensures consistent memory allocation
-            print("\n🔧 Creating wake word provider...")
-            self._wakeword = await self._create_wakeword_provider()
+            # Initialize core providers in PARALLEL for faster boot
+            # Wake word, transcription, TTS, and response (if enabled) have no dependencies
+            print(f"\n🔧 {elapsed()} Creating providers in parallel...")
             
-            print("🔧 Creating transcription provider...")
-            self._transcription = await self._create_transcription_provider()
+            async def create_wakeword():
+                start = time.perf_counter()
+                print(f"🔧 {elapsed()} Creating wake word provider...")
+                result = await self._create_wakeword_provider()
+                print(f"✅ {elapsed()} Wake word provider ready ({time.perf_counter() - start:.2f}s)")
+                return result
             
-            if start_mcp:
-                print("🔧 Creating response provider (starts MCP server)...")
-                self._response = await self._create_response_provider()
+            async def create_transcription():
+                start = time.perf_counter()
+                print(f"🔧 {elapsed()} Creating transcription provider...")
+                result = await self._create_transcription_provider()
+                print(f"✅ {elapsed()} Transcription provider ready ({time.perf_counter() - start:.2f}s)")
+                return result
             
-            print("🔧 Creating TTS provider...")
-            self._tts = await self._create_tts_provider()
+            async def create_tts():
+                start = time.perf_counter()
+                print(f"🔧 {elapsed()} Creating TTS provider...")
+                result = await self._create_tts_provider()
+                print(f"✅ {elapsed()} TTS provider ready ({time.perf_counter() - start:.2f}s)")
+                return result
+            
+            async def create_response():
+                if start_mcp:
+                    start = time.perf_counter()
+                    print(f"🔧 {elapsed()} Creating response provider (starts MCP server)...")
+                    result = await self._create_response_provider()
+                    print(f"✅ {elapsed()} Response provider ready ({time.perf_counter() - start:.2f}s)")
+                    return result
+                return None
+            
+            # Run all four provider creations in parallel
+            parallel_start = time.perf_counter()
+            wakeword_result, transcription_result, tts_result, response_result = await asyncio.gather(
+                create_wakeword(),
+                create_transcription(),
+                create_tts(),
+                create_response(),
+                return_exceptions=True
+            )
+            print(f"⏱️  {elapsed()} Parallel provider init complete ({time.perf_counter() - parallel_start:.2f}s wall time)")
+            
+            # Handle results (raise if any critical provider failed)
+            if isinstance(wakeword_result, Exception):
+                raise wakeword_result
+            self._wakeword = wakeword_result
+            
+            if isinstance(transcription_result, Exception):
+                raise transcription_result
+            self._transcription = transcription_result
+            
+            if isinstance(tts_result, Exception):
+                raise tts_result
+            self._tts = tts_result
+            
+            if isinstance(response_result, Exception):
+                raise response_result
+            self._response = response_result
             
             # Pass TTS provider to response provider for tool call announcements
+            # (must happen after both are created)
             if self._response and hasattr(self._response, 'set_tts_provider'):
                 self._response.set_tts_provider(self._tts)
             
+            # Create and inject tool routing provider
+            try:
+                tool_routing = await self._create_tool_routing_provider()
+                if tool_routing and self._response and hasattr(self._response, 'set_tool_routing_provider'):
+                    self._response.set_tool_routing_provider(tool_routing)
+                    print(f"✅ {elapsed()} Tool routing provider injected: {type(tool_routing).__name__}")
+            except Exception as e:
+                print(f"⚠️ {elapsed()} Tool routing provider failed (falling back to inline): {e}")
+            
             # Pre-cache TTS announcements for instant playback
             if ENABLE_TTS_ANNOUNCEMENTS and self._tts:
+                precache_start = time.perf_counter()
                 # Get tool names from response provider for tool announcement caching
                 tool_names = None
                 if self._response and hasattr(self._response, 'available_tools'):
                     tool_names = list(self._response.available_tools.keys())
                 await precache_announcements(self._tts, tool_names)
+                print(f"⏱️  {elapsed()} TTS announcements pre-cached ({time.perf_counter() - precache_start:.2f}s)")
             
             # Run remaining initialization in PARALLEL for faster boot
             # - Termination detection (~1-2s, loads ONNX model)
             # - Conversation recorder (~0.1s)
             # - Vector memory (~0.3s)
+            print(f"\n🔧 {elapsed()} Starting secondary initialization (parallel)...")
+            secondary_start = time.perf_counter()
+            
             async def init_termination():
                 if self._termination_enabled:
-                    print("🔧 Creating termination detection provider...")
-                    return await self._create_termination_provider()
+                    start = time.perf_counter()
+                    print(f"🔧 {elapsed()} Creating termination detection provider...")
+                    result = await self._create_termination_provider()
+                    print(f"✅ {elapsed()} Termination detection ready ({time.perf_counter() - start:.2f}s)")
+                    return result
                 return None
             
             async def init_recorder():
                 if self._recording_enabled and self._supabase_url and self._supabase_key:
-                    print("🔧 Initializing conversation recorder...")
+                    start = time.perf_counter()
+                    print(f"🔧 {elapsed()} Initializing conversation recorder...")
                     recorder = ConversationRecorder(
                         supabase_url=self._supabase_url,
                         supabase_key=self._supabase_key
                     )
                     await recorder.initialize()
+                    print(f"✅ {elapsed()} Conversation recorder ready ({time.perf_counter() - start:.2f}s)")
                     return recorder
                 return None
             
             async def init_vector_memory():
                 if self._context and hasattr(self._context, 'initialize_vector_memory'):
-                    print("🔧 Initializing vector memory...")
+                    start = time.perf_counter()
+                    print(f"🔧 {elapsed()} Initializing vector memory...")
                     success = await self._context.initialize_vector_memory()
                     if success:
-                        print("✅ Vector memory initialized")
+                        print(f"✅ {elapsed()} Vector memory initialized ({time.perf_counter() - start:.2f}s)")
                     else:
-                        print("⚠️  Vector memory initialization failed (continuing without)")
+                        print(f"⚠️  {elapsed()} Vector memory initialization failed (continuing without)")
                     return success
                 return False
             
@@ -296,23 +451,27 @@ class RefactoredOrchestrator:
                 init_vector_memory(),
                 return_exceptions=True
             )
+            print(f"⏱️  {elapsed()} Secondary init complete ({time.perf_counter() - secondary_start:.2f}s wall time)")
             
             # Handle results
             if isinstance(termination_result, Exception):
-                print(f"⚠️  Termination detection failed: {termination_result}")
+                print(f"⚠️  {elapsed()} Termination detection failed: {termination_result}")
             else:
                 self._termination = termination_result
             
             if isinstance(recorder_result, Exception):
-                print(f"⚠️  Conversation recorder failed: {recorder_result}")
+                print(f"⚠️  {elapsed()} Conversation recorder failed: {recorder_result}")
             else:
                 self._recorder = recorder_result
             
             # Register cleanup handlers with state machine (CRITICAL for preventing segfaults)
             self._register_cleanup_handlers()
+            print(f"⏱️  {elapsed()} Cleanup handlers registered")
             
             self.is_initialized = True
-            print("\n✅ All providers initialized and ready")
+            total_boot = time.perf_counter() - boot_start
+            print(f"\n✅ {elapsed()} All providers initialized and ready")
+            print(f"🏁 Total boot time: {total_boot:.2f}s")
             print("💡 Providers will be reused across conversations (cleanup on transitions)")
             # Note: beep_wake_model_ready() plays when wake word detection actually starts
             log_boot()  # 📡 Remote console log
@@ -677,6 +836,42 @@ class RefactoredOrchestrator:
         await provider.initialize()
         return provider
     
+    async def _create_tool_routing_provider(self):
+        """
+        Create tool routing provider (called once at startup).
+        
+        Falls back to OpenAI if the configured provider (e.g. self-hosted
+        Tool-Calling Mini) fails health check or initialization.
+        """
+        from .factory import ProviderFactory
+        from .config import OPENAI_TOOL_ROUTING_CONFIG
+        if 'tool_routing' not in self.config:
+            return None
+        
+        routing_cfg = self.config['tool_routing']
+        provider_name = routing_cfg.get('provider', 'openai')
+        
+        provider_config = {'tool_routing': routing_cfg}
+        providers = ProviderFactory.create_all_providers(provider_config)
+        provider = providers.get('tool_routing')
+        
+        if provider:
+            success = await provider.initialize()
+            if success:
+                return provider
+            print(f"⚠️ Tool routing provider '{provider_name}' failed initialization")
+        
+        if provider_name != 'openai':
+            print(f"🔄 Falling back to OpenAI tool routing provider")
+            try:
+                fallback = ProviderFactory.create_tool_routing_provider('openai', OPENAI_TOOL_ROUTING_CONFIG)
+                if await fallback.initialize():
+                    return fallback
+            except Exception as fb_err:
+                print(f"⚠️ OpenAI fallback also failed: {fb_err}")
+        
+        return None
+    
     async def _create_termination_provider(self) -> Optional[TerminationInterface]:
         """
         Create termination detection provider (called once at startup).
@@ -853,42 +1048,6 @@ class RefactoredOrchestrator:
             else:
                 print("🎤 Starting fresh transcription (no barge-in prefill)")
             
-            # Get send phrases from config
-            from .config import SEND_PHRASES, TERMINATION_PHRASES, PREFIX_TRIM_PHRASES, AUTO_SEND_SILENCE_TIMEOUT, AUTO_SEND_SILENCE_TIMEOUT_DURING_TOOLS
-            
-            def apply_trim_phrases(text: str) -> str:
-                """Apply trim phrases - drop all text before and including the phrase (case insensitive)."""
-                if not text:
-                    return text
-                result = text
-                text_lower = text.lower()
-                for trim_phrase in PREFIX_TRIM_PHRASES:
-                    trim_lower = trim_phrase.lower()
-                    if trim_lower in text_lower:
-                        idx = text_lower.rfind(trim_lower)  # Use last occurrence
-                        result = text[idx + len(trim_phrase):].strip()
-                        text_lower = result.lower()
-                        print(f"✂️  Trim phrase '{trim_phrase}' applied - dropped preceding text")
-                return result
-            
-            def apply_custom_spelling(text: str) -> str:
-                """Apply custom spelling corrections (case-insensitive find-and-replace)."""
-                if not text:
-                    return text
-                from .config import ASSEMBLYAI_CONFIG
-                custom_spelling = ASSEMBLYAI_CONFIG.get("custom_spelling", {})
-                if not custom_spelling:
-                    return text
-                result = text
-                for correct, wrong_forms in custom_spelling.items():
-                    for wrong in wrong_forms:
-                        # Case-insensitive replacement using re
-                        import re
-                        pattern = re.compile(re.escape(wrong), re.IGNORECASE)
-                        if pattern.search(result):
-                            result = pattern.sub(correct, result)
-                return result
-            
             # Use extended timeout if requested (e.g., after tool calls)
             effective_timeout = AUTO_SEND_SILENCE_TIMEOUT_DURING_TOOLS if use_extended_timeout else AUTO_SEND_SILENCE_TIMEOUT
             
@@ -1004,13 +1163,12 @@ class RefactoredOrchestrator:
                                 print(f"✅ Send phrase detected in final: '{send_phrase}'")
                                 beep_send_detected()  # 🔔 Send phrase sound
                                 # Remove the send phrase from the accumulated text (case-insensitive)
-                                import re
                                 pattern = re.compile(re.escape(send_phrase), re.IGNORECASE)
                                 cleaned_text = pattern.sub("", accumulated_text).strip()
                                 # Clean up extra spaces
                                 cleaned_text = " ".join(cleaned_text.split())
                                 # Apply trim phrases and custom spelling before returning
-                                cleaned_text = apply_custom_spelling(apply_trim_phrases(cleaned_text))
+                                cleaned_text = _apply_custom_spelling(_apply_trim_phrases(cleaned_text))
                                 return cleaned_text if cleaned_text else None
                         
                         # Check for termination phrases
@@ -1034,12 +1192,11 @@ class RefactoredOrchestrator:
                                 print(f"⚡ Send phrase detected in partial: '{send_phrase}' (instant send!)")
                                 beep_send_detected()  # 🔔 Send phrase sound
                                 # Remove the send phrase
-                                import re
                                 pattern = re.compile(re.escape(send_phrase), re.IGNORECASE)
                                 cleaned_text = pattern.sub("", full_text).strip()
                                 cleaned_text = " ".join(cleaned_text.split())
                                 # Apply trim phrases and custom spelling before returning
-                                cleaned_text = apply_custom_spelling(apply_trim_phrases(cleaned_text))
+                                cleaned_text = _apply_custom_spelling(_apply_trim_phrases(cleaned_text))
                                 return cleaned_text if cleaned_text else None
                         
                         # Check for termination phrases in partial
@@ -1055,7 +1212,7 @@ class RefactoredOrchestrator:
                         print(f"⏱️  Auto-sending after {effective_timeout:.0f}s of silence...")
                         beep_send_detected()  # 🔔 Send phrase sound
                         # Apply trim phrases and custom spelling before returning
-                        return apply_custom_spelling(apply_trim_phrases(accumulated_text))
+                        return _apply_custom_spelling(_apply_trim_phrases(accumulated_text))
                     continue
                     
                 except StopAsyncIteration:
@@ -1074,7 +1231,7 @@ class RefactoredOrchestrator:
             
             # If stream ends naturally without send phrase, return accumulated text
             # Apply trim phrases and custom spelling before returning
-            final_text = apply_custom_spelling(apply_trim_phrases(accumulated_text)) if accumulated_text else None
+            final_text = _apply_custom_spelling(_apply_trim_phrases(accumulated_text)) if accumulated_text else None
             return final_text if final_text else None
             
         except Exception as e:
@@ -1210,22 +1367,9 @@ class RefactoredOrchestrator:
                 bt_mode = " [Bluetooth/Meta]" if self._barge_in_is_bluetooth else ""
                 print(f"👂 Barge-in enabled during response generation{bt_mode}")
                 
+                # Use pre-built config for processing phase (shorter cooldown)
                 self._barge_in_detector = BargeInDetector(
-                    config=BargeInConfig(
-                        mode=BargeInMode.ENERGY,
-                        energy_threshold=self._barge_in_energy_threshold,
-                        min_speech_duration=self._barge_in_min_speech_duration,
-                        cooldown_after_tts_start=self._barge_in_processing_cooldown,
-                        sample_rate=self._barge_in_sample_rate,
-                        chunk_size=self._barge_in_chunk_size,
-                        buffer_seconds=self._barge_in_buffer_seconds,
-                        capture_after_trigger=self._barge_in_capture_after_trigger,
-                        device_index=self._barge_in_device_index,
-                        latency=self._barge_in_latency,
-                        is_bluetooth=self._barge_in_is_bluetooth,
-                        require_consecutive_speech=self._barge_in_require_consecutive,
-                        silence_reset_threshold=self._barge_in_silence_reset_threshold,
-                    ),
+                    config=self._barge_in_config_processing,
                     shared_bus=self._shared_audio_bus,
                 )
                 
@@ -1473,22 +1617,9 @@ class RefactoredOrchestrator:
                 bt_mode = " [Bluetooth/Meta]" if self._barge_in_is_bluetooth else ""
                 bus_status = "running" if (self._shared_audio_bus and self._shared_audio_bus.is_running) else "not running"
                 print(f"👂 Barge-in enabled{bt_mode} - speak to interrupt (shared bus: {bus_status})")
+                # Use pre-built config for TTS phase (longer cooldown)
                 self._barge_in_detector = BargeInDetector(
-                    config=BargeInConfig(
-                        mode=BargeInMode.ENERGY,
-                        energy_threshold=self._barge_in_energy_threshold,
-                        min_speech_duration=self._barge_in_min_speech_duration,
-                        cooldown_after_tts_start=self._barge_in_cooldown_after_tts_start,
-                        sample_rate=self._barge_in_sample_rate,
-                        chunk_size=self._barge_in_chunk_size,
-                        buffer_seconds=self._barge_in_buffer_seconds,
-                        capture_after_trigger=self._barge_in_capture_after_trigger,
-                        device_index=self._barge_in_device_index,
-                        latency=self._barge_in_latency,
-                        is_bluetooth=self._barge_in_is_bluetooth,
-                        require_consecutive_speech=self._barge_in_require_consecutive,
-                        silence_reset_threshold=self._barge_in_silence_reset_threshold,
-                    ),
+                    config=self._barge_in_config_tts,
                     shared_bus=self._shared_audio_bus,
                 )
                 print(
@@ -1745,30 +1876,17 @@ class RefactoredOrchestrator:
             if enable_barge_in and self._barge_in_enabled:
                 bt_mode = " [Bluetooth/Meta]" if self._barge_in_is_bluetooth else ""
                 
-                # Determine cooldown: shorter during processing (no TTS feedback), longer during TTS
-                initial_cooldown = (
-                    self._barge_in_processing_cooldown 
+                # Use pre-built config: processing (shorter cooldown) or TTS (longer cooldown)
+                barge_in_config = (
+                    self._barge_in_config_processing 
                     if self._barge_in_during_processing 
-                    else self._barge_in_cooldown_after_tts_start
+                    else self._barge_in_config_tts
                 )
+                initial_cooldown = barge_in_config.cooldown_after_tts_start
                 
                 print(f"👂 Barge-in will be enabled{bt_mode}")
                 self._barge_in_detector = BargeInDetector(
-                    config=BargeInConfig(
-                        mode=BargeInMode.ENERGY,
-                        energy_threshold=self._barge_in_energy_threshold,
-                        min_speech_duration=self._barge_in_min_speech_duration,
-                        cooldown_after_tts_start=initial_cooldown,
-                        sample_rate=self._barge_in_sample_rate,
-                        chunk_size=self._barge_in_chunk_size,
-                        buffer_seconds=self._barge_in_buffer_seconds,
-                        capture_after_trigger=self._barge_in_capture_after_trigger,
-                        device_index=self._barge_in_device_index,
-                        latency=self._barge_in_latency,
-                        is_bluetooth=self._barge_in_is_bluetooth,
-                        require_consecutive_speech=self._barge_in_require_consecutive,
-                        silence_reset_threshold=self._barge_in_silence_reset_threshold,
-                    ),
+                    config=barge_in_config,
                     shared_bus=self._shared_audio_bus,
                 )
                 print(

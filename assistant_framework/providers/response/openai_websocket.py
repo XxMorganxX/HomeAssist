@@ -91,7 +91,7 @@ class OpenAIWebSocketResponseProvider(ResponseInterface):
         # Composed tool calling configuration
         self.composed_tool_calling_enabled = config.get('composed_tool_calling_enabled', False)
         self.max_tool_iterations = config.get('max_tool_iterations', 5)
-        self.tool_subagent_model = config.get('tool_subagent_model', 'o4-mini')
+        self.tool_subagent_model = config.get('tool_subagent_model', 'gpt-4o-mini')
         
         # State management
         self.mcp_session = None
@@ -112,6 +112,8 @@ class OpenAIWebSocketResponseProvider(ResponseInterface):
         
         # TTS provider for tool call announcements (set by orchestrator)
         self._tts_provider = None
+        # Tool routing provider (set by orchestrator); when None, falls back to inline logic
+        self._tool_routing_provider = None
     
     def _sanitize_output(self, text: str) -> str:
         """Remove emojis from output text."""
@@ -159,6 +161,25 @@ class OpenAIWebSocketResponseProvider(ResponseInterface):
             tts_provider: Initialized TTS provider instance
         """
         self._tts_provider = tts_provider
+    
+    @property
+    def _routing_label(self) -> str:
+        """Human-readable name for the active tool routing backend."""
+        if self._tool_routing_provider:
+            return type(self._tool_routing_provider).__name__
+        return f"inline/{self.tool_subagent_model}"
+    
+    def set_tool_routing_provider(self, tool_routing_provider) -> None:
+        """
+        Inject an external tool routing provider.
+        
+        When set, _orchestrate_tools / _orchestrate_from_signal / _iterative_tool_execution
+        delegate tool selection to this provider instead of making inline OpenAI API calls.
+        
+        Args:
+            tool_routing_provider: Initialized ToolRoutingInterface instance
+        """
+        self._tool_routing_provider = tool_routing_provider
     
     async def _initialize_mcp(self):
         """Initialize MCP connection and discover tools.
@@ -1579,11 +1600,10 @@ class OpenAIWebSocketResponseProvider(ResponseInterface):
         context: List[Dict[str, Any]],
     ) -> tuple:
         """
-        Hand off to o4-mini for full tool orchestration.
+        Orchestrate tool selection, execution, and response composition.
         
-        The realtime model signaled that tools are needed. o4-mini receives
-        the full user message and conversation context to decide what tools
-        to call and with what parameters.
+        Tool selection is delegated to the injected ToolRoutingInterface
+        provider. If none is set, falls back to inline OpenAI API calls.
         
         Args:
             user_message: Original user message
@@ -1593,133 +1613,78 @@ class OpenAIWebSocketResponseProvider(ResponseInterface):
             Tuple of (final_text, tool_calls)
         """
         try:
+            routing = self._routing_label
             print("\n" + "="*60)
-            print("🎯 [Tool Orchestration] Starting")
+            print(f"🎯 [Tool Orchestration] Starting  (router: {routing})")
             print("="*60)
             print(f"   User message: {user_message[:100]}...")
             print(f"   Context messages: {len(context)}")
             
-            # Get the orchestration prompt template
-            orchestration_prompt = TOOL_SUBAGENT_CONFIG.get("tool_orchestration_prompt", "")
-            if not orchestration_prompt:
-                print("⚠️ [Tool Orchestration] No orchestration prompt found in config!")
+            # --- Phase A: Route tool calls via provider ---
+            phase_a_start = time.time()
             
-            # Format the prompt with just the user message
-            formatted_prompt = orchestration_prompt.format(user_message=user_message)
-            print(f"📝 [Tool Orchestration] Prompt length: {len(formatted_prompt)} chars")
+            if self._tool_routing_provider:
+                routed_calls = await self._tool_routing_provider.route(
+                    user_message=user_message,
+                    context=context,
+                    available_tools=self.openai_functions,
+                )
+            else:
+                routed_calls = await self._inline_route_tools(user_message, context)
             
-            # Use o4-mini to determine and execute tool calls
-            client = self.openai_client
-            if not client:
-                from openai import AsyncOpenAI
-                client = AsyncOpenAI(api_key=self.api_key)
+            if not routed_calls:
+                print("⚠️ [Tool Orchestration] No tool calls returned")
+                return "I couldn't determine what tool to use.", []
             
-            # Build the tools list for o4-mini
-            tools = []
-            for func in self.openai_functions:
-                tools.append({
-                    "type": "function",
-                    "function": {
-                        "name": func.get("name"),
-                        "description": func.get("description"),
-                        "parameters": func.get("parameters", {"type": "object", "properties": {}})
-                    }
-                })
-            print(f"🔧 [Tool Orchestration] Available tools: {[t['function']['name'] for t in tools]}")
+            print(f"🔧 [Tool Orchestration] Executing {len(routed_calls)} tool call(s) via {routing}")
             
-            # Build messages with conversation history for full context
-            messages = [
-                {"role": "system", "content": formatted_prompt},
-            ]
+            # Execute the routed tool calls
+            tools_exec_start = time.time()
+            all_tool_calls = []
+            for i, tc in enumerate(routed_calls):
+                print(f"🔧 Tool {i+1}: {tc.name}")
+                print(f"   Args: {json.dumps(tc.arguments, indent=2)[:300]}")
+                tc.result = await self.execute_tool(tc.name, tc.arguments)
+                result_preview = str(tc.result)[:200] if tc.result else "(empty)"
+                print(f"   Result: {result_preview}...")
+                all_tool_calls.append(tc)
             
-            # Add recent conversation history
-            for msg in context[-10:]:
-                role = msg.get("role", "user")
-                content = msg.get("content", "")
-                if content and role in ("user", "assistant"):
-                    messages.append({"role": role, "content": content})
+            phase_a_ms = int((time.time() - phase_a_start) * 1000)
+            print(f"⏱️ [TIMING] phase_a_initial_tools_ms={phase_a_ms}")
             
-            # Add the current user message
-            messages.append({"role": "user", "content": user_message})
+            # --- Phase B: Handoff context extraction ---
+            phase_b_start = time.time()
+            handoff = self._extract_handoff_context(user_message, context)
+            phase_b_ms = int((time.time() - phase_b_start) * 1000)
+            print(f"⏱️ [TIMING] phase_b_handoff_ms={phase_b_ms}")
             
-            # Use gpt-4o-mini for orchestration - fast and reliable with tool calling
-            # (o4-mini reasoning model doesn't work well with tool_choice="required")
-            orchestration_model = "gpt-4o-mini"
+            # --- Phase C: Iterative tool check loop ---
+            phase_c_start = time.time()
+            _ONE_SHOT_TOOLS = {"google_search", "calendar_data"}
+            all_one_shot = all(tc.name in _ONE_SHOT_TOOLS for tc in all_tool_calls)
             
-            print(f"🔄 [Tool Orchestration] Calling {orchestration_model} with {len(messages)} messages...")
-            print("   Tool choice: required")
-            
-            # Force tool calling
-            orch_api_start = time.time()
-            result = await client.chat.completions.create(
-                model=orchestration_model,
-                messages=messages,
-                tools=tools if tools else None,
-                tool_choice="required",
-                max_tokens=500,
+            can_iterate = (
+                self.composed_tool_calling_enabled
+                and len(all_tool_calls) > 0
+                and not all_one_shot
             )
-            orch_api_ms = int((time.time() - orch_api_start) * 1000)
-            print(f"⏱️ [TIMING] orchestration_api_ms={orch_api_ms}")
+            if self._tool_routing_provider and not self._tool_routing_provider.supports_iterative_routing:
+                can_iterate = False
             
-            # Track token usage
-            if result and result.usage:
-                usage = result.usage
-                self._composition_input_tokens += usage.prompt_tokens or 0
-                self._composition_output_tokens += usage.completion_tokens or 0
-                print(f"📊 [Tool Orchestration] API: +{usage.prompt_tokens or 0} in, +{usage.completion_tokens or 0} out")
-            
-            choice = result.choices[0] if result and result.choices else None
-            if not choice:
-                print("❌ [Tool Orchestration] No choice in API response")
-                return "I couldn't process that request.", []
-            
-            # Execute the tool calls
-            if choice.message.tool_calls:
-                print(f"🔧 [Tool Orchestration] Executing {len(choice.message.tool_calls)} tool call(s)")
-                
-                tools_exec_start = time.time()
-                all_tool_calls = []
-                
-                # --- Phase A: Execute initial tool calls from orchestration ---
-                phase_a_start = time.time()
-                for i, tc in enumerate(choice.message.tool_calls):
-                    try:
-                        args = json.loads(tc.function.arguments) if tc.function.arguments else {}
-                    except json.JSONDecodeError as e:
-                        print(f"⚠️ [Tool Orchestration] JSON parse error for {tc.function.name}: {e}")
-                        args = {}
-                    
-                    print(f"🔧 Tool {i+1}: {tc.function.name}")
-                    print(f"   Args: {json.dumps(args, indent=2)[:300]}")
-                    
-                    tool_call = ToolCall(name=tc.function.name, arguments=args)
-                    tool_call.result = await self.execute_tool(tc.function.name, args)
-                    
-                    result_preview = str(tool_call.result)[:200] if tool_call.result else "(empty)"
-                    print(f"   Result: {result_preview}...")
-                    
-                    all_tool_calls.append(tool_call)
-                phase_a_ms = int((time.time() - phase_a_start) * 1000)
-                print(f"⏱️ [TIMING] phase_a_initial_tools_ms={phase_a_ms}")
-                
-                # --- Phase B: Handoff context extraction ---
-                phase_b_start = time.time()
-                handoff = self._extract_handoff_context(user_message, context)
-                phase_b_ms = int((time.time() - phase_b_start) * 1000)
-                print(f"⏱️ [TIMING] phase_b_handoff_ms={phase_b_ms}")
-                
-                # Tools that are blocked from further calls in _check_for_additional_tools.
-                # Iterative checking is futile for these because any follow-up calls get rejected.
-                _ONE_SHOT_TOOLS = {"stickies", "google_search", "calendar_data"}
-                all_one_shot = all(tc.name in _ONE_SHOT_TOOLS for tc in all_tool_calls)
-                
-                # --- Phase C: Iterative tool check loop ---
-                phase_c_start = time.time()
-                # Skip when all executed tools are one-shot (the loop would just waste API calls)
-                if self.composed_tool_calling_enabled and len(all_tool_calls) > 0 and not all_one_shot:
-                    iteration = 1
-                    while iteration < self.max_tool_iterations:
-                        iter_start = time.time()
+            if can_iterate:
+                iteration = 1
+                while iteration < self.max_tool_iterations:
+                    iter_start = time.time()
+                    if self._tool_routing_provider:
+                        more_calls = await self._tool_routing_provider.check_additional_tools(
+                            user_message=user_message,
+                            tool_calls_so_far=all_tool_calls,
+                            context=context,
+                            available_tools=self.openai_functions,
+                            handoff=handoff,
+                        )
+                        more_tools = [{"name": tc.name, "arguments": tc.arguments} for tc in more_calls]
+                    else:
                         more_tools = await self._check_for_additional_tools(
                             user_message=user_message,
                             context=context,
@@ -1729,61 +1694,121 @@ class OpenAIWebSocketResponseProvider(ResponseInterface):
                             max_iterations=self.max_tool_iterations,
                             handoff=handoff,
                         )
-                        iter_ms = int((time.time() - iter_start) * 1000)
-                        
-                        if not more_tools:
-                            print(f"✅ [Tool Orchestration] No more tools needed (check took {iter_ms}ms)")
-                            break
-                        
-                        iteration += 1
-                        print(f"🔄 [Tool Orchestration] Iteration {iteration}: {[t['name'] for t in more_tools]} (check took {iter_ms}ms)")
-                        
-                        for fc in more_tools:
-                            tool_call = ToolCall(name=fc["name"], arguments=fc.get("arguments", {}))
-                            tool_call.result = await self.execute_tool(fc["name"], fc.get("arguments", {}))
-                            all_tool_calls.append(tool_call)
-                elif all_one_shot:
-                    print(f"⚡ [Tool Orchestration] Skipping iterative check — all tools are one-shot: {[tc.name for tc in all_tool_calls]}")
-                phase_c_ms = int((time.time() - phase_c_start) * 1000)
-                print(f"⏱️ [TIMING] phase_c_iterative_check_ms={phase_c_ms}")
-                
-                # Log total tool execution time
-                tools_exec_ms = int((time.time() - tools_exec_start) * 1000)
-                print(f"⏱️ [TIMING] tool_execution_ms={tools_exec_ms} (tools={phase_a_ms}ms + handoff={phase_b_ms}ms + iterative={phase_c_ms}ms)")
-                
-                # Play tools complete sound
-                from assistant_framework.utils.audio.tones import beep_tools_complete
-                beep_tools_complete()
-                
-                # Send tool results back to realtime model for final response
-                print("📝 [Tool Orchestration] Sending tool results to realtime for final response...")
-                compose_start = time.time()
-                final_text = await self._realtime_compose_response(
-                    user_message=user_message,
-                    context=context,
-                    tool_calls=all_tool_calls,
-                )
-                compose_ms = int((time.time() - compose_start) * 1000)
-                print(f"⏱️ [TIMING] realtime_compose_ms={compose_ms}")
-                
-                print("\n" + "="*60)
-                print("✅ [Tool Orchestration] Complete")
-                print("="*60)
-                print(f"   Final response: {final_text[:150]}...")
-                print(f"   Total tool calls: {len(all_tool_calls)}")
-                
-                return final_text, all_tool_calls
-            else:
-                # Shouldn't happen with tool_choice="required", but handle it
-                content = choice.message.content or "I couldn't determine what tool to use."
-                print(f"⚠️ [Tool Orchestration] No tool calls returned: {content[:100]}")
-                return content, []
+                    iter_ms = int((time.time() - iter_start) * 1000)
+                    
+                    if not more_tools:
+                        print(f"✅ [Tool Orchestration] No more tools needed (check took {iter_ms}ms)")
+                        break
+                    
+                    iteration += 1
+                    print(f"🔄 [Tool Orchestration] Iteration {iteration}: {[t['name'] for t in more_tools]} (check took {iter_ms}ms)")
+                    
+                    for fc in more_tools:
+                        tool_call = ToolCall(name=fc["name"], arguments=fc.get("arguments", {}))
+                        tool_call.result = await self.execute_tool(fc["name"], fc.get("arguments", {}))
+                        all_tool_calls.append(tool_call)
+            elif all_one_shot:
+                print(f"⚡ [Tool Orchestration] Skipping iterative check — all tools are one-shot: {[tc.name for tc in all_tool_calls]}")
+            phase_c_ms = int((time.time() - phase_c_start) * 1000)
+            print(f"⏱️ [TIMING] phase_c_iterative_check_ms={phase_c_ms}")
+            
+            # Log total tool execution time
+            tools_exec_ms = int((time.time() - tools_exec_start) * 1000)
+            print(f"⏱️ [TIMING] tool_execution_ms={tools_exec_ms} (tools={phase_a_ms}ms + handoff={phase_b_ms}ms + iterative={phase_c_ms}ms)")
+            
+            # Play tools complete sound
+            from assistant_framework.utils.audio.tones import beep_tools_complete
+            beep_tools_complete()
+            
+            # Send tool results back to realtime model for final response
+            print("📝 [Tool Orchestration] Sending tool results to realtime for final response...")
+            compose_start = time.time()
+            final_text = await self._realtime_compose_response(
+                user_message=user_message,
+                context=context,
+                tool_calls=all_tool_calls,
+            )
+            compose_ms = int((time.time() - compose_start) * 1000)
+            print(f"⏱️ [TIMING] realtime_compose_ms={compose_ms}")
+            
+            print("\n" + "="*60)
+            print(f"✅ [Tool Orchestration] Complete  (router: {routing})")
+            print("="*60)
+            print(f"   Final response: {final_text[:150]}...")
+            print(f"   Total tool calls: {len(all_tool_calls)}")
+            
+            return final_text, all_tool_calls
                 
         except Exception as e:
             print(f"❌ [Tool Orchestration] Failed: {e}")
             import traceback
             traceback.print_exc()
             return "Sorry, I couldn't complete that request.", []
+    
+    async def _inline_route_tools(
+        self,
+        user_message: str,
+        context: List[Dict[str, Any]],
+    ) -> List[ToolCall]:
+        """Fallback: inline OpenAI routing when no tool routing provider is set."""
+        orchestration_prompt = TOOL_SUBAGENT_CONFIG.get("tool_orchestration_prompt", "")
+        formatted_prompt = orchestration_prompt.format(user_message=user_message)
+        
+        client = self.openai_client
+        if not client:
+            from openai import AsyncOpenAI
+            client = AsyncOpenAI(api_key=self.api_key)
+        
+        tools = []
+        for func in self.openai_functions:
+            tools.append({
+                "type": "function",
+                "function": {
+                    "name": func.get("name"),
+                    "description": func.get("description"),
+                    "parameters": func.get("parameters", {"type": "object", "properties": {}})
+                }
+            })
+        
+        messages = [{"role": "system", "content": formatted_prompt}]
+        for msg in context[-10:]:
+            role = msg.get("role", "user")
+            content = msg.get("content", "")
+            if content and role in ("user", "assistant"):
+                messages.append({"role": role, "content": content})
+        messages.append({"role": "user", "content": user_message})
+        
+        orchestration_model = self.tool_subagent_model
+        print(f"🔄 [Tool Orchestration] Inline fallback: {orchestration_model} with {len(messages)} messages, tool_choice=required")
+        
+        orch_api_start = time.time()
+        result = await client.chat.completions.create(
+            model=orchestration_model,
+            messages=messages,
+            tools=tools if tools else None,
+            tool_choice="required",
+            max_completion_tokens=1000,
+        )
+        orch_api_ms = int((time.time() - orch_api_start) * 1000)
+        print(f"⏱️ [TIMING] orchestration_api_ms={orch_api_ms}")
+        
+        if result and result.usage:
+            usage = result.usage
+            self._composition_input_tokens += usage.prompt_tokens or 0
+            self._composition_output_tokens += usage.completion_tokens or 0
+        
+        choice = result.choices[0] if result and result.choices else None
+        if not choice or not choice.message.tool_calls:
+            return []
+        
+        tool_calls: List[ToolCall] = []
+        for tc in choice.message.tool_calls:
+            try:
+                args = json.loads(tc.function.arguments) if tc.function.arguments else {}
+            except json.JSONDecodeError:
+                args = {}
+            tool_calls.append(ToolCall(name=tc.function.name, arguments=args))
+        return tool_calls
     
     async def _realtime_compose_response(
         self,
@@ -2036,10 +2061,10 @@ class OpenAIWebSocketResponseProvider(ResponseInterface):
         context: List[Dict[str, Any]],
     ) -> tuple:
         """
-        Take a tool signal from realtime and orchestrate full tool execution via o4-mini.
+        Take a tool signal from realtime and orchestrate full tool execution.
         
-        This is the core of tool signal mode - o4-mini determines exact parameters
-        from the intent signal and user message, then executes the tool(s).
+        Delegates tool selection to the injected ToolRoutingInterface provider
+        when available, otherwise falls back to inline OpenAI calls.
         
         Args:
             signal: Parsed tool signal with 'tool', 'intent', 'context', 'is_write'
@@ -2050,8 +2075,9 @@ class OpenAIWebSocketResponseProvider(ResponseInterface):
             Tuple of (final_text, tool_calls)
         """
         try:
+            routing = self._routing_label
             print("\n" + "="*60)
-            print("🎯 [Signal Orchestration] Starting")
+            print(f"🎯 [Signal Orchestration] Starting  (router: {routing})")
             print("="*60)
             print(f"   Signal tool: {signal['tool']}")
             print(f"   Signal intent: {signal['intent']}")
@@ -2059,129 +2085,61 @@ class OpenAIWebSocketResponseProvider(ResponseInterface):
             print(f"   Is write operation: {signal.get('is_write', False)}")
             print(f"   User message: {user_message[:100]}...")
             
-            # Get the orchestration prompt template
-            orchestration_prompt = TOOL_SUBAGENT_CONFIG.get("tool_orchestration_prompt", "")
-            if not orchestration_prompt:
-                print("⚠️ [Signal Orchestration] No orchestration prompt found in config!")
+            # --- Route tool calls ---
+            if self._tool_routing_provider:
+                routed_calls = await self._tool_routing_provider.route(
+                    user_message=user_message,
+                    context=context,
+                    available_tools=self.openai_functions,
+                )
+            else:
+                routed_calls = await self._inline_route_from_signal(signal, user_message, context)
             
-            # Format the prompt with signal info
-            formatted_prompt = orchestration_prompt.format(
-                user_message=user_message,
-                tool_intent=signal["intent"],
-                key_info=signal["context"],
+            if not routed_calls:
+                print("ℹ️ [Signal Orchestration] No tool calls returned")
+                return "Done.", []
+            
+            # --- Execute tool calls ---
+            all_tool_calls = []
+            for i, tc in enumerate(routed_calls):
+                print(f"🔧 [Signal Orchestration] Tool {i+1}: {tc.name}")
+                print(f"   Arguments: {json.dumps(tc.arguments, indent=2)[:500]}")
+                tc.result = await self.execute_tool(tc.name, tc.arguments)
+                result_preview = str(tc.result)[:300] if tc.result else "(empty)"
+                print(f"   Result preview: {result_preview}...")
+                all_tool_calls.append(tc)
+            
+            # Extract handoff context for voice/style continuity
+            handoff = self._extract_handoff_context(user_message, context)
+            print(f"📋 [Signal Orchestration] Handoff context: tone={handoff.tone}, style={handoff.response_style}")
+            
+            # --- Iterative tool check ---
+            _ONE_SHOT_TOOLS = {"google_search", "calendar_data"}
+            all_one_shot = all(tc.name in _ONE_SHOT_TOOLS for tc in all_tool_calls)
+            
+            can_iterate = (
+                self.composed_tool_calling_enabled
+                and len(all_tool_calls) > 0
+                and not all_one_shot
             )
-            print(f"📝 [Signal Orchestration] Formatted prompt length: {len(formatted_prompt)} chars")
+            if self._tool_routing_provider and not self._tool_routing_provider.supports_iterative_routing:
+                can_iterate = False
             
-            # Use o4-mini to determine exact tool parameters and execute
-            client = self.openai_client
-            if not client:
-                from openai import AsyncOpenAI
-                client = AsyncOpenAI(api_key=self.api_key)
-            
-            # Build the tools list for o4-mini
-            # Prioritize the signaled tool but include all tools for flexibility
-            signaled_tool_name = signal["tool"]
-            tools = []
-            signaled_tool_found = False
-            
-            for func in self.openai_functions:
-                tool_entry = {
-                    "type": "function",
-                    "function": {
-                        "name": func.get("name"),
-                        "description": func.get("description"),
-                        "parameters": func.get("parameters", {"type": "object", "properties": {}})
-                    }
-                }
-                # Check if this is the signaled tool
-                if func.get("name") == signaled_tool_name:
-                    signaled_tool_found = True
-                tools.append(tool_entry)
-            
-            print(f"🔧 [Signal Orchestration] Available tools: {[t['function']['name'] for t in tools]}")
-            print(f"   Signaled tool '{signaled_tool_name}' found: {signaled_tool_found}")
-            
-            # Build messages with conversation history for context
-            messages = [
-                {"role": "system", "content": formatted_prompt},
-            ]
-            
-            # Add recent conversation history (last 5 exchanges max)
-            for msg in context[-10:]:
-                role = msg.get("role", "user")
-                content = msg.get("content", "")
-                if content and role in ("user", "assistant"):
-                    messages.append({"role": role, "content": content})
-            
-            # Add the current user message
-            messages.append({"role": "user", "content": user_message})
-            
-            print(f"🔄 [Signal Orchestration] Calling {self.tool_subagent_model} with {len(messages)} messages...")
-            print("   Tool choice: required (forcing tool call)")
-            
-            # Force tool calling with tool_choice="required"
-            result = await client.chat.completions.create(
-                model=self.tool_subagent_model,
-                messages=messages,
-                tools=tools if tools else None,
-                tool_choice="required",  # FORCE tool calling - don't allow text-only response
-                max_completion_tokens=500,
-            )
-            
-            # Track token usage
-            if result and result.usage:
-                usage = result.usage
-                self._composition_input_tokens += usage.prompt_tokens or 0
-                self._composition_output_tokens += usage.completion_tokens or 0
-                print(f"📊 [Signal Orchestration] API tokens: +{usage.prompt_tokens or 0} in, +{usage.completion_tokens or 0} out")
-            
-            choice = result.choices[0] if result and result.choices else None
-            if not choice:
-                print("❌ [Signal Orchestration] No choice in API response")
-                return "I couldn't process that request.", []
-            
-            # Check if o4-mini wants to call tools
-            if choice.message.tool_calls:
-                print(f"🔧 [Signal Orchestration] o4-mini returned {len(choice.message.tool_calls)} tool call(s)")
-                
-                # Execute the tool calls
-                all_tool_calls = []
-                
-                for i, tc in enumerate(choice.message.tool_calls):
-                    try:
-                        args = json.loads(tc.function.arguments) if tc.function.arguments else {}
-                    except json.JSONDecodeError as e:
-                        print(f"⚠️ [Signal Orchestration] Failed to parse args for {tc.function.name}: {e}")
-                        args = {}
-                    
-                    print(f"🔧 [Signal Orchestration] Tool {i+1}: {tc.function.name}")
-                    print(f"   Arguments: {json.dumps(args, indent=2)[:500]}")
-                    
-                    tool_call = ToolCall(name=tc.function.name, arguments=args)
-                    tool_call.result = await self.execute_tool(tc.function.name, args)
-                    
-                    # Log result summary
-                    result_preview = str(tool_call.result)[:300] if tool_call.result else "(empty)"
-                    print(f"   Result preview: {result_preview}...")
-                    
-                    all_tool_calls.append(tool_call)
-                
-                # Extract handoff context for voice/style continuity
-                handoff = self._extract_handoff_context(user_message, context)
-                print(f"📋 [Signal Orchestration] Handoff context: tone={handoff.tone}, style={handoff.response_style}")
-                
-                # Tools that are blocked from further calls in _check_for_additional_tools.
-                _ONE_SHOT_TOOLS = {"stickies", "google_search", "calendar_data"}
-                all_one_shot = all(tc.name in _ONE_SHOT_TOOLS for tc in all_tool_calls)
-                
-                # Check if we need more tools (iterative execution)
-                # Skip when all executed tools are one-shot (the loop would just waste API calls)
-                if self.composed_tool_calling_enabled and len(all_tool_calls) > 0 and not all_one_shot:
-                    print(f"🔄 [Signal Orchestration] Checking for additional tools (max {self.max_tool_iterations} iterations)")
-                    # Check for additional tools needed
-                    iteration = 1
-                    while iteration < self.max_tool_iterations:
-                        iter_start = time.time()
+            if can_iterate:
+                print(f"🔄 [Signal Orchestration] Checking for additional tools (max {self.max_tool_iterations} iterations)")
+                iteration = 1
+                while iteration < self.max_tool_iterations:
+                    iter_start = time.time()
+                    if self._tool_routing_provider:
+                        more_calls = await self._tool_routing_provider.check_additional_tools(
+                            user_message=user_message,
+                            tool_calls_so_far=all_tool_calls,
+                            context=context,
+                            available_tools=self.openai_functions,
+                            handoff=handoff,
+                        )
+                        more_tools = [{"name": tc.name, "arguments": tc.arguments} for tc in more_calls]
+                    else:
                         more_tools = await self._check_for_additional_tools(
                             user_message=user_message,
                             context=context,
@@ -2191,56 +2149,117 @@ class OpenAIWebSocketResponseProvider(ResponseInterface):
                             max_iterations=self.max_tool_iterations,
                             handoff=handoff,
                         )
-                        iter_ms = int((time.time() - iter_start) * 1000)
-                        
-                        if not more_tools:
-                            print(f"✅ [Signal Orchestration] No more tools needed after iteration {iteration} ({iter_ms}ms)")
-                            break
-                        
-                        iteration += 1
-                        print(f"🔄 [Signal Iteration {iteration}] Additional tools: {[t['name'] for t in more_tools]} ({iter_ms}ms)")
-                        
-                        for fc in more_tools:
-                            tool_call = ToolCall(name=fc["name"], arguments=fc.get("arguments", {}))
-                            tool_call.result = await self.execute_tool(fc["name"], fc.get("arguments", {}))
-                            all_tool_calls.append(tool_call)
-                elif all_one_shot:
-                    print(f"⚡ [Signal Orchestration] Skipping iterative check — all tools are one-shot: {[tc.name for tc in all_tool_calls]}")
-                
-                # Play tools complete sound
-                from assistant_framework.utils.audio.tones import beep_tools_complete
-                beep_tools_complete()
-                
-                print(f"📝 [Signal Orchestration] Composing final response from {len(all_tool_calls)} tool call(s)")
-                
-                # Compose final response using LLM with full tool results
-                final_text = await self._compose_final_answer(
-                    user_message=user_message,
-                    context=context,
-                    tool_calls=all_tool_calls,
-                    pre_text="",
-                    instructions="",
-                    handoff=handoff,
-                )
-                
-                print("\n" + "="*60)
-                print("✅ [Signal Orchestration] Complete")
-                print("="*60)
-                print(f"   Final response: {final_text[:200]}...")
-                print(f"   Total tool calls: {len(all_tool_calls)}")
-                
-                return final_text, all_tool_calls
-            else:
-                # o4-mini decided no tool was needed - return its response
-                content = choice.message.content or "Done."
-                print(f"ℹ️ [Signal Orchestration] o4-mini chose not to call tools, responding: {content[:100]}")
-                return content, []
+                    iter_ms = int((time.time() - iter_start) * 1000)
+                    
+                    if not more_tools:
+                        print(f"✅ [Signal Orchestration] No more tools needed after iteration {iteration} ({iter_ms}ms)")
+                        break
+                    
+                    iteration += 1
+                    print(f"🔄 [Signal Iteration {iteration}] Additional tools: {[t['name'] for t in more_tools]} ({iter_ms}ms)")
+                    
+                    for fc in more_tools:
+                        tool_call = ToolCall(name=fc["name"], arguments=fc.get("arguments", {}))
+                        tool_call.result = await self.execute_tool(fc["name"], fc.get("arguments", {}))
+                        all_tool_calls.append(tool_call)
+            elif all_one_shot:
+                print(f"⚡ [Signal Orchestration] Skipping iterative check — all tools are one-shot: {[tc.name for tc in all_tool_calls]}")
+            
+            # Play tools complete sound
+            from assistant_framework.utils.audio.tones import beep_tools_complete
+            beep_tools_complete()
+            
+            print(f"📝 [Signal Orchestration] Composing final response from {len(all_tool_calls)} tool call(s)")
+            
+            # Compose final response using LLM with full tool results
+            final_text = await self._compose_final_answer(
+                user_message=user_message,
+                context=context,
+                tool_calls=all_tool_calls,
+                pre_text="",
+                instructions="",
+                handoff=handoff,
+            )
+            
+            print("\n" + "="*60)
+            print(f"✅ [Signal Orchestration] Complete  (router: {routing})")
+            print("="*60)
+            print(f"   Final response: {final_text[:200]}...")
+            print(f"   Total tool calls: {len(all_tool_calls)}")
+            
+            return final_text, all_tool_calls
                 
         except Exception as e:
             print(f"❌ Signal orchestration failed: {e}")
             import traceback
             traceback.print_exc()
             return "Sorry, I couldn't complete that request.", []
+    
+    async def _inline_route_from_signal(
+        self,
+        signal: Dict[str, str],
+        user_message: str,
+        context: List[Dict[str, Any]],
+    ) -> List[ToolCall]:
+        """Fallback: inline OpenAI routing from a tool signal when no routing provider is set."""
+        orchestration_prompt = TOOL_SUBAGENT_CONFIG.get("tool_orchestration_prompt", "")
+        formatted_prompt = orchestration_prompt.format(
+            user_message=user_message,
+            tool_intent=signal["intent"],
+            key_info=signal["context"],
+        )
+        
+        client = self.openai_client
+        if not client:
+            from openai import AsyncOpenAI
+            client = AsyncOpenAI(api_key=self.api_key)
+        
+        tools = []
+        for func in self.openai_functions:
+            tools.append({
+                "type": "function",
+                "function": {
+                    "name": func.get("name"),
+                    "description": func.get("description"),
+                    "parameters": func.get("parameters", {"type": "object", "properties": {}})
+                }
+            })
+        
+        messages = [{"role": "system", "content": formatted_prompt}]
+        for msg in context[-10:]:
+            role = msg.get("role", "user")
+            content = msg.get("content", "")
+            if content and role in ("user", "assistant"):
+                messages.append({"role": role, "content": content})
+        messages.append({"role": "user", "content": user_message})
+        
+        print(f"🔄 [Signal Orchestration] Inline fallback: {self.tool_subagent_model} with {len(messages)} messages")
+        
+        result = await client.chat.completions.create(
+            model=self.tool_subagent_model,
+            messages=messages,
+            tools=tools if tools else None,
+            tool_choice="required",
+            max_completion_tokens=500,
+        )
+        
+        if result and result.usage:
+            usage = result.usage
+            self._composition_input_tokens += usage.prompt_tokens or 0
+            self._composition_output_tokens += usage.completion_tokens or 0
+        
+        choice = result.choices[0] if result and result.choices else None
+        if not choice or not choice.message.tool_calls:
+            return []
+        
+        tool_calls: List[ToolCall] = []
+        for tc in choice.message.tool_calls:
+            try:
+                args = json.loads(tc.function.arguments) if tc.function.arguments else {}
+            except json.JSONDecodeError:
+                args = {}
+            tool_calls.append(ToolCall(name=tc.function.name, arguments=args))
+        return tool_calls
 
     # =========================================================================
     # HANDOFF CONTEXT EXTRACTION
@@ -2437,14 +2456,10 @@ class OpenAIWebSocketResponseProvider(ResponseInterface):
         instructions: str = ""
     ) -> tuple:
         """
-        Execute tools iteratively, allowing the AI to chain multiple tools for multi-step tasks.
+        Execute tools iteratively, allowing the AI to chain multiple tools.
         
-        This enables composed tool calling where the AI can:
-        1. Extract handoff context (intent, tone, style)
-        2. Execute initial tools
-        3. Review results and decide if more tools are needed
-        4. Continue until the task is complete or max iterations reached
-        5. Compose final answer using handoff context for voice continuity
+        Delegates the "are more tools needed?" decision to the injected
+        ToolRoutingInterface provider when available.
         
         Args:
             user_message: The user's original message
@@ -2457,26 +2472,37 @@ class OpenAIWebSocketResponseProvider(ResponseInterface):
         """
         all_tool_calls = list(initial_tool_calls)
         iteration = 1
+        routing = self._routing_label
         
-        # Extract handoff context for subagent communication
-        # This happens once at the start and is passed to all subagent calls
         handoff = self._extract_handoff_context(user_message, context)
         print(f"📋 Handoff context: intent='{handoff.user_intent[:50]}...', tone={handoff.tone}, style={handoff.response_style}")
         
-        print(f"🔄 [Iteration {iteration}/{self.max_tool_iterations}] Initial tools executed: {[tc.name for tc in initial_tool_calls]}")
+        print(f"🔄 [Iteration {iteration}/{self.max_tool_iterations}] Initial tools executed: {[tc.name for tc in initial_tool_calls]} (router: {routing})")
         
-        # Check if we should try for more tools
-        while iteration < self.max_tool_iterations:
-            # Ask the AI if more tools are needed given the current results
-            more_tools = await self._check_for_additional_tools(
-                user_message=user_message,
-                context=context,
-                tool_calls_so_far=all_tool_calls,
-                instructions=instructions,
-                iteration=iteration,
-                max_iterations=self.max_tool_iterations,
-                handoff=handoff,
-            )
+        can_iterate = True
+        if self._tool_routing_provider and not self._tool_routing_provider.supports_iterative_routing:
+            can_iterate = False
+        
+        while can_iterate and iteration < self.max_tool_iterations:
+            if self._tool_routing_provider:
+                more_calls = await self._tool_routing_provider.check_additional_tools(
+                    user_message=user_message,
+                    tool_calls_so_far=all_tool_calls,
+                    context=context,
+                    available_tools=self.openai_functions,
+                    handoff=handoff,
+                )
+                more_tools = [{"name": tc.name, "arguments": tc.arguments} for tc in more_calls]
+            else:
+                more_tools = await self._check_for_additional_tools(
+                    user_message=user_message,
+                    context=context,
+                    tool_calls_so_far=all_tool_calls,
+                    instructions=instructions,
+                    iteration=iteration,
+                    max_iterations=self.max_tool_iterations,
+                    handoff=handoff,
+                )
             
             if not more_tools:
                 print(f"✅ [Iteration {iteration}] No more tools needed, composing final answer")
@@ -2485,7 +2511,6 @@ class OpenAIWebSocketResponseProvider(ResponseInterface):
             iteration += 1
             print(f"🔄 [Iteration {iteration}/{self.max_tool_iterations}] AI requested additional tools: {[t['name'] for t in more_tools]}")
             
-            # Execute the new tools
             async def execute_one(fc):
                 tool_call = ToolCall(name=fc["name"], arguments=fc.get("arguments", {}))
                 tool_call.result = await self.execute_tool(fc["name"], fc.get("arguments", {}))
@@ -2499,12 +2524,9 @@ class OpenAIWebSocketResponseProvider(ResponseInterface):
         if iteration >= self.max_tool_iterations:
             print(f"⚠️ Max tool iterations ({self.max_tool_iterations}) reached")
         
-        # Play tools complete sound - all tool iterations are done
         from assistant_framework.utils.audio.tones import beep_tools_complete
         beep_tools_complete()
         
-        # Generate a simple, fast summary instead of calling o4-mini for composition
-        # This is better for voice UX - concise confirmations are preferred
         final_text = self._generate_tool_response_summary(all_tool_calls, user_message, handoff)
         print(f"📝 Tool response summary: {final_text}")
         
@@ -2684,9 +2706,17 @@ class OpenAIWebSocketResponseProvider(ResponseInterface):
             messages: List[Dict[str, Any]] = []
             
             # Build list of successful actions for clearer context
+            # Note: stickies read is NOT "completed" if user wanted write - allow follow-up write
             success_note = ""
-            if successful_tools:
-                success_note = f"\n\n⚠️ ALREADY COMPLETED: {', '.join(successful_tools)} executed successfully. Do NOT call these again."
+            stickies_read_done = any(
+                tc and tc.name == "stickies" and tc.arguments and tc.arguments.get("action") == "read"
+                for tc in tool_calls_so_far
+            )
+            non_stickies_successful = [t for t in successful_tools if t != "stickies"]
+            if non_stickies_successful:
+                success_note = f"\n\n⚠️ ALREADY COMPLETED: {', '.join(non_stickies_successful)} executed successfully. Do NOT call these again."
+            if stickies_read_done:
+                success_note += "\n\n📝 STICKIES READ COMPLETED - if user wanted to add/remove/edit, you MUST now call stickies with action='write'."
             
             # Build iteration status message
             iteration_note = f"ITERATION: {iteration}/{max_iterations}"
@@ -2784,10 +2814,36 @@ class OpenAIWebSocketResponseProvider(ResponseInterface):
                         print(f"🚫 Blocking google_search - search already completed in this request")
                         continue
                     
-                    # Block additional stickies if one was already executed
-                    if tc.function.name == "stickies" and stickies_already_done:
-                        print(f"🚫 Blocking stickies - notes already accessed in this request")
-                        continue
+                    # Stickies: MAX 2 calls total (read→write or just write)
+                    if tc.function.name == "stickies":
+                        # Count stickies in current batch
+                        stickies_in_batch = sum(1 for t in additional_tools if t["name"] == "stickies")
+                        
+                        if stickies_already_done:
+                            # Check what stickies calls were already done
+                            stickies_calls = [t for t in tool_calls_so_far if t and t.name == "stickies"]
+                            had_write = any(t.arguments and t.arguments.get("action") == "write" for t in stickies_calls)
+                            had_read = any(t.arguments and t.arguments.get("action") == "read" for t in stickies_calls)
+                            this_is_write = args.get("action") == "write"
+                            
+                            # Block if write was already done (max 2 calls reached)
+                            if had_write:
+                                print(f"🚫 Blocking stickies - write already done, max calls reached")
+                                continue
+                            # Block if we already have a stickies call in this batch
+                            if stickies_in_batch > 0:
+                                print(f"🚫 Blocking stickies - one already in batch")
+                                continue
+                            # Allow write after read (the only valid second call)
+                            if had_read and this_is_write:
+                                print(f"✅ Allowing stickies write after read (read→write flow)")
+                            else:
+                                print(f"🚫 Blocking stickies - invalid sequence")
+                                continue
+                        elif stickies_in_batch > 0:
+                            # First stickies already in batch, block duplicates
+                            print(f"🚫 Blocking stickies - one already in batch")
+                            continue
                     
                     additional_tools.append({
                         "name": tc.function.name,

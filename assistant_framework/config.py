@@ -44,20 +44,40 @@ TOOL_SIGNAL_MODE = os.getenv("TOOL_SIGNAL_MODE", "true").lower() in ("true", "1"
 # SECTION 0C: DYNAMIC USER CONFIG
 # =============================================================================
 
-def _get_primary_user() -> str:
+# Module-level cache for app_state.json to avoid redundant file reads
+_APP_STATE_CACHE: Optional[dict] = None
+
+
+def _load_app_state() -> dict:
     """
-    Get the primary user from app_state.json.
-    Falls back to "User" if not configured yet.
+    Load app_state.json once and cache it.
+    Returns the full user_state dict, or empty dict if not available.
     """
+    global _APP_STATE_CACHE
+    if _APP_STATE_CACHE is not None:
+        return _APP_STATE_CACHE
+    
     state_file = Path(__file__).parent.parent / "state_management" / "app_state.json"
     try:
         if state_file.exists():
             with open(state_file, 'r') as f:
                 data = json.load(f)
-                return data.get("user_state", {}).get("primary_user", "User")
+                _APP_STATE_CACHE = data.get("user_state", {})
+                return _APP_STATE_CACHE
     except Exception:
         pass
-    return "User"
+    _APP_STATE_CACHE = {}
+    return _APP_STATE_CACHE
+
+
+def _get_primary_user() -> str:
+    """
+    Get the primary user from app_state.json.
+    Falls back to "User" if not configured yet.
+    Uses cached app state to avoid redundant file reads.
+    """
+    user_state = _load_app_state()
+    return user_state.get("primary_user", "User")
 
 
 # Cache the primary user at import time (can be refreshed)
@@ -108,6 +128,7 @@ RESPONSE_PROVIDER = "openai_websocket"
 TTS_PROVIDER = "openai_tts"  # Options: "google_tts", "local_tts", "chatterbox", "piper", "openai_tts"
 CONTEXT_PROVIDER = "unified"
 WAKEWORD_PROVIDER = "openwakeword"
+TOOL_ROUTING_PROVIDER = "tool_calling_mini"  # Options: "tool_calling_mini" (default), "openai" (fallback)
 
 
 # =============================================================================
@@ -348,20 +369,16 @@ def build_system_prompt(config: dict) -> str:
 # =============================================================================
 
 def _get_user_context() -> dict:
-    """Get user context from app_state.json for system prompt."""
-    state_file = Path(__file__).parent.parent / "state_management" / "app_state.json"
-    context = {"current_user": PRIMARY_USER, "nicknames": [], "household_members": []}
-    try:
-        if state_file.exists():
-            with open(state_file, 'r') as f:
-                data = json.load(f)
-                user_state = data.get("user_state", {})
-                context["current_user"] = user_state.get("primary_user", PRIMARY_USER)
-                context["nicknames"] = user_state.get("nicknames", [])
-                context["household_members"] = user_state.get("household_members", [])
-    except Exception:
-        pass
-    return context
+    """
+    Get user context from app_state.json for system prompt.
+    Uses cached app state to avoid redundant file reads.
+    """
+    user_state = _load_app_state()
+    return {
+        "current_user": user_state.get("primary_user", PRIMARY_USER),
+        "nicknames": user_state.get("nicknames", []),
+        "household_members": user_state.get("household_members", [])
+    }
 
 
 # Get user context for system prompt
@@ -500,7 +517,17 @@ SYSTEM_PROMPT_CONFIG = {
       "Any question that asks to learn or read the news or headlines -> TOOL\n"
       "Any question that asks to read an email -> TOOL\n"
       "Any question pertaining to controlling house lights -> TOOL\n"
-      "Any question about desktop notes, notes, to-do list, sticky notes, stickies, or what the user wrote down -> TOOL\n"""
+      "Any question about desktop notes, notes, to-do list, sticky notes, stickies, or what the user wrote down -> TOOL\n"
+      "STICKIES - ALWAYS say TOOL for any action verb + to-do/notes/stickies:\n"
+      "  'add X to my to-do list' -> TOOL\n"
+      "  'remove X from my to-do list' -> TOOL\n"
+      "  'remove the greeting from my to-do' -> TOOL\n"
+      "  'delete X from my notes' -> TOOL\n"
+      "  'update my notes to say X' -> TOOL\n"
+      "  'read my stickies' -> TOOL\n"
+      "  'what's on my to-do list' -> TOOL\n"
+      "ONLY exception: bare 'edit my notes' with ZERO specifics -> ask what to change.\n"
+      "ANY action verb (add/remove/delete/update/read/check) + notes/to-do = TOOL. No exceptions.\n"""
     )
   },
 
@@ -550,9 +577,9 @@ SYSTEM_PROMPT = build_system_prompt(SYSTEM_PROMPT_CONFIG)
 # OpenAI Realtime API configuration
 OPENAI_WS_CONFIG = {
     "api_key": os.getenv("OPENAI_API_KEY"),
-    "model": "gpt-4o-mini-realtime-preview",
+    "model": "gpt-realtime-mini",
     "max_tokens": 1000,  # Reduced for concise responses (1-3 sentences ideal)
-    "temperature": 0.725,  # Higher for more natural, varied responses
+    "temperature": 0.655,  # Higher for more natural, varied responses
     "recency_bias_prompt": (
         "Focus your answer on the user's latest message. Use prior conversation only to disambiguate if explicitly referenced. "
         "Do not revisit earlier topics or add unrelated callbacks to past discussion unless the user asks. "
@@ -566,7 +593,7 @@ OPENAI_WS_CONFIG = {
     "composed_tool_calling_enabled": True,
     "max_tool_iterations": 5,  # Maximum rounds of tool calls to prevent infinite loops
     # Model for tool subagent (iterative tool planning + final answer composition)
-    # Options: "gpt-4o-mini" (fast, cheap), "o4-mini" (reasoning, slower but smarter)
+    # Options: "gpt-5-mini" (best reasoning/speed), "gpt-4o" (reliable), "gpt-4o-mini" (fast, cheap)
     "tool_subagent_model": os.getenv("TOOL_SUBAGENT_MODEL", "gpt-4o-mini"),
 }
 
@@ -601,7 +628,7 @@ CALENDAR NAME MAPPINGS (use these exact keys when calling calendar_data):
 DEFAULT CALENDAR: When creating events and the user does not specify which calendar, always use "morgan_personal".
 
 TOOL ROUTING (match keywords to tools):
-- "desktop notes", "my notes", "to-do list", "sticky notes", "stickies" -> stickies tool (action: list/read/write)
+- "desktop notes", "my notes", "to-do list", "sticky notes", "stickies" -> stickies tool (read uses section, write uses edits; no markdown)
 - Calendar, schedule, events, appointments -> calendar_data
 - Weather, temperature, forecast -> weather
 - Lights, lighting, brightness -> kasa_lighting
@@ -617,7 +644,15 @@ RULES:
 3. Never call the same tool with identical arguments twice - duplicates are forbidden
 4. CALENDAR: Only ONE calendar_data call per request. If calendar_data was already called to create an event, do NOT call it again
 5. CALENDAR ARGUMENTS: calendar_data requires a 'commands' array with at least one command object. Use the calendar keys above (e.g., "morgan_personal"), not the aliases.
-6. STICKIES: Only ONE stickies call per request. If stickies was already called, do NOT call it again. Use action="list" to see all notes first.
+6. STICKIES (MAX 2 CALLS):
+   - If stickies read was done → call write with edits, then DONE
+   - If stickies write was done → DONE (never call stickies again)
+   - ADD: add_todo needs "item", add_note needs "subheading"+"content"
+   - EDIT: edit_todo and edit_note need "old"+"new"
+   - REMOVE: remove_todo and remove_note need "match"
+   - Example add: {{"action":"write","edits":[{{"op":"add_todo","item":"Buy milk"}}]}}
+   - Example edit: {{"action":"write","edits":[{{"op":"edit_todo","old":"buy milk","new":"buy eggs"}}]}}
+   - Example combined: {{"action":"write","edits":[{{"op":"add_note","subheading":"Call","content":"Went well."}},{{"op":"add_todo","item":"Follow up"}}]}}
 7. If ALL parts of the user's request are fulfilled, respond with: DONE
 8. If there are unfulfilled parts, call the appropriate tool(s) to complete them
 {success_note}
@@ -670,20 +705,63 @@ TOOL ROUTING (use these mappings):
 - Clipboard/what I copied -> read_clipboard
 - System info/how do you work/capabilities -> system_info
 
-CRITICAL - STICKIES TOOL (for user's desktop notes/to-do list):
-- Use stickies when user asks about "desktop notes", "notes", "to-do list", "sticky notes", or "what I wrote down"
-- Only ONE stickies call per request - do not call it multiple times
-- action="list" -> get all note IDs (call this FIRST to see what notes exist)
-- action="read" with sticky_id -> read a specific note's content
-- action="write" with sticky_id and content -> update a note
-- This is NOT calendar_data. This is NOT state_tool. This is the stickies tool.
+STICKIES TOOL (desktop notes/to-do list):
+- MAX 2 CALLS: read then write, OR just write. Never more than 2.
+- REMOVE/EDIT: read first, then write
+- ADD: write directly
+- READ: read only
+
+OPERATIONS:
+- add_note: Add content to notes section. Requires "subheading" and "content".
+- add_todo: Add item to to-do list. Requires "item".
+- edit_note: Modify existing note content. Requires "old" (text to find) and "new" (replacement).
+- edit_todo: Modify existing to-do item. Requires "old" (text to find) and "new" (replacement).
+- remove_todo: Remove from to-do list. Requires "match".
+- remove_note: Remove from notes. Requires "match".
+
+EXAMPLES:
+"add hello world to my to-do list" -> {{"action":"write","edits":[{{"op":"add_todo","item":"hello world"}}]}}
+"update notes to say call went well" -> {{"action":"write","edits":[{{"op":"add_note","subheading":"Call","content":"Call went well."}}]}}
+"remove milk from to-do" -> {{"action":"write","edits":[{{"op":"remove_todo","match":"milk"}}]}}
+"change buy milk to buy eggs" -> {{"action":"write","edits":[{{"op":"edit_todo","old":"buy milk","new":"buy eggs"}}]}}
+"change the hiring note to say 20 applicants" -> {{"action":"write","edits":[{{"op":"edit_note","old":"18 interview applicants","new":"20 interview applicants"}}]}}
+"add note about meeting and add groceries to to-do" -> {{"action":"write","edits":[{{"op":"add_note","subheading":"Meeting","content":"Team sync at 3pm."}},{{"op":"add_todo","item":"Buy groceries"}}]}}
+
+Use "op" field to specify operation. Use "item" for add_todo, "subheading"+"content" for add_note, "old"+"new" for edits.
 
 CALENDAR DEFAULTS (only for calendar_data, NOT for notes):
 - Read operations: use calendar="all" to search all calendars
 - Write operations: use calendar="morgan_personal" as default
 - Calendar keys: "morgan_personal", "morgan_school", "Gen_AI", "homeassist", "all"
 
-You MUST call at least one tool. Do not respond with text.""",
+You MUST call at least one tool. Do not respond with text. NEVER ask clarifying questions.""",
+}
+
+
+# =============================================================================
+# SECTION 4C: TOOL ROUTING PROVIDER CONFIGURATIONS
+# =============================================================================
+
+OPENAI_TOOL_ROUTING_CONFIG = {
+    "api_key": os.getenv("OPENAI_API_KEY"),
+    "tool_subagent_model": os.getenv("TOOL_SUBAGENT_MODEL", "gpt-4o-mini"),
+    "max_tool_iterations": 5,
+}
+
+TOOL_CALLING_MINI_CONFIG = {
+    "base_url": os.getenv("TOOL_CALLING_MINI_URL", "https://inference.stuart-labs.com"),
+    "refresh_token": os.getenv("INFERENCE_REFRESH_TOKEN", ""),
+    "enable_thinking": False,
+    "execute_tools": False,
+    "timeout": 120,
+    "generation": {
+        "max_tokens": 512,
+        "temperature": 0.6,
+        "top_p": 0.95,
+        "top_k": 20,
+        "min_p": 0.0,
+        "repeat_penalty": 1.0,
+    },
 }
 
 
@@ -1360,7 +1438,7 @@ def get_framework_config() -> Dict[str, Any]:
                 wakeword_config["threshold"] = bt_default
             print(f"   Using Bluetooth wake word thresholds: {bluetooth_thresholds}")
         else:
-            print(f"   ⚠️  Bluetooth device detected but no bluetooth_model_thresholds configured")
+            print("   ⚠️  Bluetooth device detected but no bluetooth_model_thresholds configured")
     
     # Update barge-in config with device-specific settings
     barge_in_config = BARGE_IN_CONFIG.copy()
@@ -1401,6 +1479,10 @@ def get_framework_config() -> Dict[str, Any]:
         "wakeword": {
             "provider": WAKEWORD_PROVIDER,
             "config": wakeword_config
+        },
+        "tool_routing": {
+            "provider": TOOL_ROUTING_PROVIDER,
+            "config": TOOL_CALLING_MINI_CONFIG if TOOL_ROUTING_PROVIDER == "tool_calling_mini" else OPENAI_TOOL_ROUTING_CONFIG
         },
         "barge_in": barge_in_config,
         "turnaround": TURNAROUND_CONFIG,
@@ -1479,10 +1561,11 @@ def set_providers(
     response: Optional[str] = None,
     tts: Optional[str] = None,
     context: Optional[str] = None,
-    wakeword: Optional[str] = None
+    wakeword: Optional[str] = None,
+    tool_routing: Optional[str] = None,
 ):
     """Override provider selection at runtime."""
-    global TRANSCRIPTION_PROVIDER, RESPONSE_PROVIDER, TTS_PROVIDER, CONTEXT_PROVIDER, WAKEWORD_PROVIDER
+    global TRANSCRIPTION_PROVIDER, RESPONSE_PROVIDER, TTS_PROVIDER, CONTEXT_PROVIDER, WAKEWORD_PROVIDER, TOOL_ROUTING_PROVIDER
     
     if transcription:
         TRANSCRIPTION_PROVIDER = transcription
@@ -1494,6 +1577,8 @@ def set_providers(
         CONTEXT_PROVIDER = context
     if wakeword:
         WAKEWORD_PROVIDER = wakeword
+    if tool_routing:
+        TOOL_ROUTING_PROVIDER = tool_routing
 
 
 # =============================================================================
@@ -1583,11 +1668,12 @@ def print_config_summary():
 
 
 # =============================================================================
-# AUTO-PRINT ON IMPORT (Main Process Only)
+# AUTO-PRINT ON IMPORT (Main Process Only, Verbose Mode)
 # =============================================================================
 
 if (
-    not os.getenv("QUIET_IMPORT") 
+    VERBOSE_LOGGING
+    and not os.getenv("QUIET_IMPORT") 
     and not hasattr(print_config_summary, '_called') 
     and multiprocessing.current_process().name == 'MainProcess'
 ):

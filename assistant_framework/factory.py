@@ -13,7 +13,8 @@ try:
         TextToSpeechInterface,
         ContextInterface,
         WakeWordInterface,
-        TerminationInterface
+        TerminationInterface,
+        ToolRoutingInterface,
     )
     from .providers.transcription import AssemblyAIAsyncProvider, OpenAIWhisperProvider
     from .providers.response import OpenAIWebSocketResponseProvider
@@ -21,6 +22,7 @@ try:
     from .providers.context import UnifiedContextProvider
     from .providers.wakeword import IsolatedOpenWakeWordProvider
     from .providers.termination import IsolatedTerminationProvider
+    from .providers.tool_routing import OpenAIToolRoutingProvider, ToolCallingMiniProvider
 except ImportError:
     # Fall back to absolute imports (when run as module)
     from assistant_framework.interfaces import (
@@ -29,7 +31,8 @@ except ImportError:
         TextToSpeechInterface,
         ContextInterface,
         WakeWordInterface,
-        TerminationInterface
+        TerminationInterface,
+        ToolRoutingInterface,
     )
     from assistant_framework.providers.transcription import AssemblyAIAsyncProvider, OpenAIWhisperProvider
     from assistant_framework.providers.response import OpenAIWebSocketResponseProvider
@@ -37,6 +40,7 @@ except ImportError:
     from assistant_framework.providers.context import UnifiedContextProvider
     from assistant_framework.providers.wakeword import IsolatedOpenWakeWordProvider
     from assistant_framework.providers.termination import IsolatedTerminationProvider
+    from assistant_framework.providers.tool_routing import OpenAIToolRoutingProvider, ToolCallingMiniProvider
 
 
 class ProviderFactory:
@@ -70,6 +74,11 @@ class ProviderFactory:
     
     TERMINATION_PROVIDERS = {
         'openwakeword': IsolatedTerminationProvider,
+    }
+    
+    TOOL_ROUTING_PROVIDERS = {
+        'openai': OpenAIToolRoutingProvider,
+        'tool_calling_mini': ToolCallingMiniProvider,
     }
     
     @classmethod
@@ -215,6 +224,30 @@ class ProviderFactory:
         return provider_class(config)
     
     @classmethod
+    def create_tool_routing_provider(cls,
+                                     provider_name: str,
+                                     config: Dict[str, Any]) -> ToolRoutingInterface:
+        """
+        Create a tool routing provider instance.
+        
+        Args:
+            provider_name: Name of the provider to create
+            config: Configuration for the provider
+            
+        Returns:
+            ToolRoutingInterface: Provider instance
+            
+        Raises:
+            ValueError: If provider name is not supported
+        """
+        if provider_name not in cls.TOOL_ROUTING_PROVIDERS:
+            available = ', '.join(cls.TOOL_ROUTING_PROVIDERS.keys())
+            raise ValueError(f"Unsupported tool routing provider: {provider_name}. Available: {available}")
+        
+        provider_class = cls.TOOL_ROUTING_PROVIDERS[provider_name]
+        return provider_class(config)
+    
+    @classmethod
     def create_all_providers(cls, config: Dict[str, Any]) -> Dict[str, Any]:
         """
         Create all providers based on configuration.
@@ -288,6 +321,16 @@ class ProviderFactory:
                     provider_name, provider_config
                 )
         
+        if 'tool_routing' in config:
+            tool_routing_config = config['tool_routing']
+            provider_name = tool_routing_config.get('provider')
+            provider_config = tool_routing_config.get('config', {})
+            
+            if provider_name:
+                providers['tool_routing'] = cls.create_tool_routing_provider(
+                    provider_name, provider_config
+                )
+        
         return providers
     
     @classmethod
@@ -305,6 +348,7 @@ class ProviderFactory:
             'context': list(cls.CONTEXT_PROVIDERS.keys()),
             'wakeword': list(cls.WAKEWORD_PROVIDERS.keys()),
             'termination': list(cls.TERMINATION_PROVIDERS.keys()),
+            'tool_routing': list(cls.TOOL_ROUTING_PROVIDERS.keys()),
         }
     
     @classmethod
@@ -331,6 +375,7 @@ class ProviderFactory:
             'context': cls.CONTEXT_PROVIDERS,
             'wakeword': cls.WAKEWORD_PROVIDERS,
             'termination': cls.TERMINATION_PROVIDERS,
+            'tool_routing': cls.TOOL_ROUTING_PROVIDERS,
         }
         
         if provider_type not in provider_registries:
@@ -375,3 +420,8 @@ def create_context_provider(provider_name: str, config: Dict[str, Any]) -> Conte
 def create_termination_provider(provider_name: str, config: Dict[str, Any]) -> TerminationInterface:
     """Convenience function to create termination provider."""
     return ProviderFactory.create_termination_provider(provider_name, config)
+
+
+def create_tool_routing_provider(provider_name: str, config: Dict[str, Any]) -> ToolRoutingInterface:
+    """Convenience function to create tool routing provider."""
+    return ProviderFactory.create_tool_routing_provider(provider_name, config)

@@ -93,6 +93,11 @@ Create a `.env` file in the project root with your API keys.
 - `BRIEFING_PROCESSOR_MODEL` — Model for briefing opener generation (default: `gpt-4o-mini`)
 - `GOOGLE_APPLICATION_CREDENTIALS` — Path to Google Cloud service account JSON (Google Cloud TTS, if enabled)
 
+#### Optional — Discord Bot
+
+- `DISCORD_BOT_TOKEN` — Bot token from the [Discord Developer Portal](https://discord.com/developers/applications)
+- `DISCORD_CHANNEL_ID` — Numeric ID of the channel the bot listens and responds in
+
 #### Optional — Integrations
 
 - `SPOTIFY_CLIENT_ID` — Spotify OAuth client ID
@@ -1350,6 +1355,45 @@ The system uses the broader forecast to detect anomalies - for example, if today
 Configuration:
 - `WEATHER_ZIP_CODE` — US ZIP code for location
 - `WEATHER_USER_ID` — Target user for briefings
+
+---
+
+## 🤖 Discord Bot
+
+HomeAssist includes an optional Discord bot that gives you a text-based channel to interact with the same assistant (LLM + MCP tools + vector memory) without voice.
+
+### Setup
+
+1. **Create a Discord application** at the [Developer Portal](https://discord.com/developers/applications)
+2. Under **Bot**, click **Reset Token** to get your `DISCORD_BOT_TOKEN`
+3. Enable the **Message Content Intent** under **Bot → Privileged Gateway Intents**
+4. Under **OAuth2 → URL Generator**, select scopes `bot` and permissions `Send Messages`, `Read Message History`
+5. Use the generated URL to invite the bot to your server
+6. Right-click the target channel in Discord and **Copy Channel ID** (requires Developer Mode in Discord settings)
+7. Add both values to `.env`:
+
+```bash
+DISCORD_BOT_TOKEN=your-bot-token
+DISCORD_CHANNEL_ID=123456789012345678
+```
+
+### Running
+
+```bash
+# Via the homeassist CLI
+homeassist discord
+
+# Or directly
+python -m discord_bot
+```
+
+The bot runs as a fully independent process with its own MCP server. It can run alongside or without the voice assistant.
+
+### Features
+
+- Replies to messages in the configured channel using the full assistant pipeline (LLM + tools)
+- Shows which MCP tools were used in each response
+- Proactively posts briefing announcements (weather, calendar, etc.) as they become available
 
 ---
 

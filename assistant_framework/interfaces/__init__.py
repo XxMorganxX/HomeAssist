@@ -10,6 +10,7 @@ from .wake_word import WakeWordInterface
 from .embedding import EmbeddingInterface
 from .vector_store import VectorStoreInterface, VectorSearchResult, VectorRecord
 from .termination import TerminationInterface
+from .tool_routing import ToolRoutingInterface
 
 __all__ = [
     'TranscriptionInterface',
@@ -22,4 +23,5 @@ __all__ = [
     'VectorSearchResult',
     'VectorRecord',
     'TerminationInterface',
+    'ToolRoutingInterface',
 ]

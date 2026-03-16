@@ -30,8 +30,12 @@ fastmcp
 python-kasa
 spotipy
 
+# Discord bot
+discord.py>=2.3.0
+
 # Scheduled email/news summarizers
 openai>=1.0.0
+anthropic>=0.40.0
 google-generativeai>=0.3.0
 google-auth>=2.0.0
 google-auth-oauthlib>=1.0.0

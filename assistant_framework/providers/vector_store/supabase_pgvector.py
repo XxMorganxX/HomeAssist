@@ -7,6 +7,7 @@ Required Supabase setup:
 2. Create table (see create_table_sql property)
 """
 
+import asyncio
 import os
 import json
 from datetime import datetime
@@ -134,7 +135,8 @@ $$;
     async def initialize(self) -> bool:
         """Initialize the Supabase client."""
         try:
-            self._client = create_client(self.url, self.key)
+            # Run blocking client creation in thread pool to not block event loop
+            self._client = await asyncio.to_thread(create_client, self.url, self.key)
             self._initialized = True
             print(f"✅ Supabase vector store initialized (table: {self.table_name})")
             return True
