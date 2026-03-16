@@ -10,6 +10,7 @@ from google.auth.transport.requests import Request
 from googleapiclient.discovery import build
 from googleapiclient.errors import HttpError
 from datetime import datetime, timezone, timedelta
+from zoneinfo import ZoneInfo
 
 # Project setup
 project_root = Path(__file__).parent.parent.parent
@@ -862,38 +863,72 @@ class CalendarComponent:
             cal_id = cal['id']
             print(self.calendar_id_to_name(cal_id))
     
+    def _get_local_tz(self) -> ZoneInfo:
+        """Get the configured local timezone."""
+        tz_name = getattr(config, 'DEFAULT_TIME_ZONE', None) or 'America/New_York'
+        return ZoneInfo(tz_name)
+
     # Methods expected by calendar_data tool
     def get_upcoming_events(self, calendar_name: str = "primary", max_results: int = 10, include_past: bool = False) -> List[Dict]:
-        """Get upcoming events for the calendar tool."""
+        """Get upcoming events for the calendar tool.
+        
+        Filters to events whose START time is in the future, not just events
+        whose end time is in the future (which is what Google's timeMin does).
+        """
         try:
-            # Map calendar name to calendar ID if needed
             calendar_id = calendar_name if calendar_name == "primary" else calendar_name
             
-            # Use existing get_events method
             time_min = None if include_past else datetime.now(timezone.utc).isoformat()
-            events = self.get_events(num_events=max_results, time_min=time_min, calendar_id=calendar_id)
+            # Fetch extra events since we'll post-filter out ongoing ones
+            fetch_count = max_results * 2 if not include_past else max_results
+            events = self.get_events(num_events=fetch_count, time_min=time_min, calendar_id=calendar_id)
             
-            return events
+            # Post-filter: Google's timeMin filters by END time, so ongoing events
+            # (already started but not ended) slip through. Exclude them unless
+            # include_past is set. All-day events are kept since their "start" is
+            # just a date with no meaningful intra-day comparison.
+            if not include_past:
+                now_utc = datetime.now(timezone.utc)
+                filtered = []
+                for event in events:
+                    start = event.get('start', {})
+                    dt_str = start.get('dateTime')
+                    if dt_str:
+                        try:
+                            event_start = datetime.fromisoformat(dt_str.replace('Z', '+00:00'))
+                            if event_start < now_utc:
+                                continue
+                        except Exception:
+                            pass
+                    filtered.append(event)
+                events = filtered
+            
+            return events[:max_results]
         except Exception:
             return []
     
     def get_day_events(self, date: str, calendar_name: str = "primary", include_past: bool = False) -> List[Dict]:
-        """Get events for a specific day for the calendar tool."""
+        """Get events for a specific day for the calendar tool.
+        
+        Uses local timezone boundaries (midnight-to-midnight local) so events
+        in the evening aren't cut off by a UTC boundary shift.
+        """
         try:
-            # Parse the date string (YYYY-MM-DD format)
+            local_tz = self._get_local_tz()
             target_date = datetime.strptime(date, "%Y-%m-%d")
             
-            # Set time range for the day
-            start_time = target_date.replace(hour=0, minute=0, second=0, microsecond=0, tzinfo=timezone.utc)
-            end_time = start_time.replace(hour=23, minute=59, second=59)
+            # Midnight-to-midnight in local timezone, then convert to UTC for the API
+            start_local = target_date.replace(hour=0, minute=0, second=0, microsecond=0, tzinfo=local_tz)
+            end_local = target_date.replace(hour=23, minute=59, second=59, tzinfo=local_tz)
+            start_utc = start_local.astimezone(timezone.utc)
+            end_utc = end_local.astimezone(timezone.utc)
             
-            # Map calendar name to calendar ID if needed
             calendar_id = calendar_name if calendar_name == "primary" else calendar_name
             
             events = self.get_events(
-                num_events=50,  # Get more events for a full day
-                time_min=start_time.isoformat(),
-                time_max=end_time.isoformat(),
+                num_events=50,
+                time_min=start_utc.isoformat(),
+                time_max=end_utc.isoformat(),
                 calendar_id=calendar_id
             )
             
@@ -902,23 +937,33 @@ class CalendarComponent:
             return []
     
     def get_week_events(self, calendar_name: str = "primary", include_past: bool = False) -> List[Dict]:
-        """Get events for the current week for the calendar tool."""
+        """Get events for the current week for the calendar tool.
+        
+        Week boundaries are computed in local timezone so evening events
+        aren't clipped by a UTC offset.
+        """
         try:
-            # Get start and end of current week
-            now = datetime.now(timezone.utc)
-            start_of_week = now - timedelta(days=now.weekday())
-            start_of_week = start_of_week.replace(hour=0, minute=0, second=0, microsecond=0)
-            end_of_week = start_of_week + timedelta(days=6, hours=23, minutes=59, seconds=59)
+            local_tz = self._get_local_tz()
+            now_local = datetime.now(local_tz)
             
-            # Map calendar name to calendar ID if needed
+            start_of_week = (now_local - timedelta(days=now_local.weekday())).replace(
+                hour=0, minute=0, second=0, microsecond=0
+            )
+            end_of_week = (start_of_week + timedelta(days=6)).replace(
+                hour=23, minute=59, second=59
+            )
+            
+            start_utc = start_of_week.astimezone(timezone.utc)
+            end_utc = end_of_week.astimezone(timezone.utc)
+            
             calendar_id = calendar_name if calendar_name == "primary" else calendar_name
             
-            time_min = start_of_week.isoformat() if include_past else datetime.now(timezone.utc).isoformat()
+            time_min = start_utc.isoformat() if include_past else datetime.now(timezone.utc).isoformat()
             
             events = self.get_events(
-                num_events=100,  # Get more events for a full week
+                num_events=100,
                 time_min=time_min,
-                time_max=end_of_week.isoformat(),
+                time_max=end_utc.isoformat(),
                 calendar_id=calendar_id
             )
             

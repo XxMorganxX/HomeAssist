@@ -4,11 +4,12 @@ Discord bot that bridges a text channel to the HomeAssist orchestrator.
 Features:
   - Listens in a single configured channel
   - Passes messages through TextOrchestrator (LLM + MCP tools)
-  - Shows which tools the assistant invoked
+  - Shows which tools the assistant invoked (replies to own message with schema)
   - Polls for pending briefings and posts them proactively
 """
 
 import asyncio
+import json
 import os
 from typing import Optional
 
@@ -30,6 +31,20 @@ def _truncate(text: str, limit: int = MAX_MESSAGE_LENGTH) -> str:
     if len(text) <= limit:
         return text
     return text[: limit - 3] + "..."
+
+
+def _format_tool_calls(tool_calls: list) -> str:
+    """Format tool calls as Discord subtext (-# renders as small/muted text)."""
+    parts = []
+    for tc in tool_calls:
+        name = getattr(tc, "name", None) or "unknown"
+        args = getattr(tc, "arguments", None) or {}
+        try:
+            args_str = json.dumps(args, separators=(",", ":"))
+        except (TypeError, ValueError):
+            args_str = str(args)
+        parts.append(f"-# {name}({args_str})")
+    return "\n".join(parts)
 
 
 class HomeAssistBot(discord.Client):
@@ -58,6 +73,9 @@ class HomeAssistBot(discord.Client):
         print(f"✅ Discord bot logged in as {self.user}")
         if DISCORD_CHANNEL_ID:
             print(f"📡 Listening in channel {DISCORD_CHANNEL_ID}")
+            channel = self.get_channel(DISCORD_CHANNEL_ID)
+            if channel:
+                await channel.send("HomeAssist online.")
         else:
             print("⚠️  DISCORD_CHANNEL_ID not set -- bot will not respond to any channel")
 
@@ -81,17 +99,18 @@ class HomeAssistBot(discord.Client):
         # Serialize responses so concurrent messages don't interleave context
         async with self._response_lock:
             async with message.channel.typing():
-                response_text, tools_used = await self.orchestrator.run_response(user_text)
+                response_text, tool_calls = await self.orchestrator.run_response(user_text)
 
         if response_text is None:
             await message.reply("Sorry, I wasn't able to generate a response.")
             return
 
-        # Build reply with optional tool footer
+        # Build reply with tool details as subtext
         reply = response_text
-        if tools_used:
-            tool_note = "Used: " + ", ".join(tools_used)
-            reply = f"{response_text}\n\n-# {tool_note}"
+        if tool_calls:
+            tool_note = _format_tool_calls(tool_calls)
+            if tool_note:
+                reply = f"{response_text}\n{tool_note}"
 
         await message.reply(_truncate(reply))
 

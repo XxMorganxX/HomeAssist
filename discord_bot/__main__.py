@@ -11,6 +11,9 @@ from dotenv import load_dotenv
 
 load_dotenv()
 
+# Suppress the verbose config summary that prints on assistant_framework import
+os.environ.setdefault("QUIET_IMPORT", "1")
+
 from discord_bot.bot import HomeAssistBot, DISCORD_BOT_TOKEN
 from discord_bot.text_orchestrator import TextOrchestrator
 

@@ -625,7 +625,9 @@ CALENDAR NAME MAPPINGS (use these exact keys when calling calendar_data):
 - "homeassist" = HomeAssist/Reminders calendar (aliases: assistant, home assistant, reminders)
 - "all" = Read from ALL configured calendars (default for read operations)
 
-DEFAULT CALENDAR: When creating events and the user does not specify which calendar, always use "morgan_personal".
+DEFAULT CALENDAR RULES:
+- READ operations (checking schedule, "what's on my calendar", upcoming events): ALWAYS use calendar="all". NEVER ask which calendar to check — just read all of them.
+- WRITE operations (creating/editing events) when user doesn't specify: use "morgan_personal".
 
 TOOL ROUTING (match keywords to tools):
 - "desktop notes", "my notes", "to-do list", "sticky notes", "stickies" -> stickies tool (read uses section, write uses edits; no markdown)

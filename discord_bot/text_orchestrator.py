@@ -7,13 +7,16 @@ barge-in, shared audio bus).
 """
 
 import asyncio
+import os
 import time
 from typing import Optional, List, Tuple, Dict, Any
 
+# Suppress the verbose config banner on import (we print our own status)
+os.environ.setdefault("QUIET_IMPORT", "1")
+
 from assistant_framework.config import (
-    get_framework_config,
     RESPONSE_PROVIDER,
-    CONTEXT_PROVIDER,
+    OPENAI_WS_CONFIG,
     UNIFIED_CONTEXT_CONFIG,
 )
 from assistant_framework.factory import ProviderFactory
@@ -42,30 +45,46 @@ class TextOrchestrator:
         print(f"🚀 {elapsed()} Initializing TextOrchestrator (text-only, no audio)...")
 
         try:
-            config = get_framework_config()
+            # Build only the configs we need — skip get_framework_config() which
+            # runs audio device detection, Bluetooth scanning, etc.
+            response_config = {
+                "response": {
+                    "provider": RESPONSE_PROVIDER,
+                    "config": OPENAI_WS_CONFIG,
+                }
+            }
 
-            # --- Response provider (starts MCP server) ---
-            print(f"🔧 {elapsed()} Creating response provider...")
-            response_config = {"response": config["response"]}
-            providers = ProviderFactory.create_all_providers(response_config)
-            self._response = providers["response"]
-            await self._response.initialize()
+            # --- Context provider (instant, no async work) ---
+            self._context = UnifiedContextProvider(UNIFIED_CONTEXT_CONFIG)
+
+            # --- Parallelise the two slow init paths ---
+            async def init_response():
+                providers = ProviderFactory.create_all_providers(response_config)
+                self._response = providers["response"]
+                await self._response.initialize()
+
+            async def init_vector_memory():
+                if self._context and hasattr(self._context, "initialize_vector_memory"):
+                    return await self._context.initialize_vector_memory()
+                return False
+
+            print(f"🔧 {elapsed()} Starting parallel init (response + vector memory)...")
+            results = await asyncio.gather(
+                init_response(),
+                init_vector_memory(),
+                return_exceptions=True,
+            )
+
+            if isinstance(results[0], Exception):
+                raise results[0]
             print(f"✅ {elapsed()} Response provider ready")
 
-            # --- Context provider ---
-            print(f"🔧 {elapsed()} Creating context provider...")
-            context_config = config.get("context", {}).get("config", UNIFIED_CONTEXT_CONFIG)
-            self._context = UnifiedContextProvider(context_config)
-            print(f"✅ {elapsed()} Context provider ready")
-
-            # --- Vector memory ---
-            if hasattr(self._context, "initialize_vector_memory"):
-                print(f"🔧 {elapsed()} Initializing vector memory...")
-                success = await self._context.initialize_vector_memory()
-                if success:
-                    print(f"✅ {elapsed()} Vector memory initialized")
-                else:
-                    print(f"⚠️  {elapsed()} Vector memory unavailable (continuing without)")
+            if isinstance(results[1], Exception):
+                print(f"⚠️  {elapsed()} Vector memory error: {results[1]}")
+            elif results[1]:
+                print(f"✅ {elapsed()} Vector memory initialized")
+            else:
+                print(f"⚠️  {elapsed()} Vector memory unavailable (continuing without)")
 
             self.is_initialized = True
             print(f"✅ {elapsed()} TextOrchestrator ready")
@@ -81,13 +100,14 @@ class TextOrchestrator:
     # Response generation
     # ------------------------------------------------------------------
 
-    async def run_response(self, user_message: str) -> Tuple[Optional[str], List[str]]:
+    async def run_response(self, user_message: str) -> Tuple[Optional[str], list]:
         """
         Generate a response for *user_message*.
 
         Returns:
-            (response_text, tool_names_used)
+            (response_text, tool_calls)
             response_text is None on failure.
+            tool_calls is a list of ToolCall dataclasses (name, arguments, result).
         """
         self._last_tool_calls = []
 
@@ -146,12 +166,7 @@ class TextOrchestrator:
             if self._context and full_response:
                 self._context.add_message("assistant", full_response)
 
-            tool_names = [
-                getattr(tc, "name", None) or "unknown"
-                for tc in self._last_tool_calls
-            ]
-
-            return full_response or None, tool_names
+            return full_response or None, list(self._last_tool_calls)
 
         except Exception as e:
             print(f"❌ Response generation error: {e}")
