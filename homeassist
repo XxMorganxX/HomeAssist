@@ -5,6 +5,159 @@
 # ==============================================
 
 PROJECT_DIR="$HOME/Desktop/HomeAssistV3"
+TODO_OVERLAY_PORT=8421
+TODO_OVERLAY_PID_FILE="${PROJECT_DIR}/.todo_overlay.pid"
+TODO_OVERLAY_URL="http://127.0.0.1:${TODO_OVERLAY_PORT}"
+TODO_MENUBAR_PID_FILE="${PROJECT_DIR}/.todo_menubar.pid"
+
+todo_overlay_cleanup_pid_file() {
+    if [ -f "$TODO_OVERLAY_PID_FILE" ]; then
+        OLD_PID=$(cat "$TODO_OVERLAY_PID_FILE")
+        if ! kill -0 "$OLD_PID" 2>/dev/null; then
+            rm -f "$TODO_OVERLAY_PID_FILE"
+        fi
+    fi
+}
+
+todo_overlay_pid() {
+    lsof -i TCP:$TODO_OVERLAY_PORT -sTCP:LISTEN -t 2>/dev/null | awk 'NR==1 {print $1}'
+}
+
+todo_overlay_running() {
+    lsof -i TCP:$TODO_OVERLAY_PORT -sTCP:LISTEN >/dev/null 2>&1
+}
+
+start_todo_overlay() {
+    todo_overlay_cleanup_pid_file
+    if todo_overlay_running; then
+        RUNNING_PID=$(todo_overlay_pid)
+        echo "📝 Todo overlay already running (PID: $RUNNING_PID)"
+        return 0
+    fi
+
+    echo "📝 Starting todo overlay on port $TODO_OVERLAY_PORT..."
+    cd "${PROJECT_DIR}"
+    source .env 2>/dev/null
+
+    nohup ./venv/bin/python -u -m todo_overlay --port $TODO_OVERLAY_PORT \
+        > "${PROJECT_DIR}/logs/todo_overlay.log" 2>&1 &
+    TODO_OVERLAY_PID=$!
+    echo $TODO_OVERLAY_PID > "$TODO_OVERLAY_PID_FILE"
+
+    sleep 1
+    if kill -0 "$TODO_OVERLAY_PID" 2>/dev/null; then
+        echo "✅ Todo overlay started (PID: $TODO_OVERLAY_PID)"
+        echo "   URL: $TODO_OVERLAY_URL"
+        return 0
+    fi
+
+    echo "❌ Todo overlay failed to start"
+    rm -f "$TODO_OVERLAY_PID_FILE"
+    return 1
+}
+
+stop_todo_overlay() {
+    todo_overlay_cleanup_pid_file
+    TODO_OVERLAY_PID=$(todo_overlay_pid)
+
+    if [ -z "$TODO_OVERLAY_PID" ] && [ -f "$TODO_OVERLAY_PID_FILE" ]; then
+        TODO_OVERLAY_PID=$(cat "$TODO_OVERLAY_PID_FILE")
+    fi
+
+    if [ -z "$TODO_OVERLAY_PID" ]; then
+        rm -f "$TODO_OVERLAY_PID_FILE"
+        echo "✅ Todo overlay is not running"
+        return 0
+    fi
+
+    echo "🛑 Stopping todo overlay (PID: $TODO_OVERLAY_PID)..."
+    kill "$TODO_OVERLAY_PID" 2>/dev/null
+    sleep 1
+    kill -9 "$TODO_OVERLAY_PID" 2>/dev/null
+    rm -f "$TODO_OVERLAY_PID_FILE"
+    echo "✅ Todo overlay stopped"
+}
+
+open_todo_overlay() {
+    if ! todo_overlay_running; then
+        start_todo_overlay || return 1
+    fi
+
+    open "$TODO_OVERLAY_URL"
+    echo "🌐 Opened todo overlay: $TODO_OVERLAY_URL"
+}
+
+todo_menubar_cleanup_pid_file() {
+    if [ -f "$TODO_MENUBAR_PID_FILE" ]; then
+        OLD_PID=$(cat "$TODO_MENUBAR_PID_FILE")
+        if ! kill -0 "$OLD_PID" 2>/dev/null; then
+            rm -f "$TODO_MENUBAR_PID_FILE"
+        fi
+    fi
+}
+
+todo_menubar_pid() {
+    if [ -f "$TODO_MENUBAR_PID_FILE" ]; then
+        OLD_PID=$(cat "$TODO_MENUBAR_PID_FILE")
+        if kill -0 "$OLD_PID" 2>/dev/null; then
+            echo "$OLD_PID"
+            return 0
+        fi
+    fi
+
+    pgrep -f "python.*-m todo_menubar" | awk 'NR==1 {print $1}'
+}
+
+todo_menubar_running() {
+    TODO_MENUBAR_PID=$(todo_menubar_pid)
+    [ -n "$TODO_MENUBAR_PID" ]
+}
+
+start_todo_menubar() {
+    todo_menubar_cleanup_pid_file
+    if todo_menubar_running; then
+        RUNNING_PID=$(todo_menubar_pid)
+        echo "📌 Todo menu bar app already running (PID: $RUNNING_PID)"
+        return 0
+    fi
+
+    echo "📌 Starting todo menu bar app..."
+    cd "${PROJECT_DIR}"
+    source .env 2>/dev/null
+
+    nohup ./venv/bin/python -u -m todo_menubar --port $TODO_OVERLAY_PORT \
+        > "${PROJECT_DIR}/logs/todo_menubar.log" 2>&1 &
+    TODO_MENUBAR_PID=$!
+    echo $TODO_MENUBAR_PID > "$TODO_MENUBAR_PID_FILE"
+
+    sleep 1
+    if kill -0 "$TODO_MENUBAR_PID" 2>/dev/null; then
+        echo "✅ Todo menu bar app started (PID: $TODO_MENUBAR_PID)"
+        return 0
+    fi
+
+    echo "❌ Todo menu bar app failed to start"
+    rm -f "$TODO_MENUBAR_PID_FILE"
+    return 1
+}
+
+stop_todo_menubar() {
+    todo_menubar_cleanup_pid_file
+    TODO_MENUBAR_PID=$(todo_menubar_pid)
+
+    if [ -z "$TODO_MENUBAR_PID" ]; then
+        rm -f "$TODO_MENUBAR_PID_FILE"
+        echo "✅ Todo menu bar app is not running"
+        return 0
+    fi
+
+    echo "🛑 Stopping todo menu bar app (PID: $TODO_MENUBAR_PID)..."
+    kill "$TODO_MENUBAR_PID" 2>/dev/null
+    sleep 1
+    kill -9 "$TODO_MENUBAR_PID" 2>/dev/null
+    rm -f "$TODO_MENUBAR_PID_FILE"
+    echo "✅ Todo menu bar app stopped"
+}
 
 case "$1" in
     start)
@@ -41,6 +194,12 @@ case "$1" in
         pkill -9 -f "mpv" 2>/dev/null
         
         echo "✅ Stopped (MCP server still running)"
+        if todo_overlay_running; then
+            echo "📝 Todo overlay is still available at $TODO_OVERLAY_URL"
+        fi
+        if todo_menubar_running; then
+            echo "📌 Todo menu bar app is still running"
+        fi
         ;;
     
     restart)
@@ -71,6 +230,20 @@ case "$1" in
             echo ""
             echo "⚠️  WARNING: Multiple instances detected ($COUNT)"
             echo "   Run: homeassist restart"
+        fi
+        echo ""
+        if todo_overlay_running; then
+            TODO_OVERLAY_PID=$(todo_overlay_pid)
+            echo "Todo overlay: running (PID: $TODO_OVERLAY_PID)"
+            echo "  URL: $TODO_OVERLAY_URL"
+        else
+            echo "Todo overlay: not running"
+        fi
+        if todo_menubar_running; then
+            TODO_MENUBAR_PID=$(todo_menubar_pid)
+            echo "Todo menu bar app: running (PID: $TODO_MENUBAR_PID)"
+        else
+            echo "Todo menu bar app: not running"
         fi
         ;;
     
@@ -198,6 +371,50 @@ case "$1" in
         python -u -m discord_bot
         ;;
     
+    todo-ui)
+        case "$2" in
+            start)
+                start_todo_overlay && start_todo_menubar
+                ;;
+            stop)
+                stop_todo_menubar
+                stop_todo_overlay
+                ;;
+            status)
+                if todo_overlay_running; then
+                    TODO_OVERLAY_PID=$(todo_overlay_pid)
+                    echo "✅ Todo overlay running (PID: $TODO_OVERLAY_PID)"
+                    echo "   URL: $TODO_OVERLAY_URL"
+                else
+                    echo "❌ Todo overlay not running"
+                fi
+                if todo_menubar_running; then
+                    TODO_MENUBAR_PID=$(todo_menubar_pid)
+                    echo "✅ Todo menu bar app running (PID: $TODO_MENUBAR_PID)"
+                else
+                    echo "❌ Todo menu bar app not running"
+                fi
+                todo_overlay_cleanup_pid_file
+                todo_menubar_cleanup_pid_file
+                ;;
+            open)
+                open_todo_overlay
+                ;;
+            logs)
+                tail -f "${PROJECT_DIR}/logs/todo_overlay.log" "${PROJECT_DIR}/logs/todo_menubar.log"
+                ;;
+            restart)
+                stop_todo_menubar
+                stop_todo_overlay
+                sleep 1
+                start_todo_overlay && start_todo_menubar
+                ;;
+            *)
+                echo "Usage: homeassist todo-ui [start|stop|status|open|restart|logs]"
+                ;;
+        esac
+        ;;
+    
     run)
         cd "${PROJECT_DIR}"
         source .env 2>/dev/null
@@ -269,6 +486,8 @@ case "$1" in
             pkill -9 -f "openwakeword" 2>/dev/null
             [ -n "$DISCORD_BOT_PID" ] && kill $DISCORD_BOT_PID 2>/dev/null
             [ -n "$CAFFEINATE_PID" ] && kill $CAFFEINATE_PID 2>/dev/null
+            stop_todo_menubar
+            stop_todo_overlay
             exit 0
         }
         trap cleanup SIGINT SIGTERM
@@ -287,6 +506,18 @@ case "$1" in
             python -u -m discord_bot > "${PROJECT_DIR}/logs/discord_bot.log" 2>&1 &
             DISCORD_BOT_PID=$!
             echo "🤖 Discord bot started (PID: $DISCORD_BOT_PID)"
+        fi
+
+        if start_todo_overlay; then
+            echo "📝 Todo overlay ready at $TODO_OVERLAY_URL"
+        else
+            echo "⚠️  Todo overlay failed to start; continuing without it"
+        fi
+
+        if start_todo_menubar; then
+            echo "📌 Todo menu bar app ready"
+        else
+            echo "⚠️  Todo menu bar app failed to start; continuing without it"
         fi
         
         # Main loop
@@ -346,6 +577,7 @@ case "$1" in
         echo "  logs       - Show live logs"
         echo "  run        - Run assistant with Bluetooth auto-connect"
         echo "  discord    - Start the Discord bot (text channel)"
+        echo "  todo-ui    - Manage the todo menu bar app and overlay"
         echo "  install    - Run the service installer"
         echo "  uninstall  - Remove all services"
         echo ""
@@ -355,8 +587,15 @@ case "$1" in
         echo "  mcp status - Check MCP server status"
         echo "  mcp logs   - View MCP server logs"
         echo ""
+        echo "Todo UI:"
+        echo "  todo-ui start  - Start the menu bar app and overlay server"
+        echo "  todo-ui open   - Open the overlay in your browser"
+        echo "  todo-ui stop   - Stop the menu bar app and overlay server"
+        echo "  todo-ui logs   - View todo UI logs"
+        echo ""
         echo "Examples:"
         echo "  homeassist mcp start   # Start persistent MCP server"
         echo "  homeassist run         # Run with Bluetooth auto-connect"
+        echo "  homeassist todo-ui start # Start the todo menu bar app"
         ;;
 esac

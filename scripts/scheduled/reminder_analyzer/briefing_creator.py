@@ -28,6 +28,41 @@ DEFAULT_TIMEZONE = os.getenv("DEFAULT_TIME_ZONE", "America/New_York")
 ALL_DAY_START_HOUR = int(os.getenv("ALL_DAY_EVENT_START_HOUR", "9"))
 
 
+def _normalize_delivery_status(briefing: Dict[str, Any], status_field: str, legacy_terminal_status: str) -> str:
+    """Treat legacy shared delivery fields as terminal delivery states."""
+    current = briefing.get(status_field)
+    if isinstance(current, str) and current:
+        return current
+    if briefing.get("status") == "delivered" or briefing.get("delivered_at"):
+        return legacy_terminal_status
+    return "pending"
+
+
+def _has_pending_delivery(briefing: Dict[str, Any]) -> bool:
+    """Return True while either Discord or voice still needs the briefing."""
+    discord_status = _normalize_delivery_status(briefing, "discord_status", "sent")
+    voice_status = _normalize_delivery_status(briefing, "voice_status", "read")
+    return discord_status == "pending" or voice_status == "pending"
+
+
+def _is_voice_delivery_complete(briefing: Dict[str, Any]) -> bool:
+    """Return True when the voice channel no longer needs the briefing."""
+    return _normalize_delivery_status(briefing, "voice_status", "read") == "read"
+
+
+def _parse_iso_datetime(value: Any) -> Optional[datetime]:
+    """Parse an ISO timestamp into a timezone-aware datetime."""
+    if not isinstance(value, str) or not value:
+        return None
+    try:
+        parsed = datetime.fromisoformat(value.replace("Z", "+00:00"))
+    except ValueError:
+        return None
+    if parsed.tzinfo is None:
+        return parsed.replace(tzinfo=timezone.utc)
+    return parsed.astimezone(timezone.utc)
+
+
 class ReminderDatetimeCalculator:
     """
     Calculates actual reminder datetimes from event data.
@@ -545,8 +580,8 @@ Output ONLY the reminder text (1-2 complete sentences that end properly), nothin
                 .order("created_at")
                 .execute()
             )
-            
-            return response.data or []
+
+            return [row for row in (response.data or []) if _has_pending_delivery(row)]
             
         except Exception as e:
             print(f"❌ Failed to fetch pending reminders: {e}")
@@ -566,22 +601,42 @@ Output ONLY the reminder text (1-2 complete sentences that end properly), nothin
             return 0
         
         try:
-            cutoff = (datetime.now(timezone.utc) - timedelta(days=older_than_days)).isoformat()
+            cutoff = datetime.now(timezone.utc) - timedelta(days=older_than_days)
             
-            # Delete old delivered calendar reminders
+            # Delete old reminders that have already been spoken by the voice assistant.
             response = (
                 self._client.table(self.TABLE_NAME)
-                .delete()
+                .select("id, status, delivered_at, discord_status, voice_status, voice_read_at")
+                .eq("status", "pending")
                 .like("id", "cal_reminder_%")
-                .eq("status", "delivered")
-                .lt("delivered_at", cutoff)
                 .execute()
             )
-            
-            # Count isn't directly available, estimate from response
-            count = len(response.data) if response.data else 0
+
+            reminder_ids = []
+            for row in (response.data or []):
+                if not row.get("id"):
+                    continue
+                if not _is_voice_delivery_complete(row):
+                    continue
+                if _has_pending_delivery(row):
+                    continue
+
+                completed_at = _parse_iso_datetime(row.get("voice_read_at")) or _parse_iso_datetime(row.get("delivered_at"))
+                if completed_at and completed_at < cutoff:
+                    reminder_ids.append(row["id"])
+
+            count = 0
+            for reminder_id in reminder_ids:
+                delete_result = (
+                    self._client.table(self.TABLE_NAME)
+                    .delete()
+                    .eq("id", reminder_id)
+                    .execute()
+                )
+                if delete_result.data:
+                    count += len(delete_result.data)
             if count > 0:
-                print(f"🧹 Cleaned up {count} old delivered calendar reminders")
+                print(f"🧹 Cleaned up {count} old voice-read calendar reminders")
             
             return count
             

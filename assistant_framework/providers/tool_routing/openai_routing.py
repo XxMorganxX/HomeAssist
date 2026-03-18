@@ -142,17 +142,10 @@ class OpenAIToolRoutingProvider(ToolRoutingInterface):
                     tool_summaries.append(f"[{status}] Tool '{tc.name}':\n{result_preview}")
             tools_summary = "\n\n".join(tool_summaries)
 
-            # ---- success / stickies notes ----
-            stickies_read_done = any(
-                tc and tc.name == "stickies" and tc.arguments and tc.arguments.get("action") == "read"
-                for tc in tool_calls_so_far
-            )
-            non_stickies_successful = [t for t in successful_tools if t != "stickies"]
+            # ---- success notes ----
             success_note = ""
-            if non_stickies_successful:
-                success_note = f"\n\n⚠️ ALREADY COMPLETED: {', '.join(non_stickies_successful)} executed successfully. Do NOT call these again."
-            if stickies_read_done:
-                success_note += "\n\n📝 STICKIES READ COMPLETED - if user wanted to add/remove/edit, you MUST now call stickies with action='write'."
+            if successful_tools:
+                success_note = f"\n\n⚠️ ALREADY COMPLETED: {', '.join(successful_tools)} executed successfully. Do NOT call these again."
 
             # ---- iteration note ----
             iteration = len([tc for tc in tool_calls_so_far if tc]) - 1
@@ -211,8 +204,6 @@ class OpenAIToolRoutingProvider(ToolRoutingInterface):
             # ---- duplicate / one-shot filtering ----
             calendar_already_done = any(tc and tc.name == "calendar_data" for tc in tool_calls_so_far)
             search_already_done = any(tc and tc.name == "google_search" for tc in tool_calls_so_far)
-            stickies_already_done = any(tc and tc.name == "stickies" for tc in tool_calls_so_far)
-
             additional: List[ToolCall] = []
             for tc in choice.message.tool_calls:
                 try:
@@ -232,28 +223,6 @@ class OpenAIToolRoutingProvider(ToolRoutingInterface):
                 if tc.function.name == "google_search" and search_already_done:
                     print("🚫 Blocking google_search — already completed in this request")
                     continue
-
-                if tc.function.name == "stickies":
-                    stickies_in_batch = sum(1 for t in additional if t.name == "stickies")
-                    if stickies_already_done:
-                        stickies_calls = [t for t in tool_calls_so_far if t and t.name == "stickies"]
-                        had_write = any(t.arguments and t.arguments.get("action") == "write" for t in stickies_calls)
-                        had_read = any(t.arguments and t.arguments.get("action") == "read" for t in stickies_calls)
-                        this_is_write = args.get("action") == "write"
-                        if had_write:
-                            print("🚫 Blocking stickies — write already done, max calls reached")
-                            continue
-                        if stickies_in_batch > 0:
-                            print("🚫 Blocking stickies — one already in batch")
-                            continue
-                        if had_read and this_is_write:
-                            print("✅ Allowing stickies write after read (read→write flow)")
-                        else:
-                            print("🚫 Blocking stickies — invalid sequence")
-                            continue
-                    elif stickies_in_batch > 0:
-                        print("🚫 Blocking stickies — one already in batch")
-                        continue
 
                 additional.append(ToolCall(name=tc.function.name, arguments=args))
 

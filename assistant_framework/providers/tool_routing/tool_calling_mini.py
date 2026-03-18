@@ -36,12 +36,16 @@ class ToolCallingMiniProvider(ToolRoutingInterface):
     async def initialize(self) -> bool:
         """Validate connectivity via GET /health and obtain an initial API key."""
         try:
+            if not self.refresh_token:
+                print("❌ [ToolRouting:Mini] INFERENCE_REFRESH_TOKEN not set — cannot authenticate")
+                return False
+
             import httpx
             self._session = httpx.AsyncClient(timeout=self.timeout)
 
             resp = await self._session.get(f"{self.base_url}/health")
             if resp.status_code != 200:
-                print(f"⚠️ [ToolRouting:Mini] Health check failed: {resp.status_code}")
+                print(f"⚠️ [ToolRouting:Mini] Health check failed: HTTP {resp.status_code}")
                 return False
             print(f"✅ [ToolRouting:Mini] Server healthy at {self.base_url}")
 
@@ -63,6 +67,7 @@ class ToolCallingMiniProvider(ToolRoutingInterface):
         handoff: Optional[HandoffContext] = None,
     ) -> List[ToolCall]:
         """Send the message to the Mini API and parse returned tool_calls."""
+        import json as _json
         try:
             messages = self._build_messages(user_message, context)
 
@@ -74,19 +79,26 @@ class ToolCallingMiniProvider(ToolRoutingInterface):
             if self.generation:
                 body["generation"] = self.generation
 
-            print(f"🔄 [ToolRouting:Mini] POST /v1/chat/completions ({len(messages)} messages)")
+            print(f"🔄 [ToolRouting:Mini] POST /v1/chat/completions ({len(messages)} messages, execute_tools={self.execute_tools})")
             api_start = time.time()
             data = await self._request("POST", "/v1/chat/completions", json=body)
             api_ms = int((time.time() - api_start) * 1000)
             print(f"⏱️ [ToolRouting:Mini] route api_ms={api_ms}")
 
             if data is None:
+                print("❌ [ToolRouting:Mini] API returned no data (request failed)")
                 return []
 
+            # Diagnostic: log response shape
+            print(f"📦 [ToolRouting:Mini] Response keys: {list(data.keys())}")
             raw_calls = data.get("tool_calls")
+            print(f"   tool_calls type={type(raw_calls).__name__}, value={_json.dumps(raw_calls)[:500] if raw_calls else 'null'}")
+            if data.get("content"):
+                print(f"   content: {data['content'][:200]}")
+            if data.get("usage"):
+                print(f"   usage: {data['usage']}")
+
             if not raw_calls:
-                content = data.get("content", "")
-                print(f"ℹ️ [ToolRouting:Mini] No tool calls returned. Content: {content[:200]}")
                 return []
 
             tool_calls: List[ToolCall] = []
@@ -94,12 +106,11 @@ class ToolCallingMiniProvider(ToolRoutingInterface):
                 name = tc.get("name", "")
                 arguments = tc.get("arguments", {})
                 if isinstance(arguments, str):
-                    import json
                     try:
-                        arguments = json.loads(arguments)
+                        arguments = _json.loads(arguments)
                     except Exception:
                         arguments = {}
-                print(f"🔧 [ToolRouting:Mini] → {name}")
+                print(f"🔧 [ToolRouting:Mini] → {name}({_json.dumps(arguments)[:200]})")
                 tool_calls.append(ToolCall(name=name, arguments=arguments))
 
             return tool_calls
@@ -228,16 +239,19 @@ class ToolCallingMiniProvider(ToolRoutingInterface):
         api_key = await self._ensure_api_key()
         headers = {"Content-Type": "application/json", "X-API-Key": api_key}
 
-        resp = await session.request(method, f"{self.base_url}{path}", headers=headers, **kwargs)
+        url = f"{self.base_url}{path}"
+        resp = await session.request(method, url, headers=headers, **kwargs)
 
         if resp.status_code == 403:
+            print("🔑 [ToolRouting:Mini] 403 — refreshing API key and retrying")
             self._api_key = None
             api_key = await self._ensure_api_key()
             headers["X-API-Key"] = api_key
-            resp = await session.request(method, f"{self.base_url}{path}", headers=headers, **kwargs)
+            resp = await session.request(method, url, headers=headers, **kwargs)
 
         if resp.status_code >= 400:
-            print(f"⚠️ [ToolRouting:Mini] HTTP {resp.status_code}: {resp.text[:300]}")
+            print(f"❌ [ToolRouting:Mini] {method} {path} → HTTP {resp.status_code}")
+            print(f"   Response: {resp.text[:500]}")
             return None
 
         return resp.json()

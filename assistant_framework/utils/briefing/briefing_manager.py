@@ -12,9 +12,13 @@ CREATE TABLE briefing_announcements (
     content JSONB NOT NULL,            -- { message: str, llm_instructions?: str, meta?: {...} }
     opener_text TEXT,                  -- Pre-generated conversation opener (via BriefingProcessor)
     priority TEXT DEFAULT 'normal',    -- 'high', 'normal', 'low'
-    status TEXT DEFAULT 'pending',     -- 'pending', 'delivered', 'dismissed', 'skipped'
+    status TEXT DEFAULT 'pending',     -- lifecycle: 'pending', 'dismissed', 'skipped', 'cancelled', 'expired'
+    discord_status TEXT DEFAULT 'pending', -- delivery: 'pending', 'sent'
+    discord_sent_at TIMESTAMPTZ,
+    voice_status TEXT DEFAULT 'pending',   -- delivery: 'pending', 'read'
+    voice_read_at TIMESTAMPTZ,
     created_at TIMESTAMPTZ DEFAULT NOW(),
-    delivered_at TIMESTAMPTZ,
+    delivered_at TIMESTAMPTZ,          -- legacy compatibility only
     dismissed_at TIMESTAMPTZ
 );
 
@@ -59,6 +63,44 @@ except ImportError:
 from dotenv import load_dotenv
 
 load_dotenv()
+
+
+DISCORD_DELIVERY = "discord"
+VOICE_DELIVERY = "voice"
+DELIVERY_FIELD_MAP = {
+    DISCORD_DELIVERY: ("discord_status", "discord_sent_at", "sent"),
+    VOICE_DELIVERY: ("voice_status", "voice_read_at", "read"),
+}
+
+
+def _normalize_delivery_target(delivery_target: str) -> str:
+    target = (delivery_target or "").strip().lower()
+    if target in DELIVERY_FIELD_MAP:
+        return target
+    raise ValueError(f"Unsupported delivery target: {delivery_target}")
+
+
+def _get_delivery_status(briefing: Dict[str, Any], delivery_target: str) -> str:
+    target = _normalize_delivery_target(delivery_target)
+    status_field, _, terminal_status = DELIVERY_FIELD_MAP[target]
+    current = briefing.get(status_field)
+    if isinstance(current, str) and current:
+        return current
+
+    # Backward compatibility for rows created before the split delivery schema.
+    if briefing.get("status") == "delivered":
+        return terminal_status
+    if briefing.get("delivered_at"):
+        return terminal_status
+    return "pending"
+
+
+def _is_delivery_pending(briefing: Dict[str, Any], delivery_target: str) -> bool:
+    return _get_delivery_status(briefing, delivery_target) == "pending"
+
+
+def _is_any_delivery_pending(briefing: Dict[str, Any]) -> bool:
+    return _is_delivery_pending(briefing, DISCORD_DELIVERY) or _is_delivery_pending(briefing, VOICE_DELIVERY)
 
 
 def _format_time_until(event_datetime: datetime) -> str:
@@ -300,7 +342,7 @@ class BriefingManager:
     
     async def get_pending_briefings(self, user: str, limit: int = 10) -> List[Dict[str, Any]]:
         """
-        Get pending briefings for a user, ordered by priority then created_at.
+        Get pending briefings for a user that are still unread by voice.
         
         Args:
             user: User ID to fetch briefings for (e.g., "Morgan")
@@ -309,13 +351,39 @@ class BriefingManager:
         Returns:
             List of briefing records with id, content, priority, status, created_at
         """
+        return await self.get_pending_briefings_for_delivery(
+            user=user,
+            delivery_target=VOICE_DELIVERY,
+            limit=limit,
+        )
+
+    async def get_pending_briefings_for_delivery(
+        self,
+        user: str,
+        delivery_target: str,
+        limit: int = 10,
+    ) -> List[Dict[str, Any]]:
+        """Get pending briefings for a specific delivery target."""
+        target = _normalize_delivery_target(delivery_target)
         if self.is_available():
-            return await self._get_pending_from_supabase(user, limit)
-        else:
-            return self._get_pending_from_local(user, limit)
+            return await self._get_pending_from_supabase(
+                user=user,
+                limit=limit,
+                delivery_target=target,
+            )
+        return self._get_pending_from_local(
+            user=user,
+            limit=limit,
+            delivery_target=target,
+        )
     
-    async def _get_pending_from_supabase(self, user: str, limit: int) -> List[Dict[str, Any]]:
-        """Fetch pending briefings from Supabase."""
+    async def _get_pending_from_supabase(
+        self,
+        user: str,
+        limit: int,
+        delivery_target: str,
+    ) -> List[Dict[str, Any]]:
+        """Fetch pending briefings from Supabase for a specific delivery target."""
         try:
             response = (
                 self._client.table(self.TABLE_NAME)
@@ -336,6 +404,8 @@ class BriefingManager:
             valid_briefings = []
             
             for b in response.data:
+                if not _is_delivery_pending(b, delivery_target):
+                    continue
                 if _is_briefing_expired(b):
                     expired_ids.append(b.get("id"))
                 elif _is_briefing_active(b):
@@ -352,14 +422,19 @@ class BriefingManager:
                 key=lambda b: (priority_order.get(b.get("priority", "normal"), 1), b.get("created_at", ""))
             )[:limit]
             
-            print(f"📋 BriefingManager: Found {len(briefings)} pending briefing(s) for {user}")
+            print(f"📋 BriefingManager: Found {len(briefings)} {delivery_target}-pending briefing(s) for {user}")
             return briefings
             
         except Exception as e:
             print(f"❌ BriefingManager: Error fetching from Supabase - {e}")
-            return self._get_pending_from_local(user, limit)
+            return self._get_pending_from_local(user, limit, delivery_target)
     
-    def _get_pending_from_local(self, user: str, limit: int) -> List[Dict[str, Any]]:
+    def _get_pending_from_local(
+        self,
+        user: str,
+        limit: int,
+        delivery_target: str,
+    ) -> List[Dict[str, Any]]:
         """Fetch pending briefings from local fallback file."""
         try:
             if not self.LOCAL_FALLBACK_PATH.exists():
@@ -374,6 +449,8 @@ class BriefingManager:
             
             for b in data.get("briefings", []):
                 if b.get("user_id") != user or b.get("status") != "pending":
+                    continue
+                if not _is_delivery_pending(b, delivery_target):
                     continue
                     
                 if _is_briefing_expired(b):
@@ -391,7 +468,7 @@ class BriefingManager:
             )
             
             if valid_briefings:
-                print(f"📋 BriefingManager (local): Found {len(valid_briefings)} pending briefing(s) for {user}")
+                print(f"📋 BriefingManager (local): Found {len(valid_briefings)} {delivery_target}-pending briefing(s) for {user}")
             
             return valid_briefings[:limit]
             
@@ -401,10 +478,16 @@ class BriefingManager:
     
     async def mark_delivered(self, briefing_ids: List[str]) -> int:
         """
-        Mark briefings as delivered (spoken to user).
+        Backward-compatible alias for marking briefings as read by voice.
+        """
+        return await self.mark_voice_read(briefing_ids)
+
+    async def mark_voice_read(self, briefing_ids: List[str]) -> int:
+        """
+        Mark briefings as read by the voice assistant.
         
         Args:
-            briefing_ids: List of briefing IDs to mark as delivered
+            briefing_ids: List of briefing IDs to mark as read
             
         Returns:
             Number of briefings successfully marked
@@ -413,35 +496,44 @@ class BriefingManager:
             return 0
         
         if self.is_available():
-            return await self._mark_delivered_supabase(briefing_ids)
-        else:
-            return self._mark_delivered_local(briefing_ids)
+            return await self._mark_delivery_status_supabase(briefing_ids, VOICE_DELIVERY)
+        return self._mark_delivery_status_local(briefing_ids, VOICE_DELIVERY)
     
-    async def _mark_delivered_supabase(self, briefing_ids: List[str]) -> int:
-        """Mark briefings as delivered in Supabase."""
+    async def mark_discord_sent(self, briefing_ids: List[str]) -> int:
+        """Mark briefings as sent to Discord."""
+        if not briefing_ids:
+            return 0
+
+        if self.is_available():
+            return await self._mark_delivery_status_supabase(briefing_ids, DISCORD_DELIVERY)
+        return self._mark_delivery_status_local(briefing_ids, DISCORD_DELIVERY)
+
+    async def _mark_delivery_status_supabase(self, briefing_ids: List[str], delivery_target: str) -> int:
+        """Mark briefings as delivered for a specific channel in Supabase."""
         try:
+            status_field, timestamp_field, terminal_status = DELIVERY_FIELD_MAP[_normalize_delivery_target(delivery_target)]
             now = datetime.now(timezone.utc).isoformat()
             marked = 0
             
             for briefing_id in briefing_ids:
                 try:
                     self._client.table(self.TABLE_NAME).update({
-                        "status": "delivered",
-                        "delivered_at": now
-                    }).eq("id", briefing_id).execute()
+                        status_field: terminal_status,
+                        timestamp_field: now,
+                    }).eq("id", briefing_id).eq("status", "pending").execute()
                     marked += 1
                 except Exception as e:
-                    print(f"⚠️  BriefingManager: Failed to mark {briefing_id} as delivered - {e}")
+                    print(f"⚠️  BriefingManager: Failed to mark {briefing_id} as {terminal_status} for {delivery_target} - {e}")
             
             if marked:
-                print(f"✅ BriefingManager: Marked {marked} briefing(s) as delivered")
+                print(f"✅ BriefingManager: Marked {marked} briefing(s) as {terminal_status} for {delivery_target}")
             return marked
             
         except Exception as e:
-            print(f"❌ BriefingManager: Error marking delivered in Supabase - {e}")
-            return self._mark_delivered_local(briefing_ids)
+            print(f"❌ BriefingManager: Error marking {delivery_target} delivery in Supabase - {e}")
+            return self._mark_delivery_status_local(briefing_ids, delivery_target)
     
-    def _mark_delivered_local(self, briefing_ids: List[str]) -> int:
+    def _mark_delivery_status_local(self, briefing_ids: List[str], delivery_target: str) -> int:
         """Mark briefings as delivered in local fallback file."""
         try:
             if not self.LOCAL_FALLBACK_PATH.exists():
@@ -450,24 +542,25 @@ class BriefingManager:
             with open(self.LOCAL_FALLBACK_PATH, 'r') as f:
                 data = json.load(f)
             
+            status_field, timestamp_field, terminal_status = DELIVERY_FIELD_MAP[_normalize_delivery_target(delivery_target)]
             now = datetime.now(timezone.utc).isoformat()
             marked = 0
             
             for briefing in data.get("briefings", []):
                 if briefing.get("id") in briefing_ids and briefing.get("status") == "pending":
-                    briefing["status"] = "delivered"
-                    briefing["delivered_at"] = now
+                    briefing[status_field] = terminal_status
+                    briefing[timestamp_field] = now
                     marked += 1
             
             with open(self.LOCAL_FALLBACK_PATH, 'w') as f:
                 json.dump(data, f, indent=2)
             
             if marked:
-                print(f"✅ BriefingManager (local): Marked {marked} briefing(s) as delivered")
+                print(f"✅ BriefingManager (local): Marked {marked} briefing(s) as {terminal_status} for {delivery_target}")
             return marked
             
         except Exception as e:
-            print(f"❌ BriefingManager: Error marking delivered in local - {e}")
+            print(f"❌ BriefingManager: Error marking {delivery_target} delivery in local - {e}")
             return 0
     
     async def dismiss_briefings(self, briefing_ids: List[str]) -> int:
@@ -618,7 +711,8 @@ class BriefingManager:
     
     async def get_pending_briefings_without_opener(self, user: str, limit: int = 10) -> List[Dict[str, Any]]:
         """
-        Get pending briefings that don't have a pre-generated opener yet.
+        Get pending briefings that don't have a pre-generated opener yet and still
+        have at least one undelivered channel.
         
         Args:
             user: User ID
@@ -639,7 +733,11 @@ class BriefingManager:
                     .limit(limit)
                     .execute()
                 )
-                return response.data or []
+                return [
+                    briefing
+                    for briefing in (response.data or [])
+                    if _is_any_delivery_pending(briefing)
+                ]
             except Exception as e:
                 print(f"❌ BriefingManager: Error fetching briefings without opener - {e}")
                 return []
@@ -654,13 +752,21 @@ class BriefingManager:
                     if b.get("user_id") == user 
                     and b.get("status") == "pending"
                     and not b.get("opener_text")
+                    and _is_any_delivery_pending(b)
                 ][:limit]
             except Exception:
                 return []
     
-    async def get_pending_briefings_with_opener(self, user: str, limit: int = 10) -> List[Dict[str, Any]]:
+    async def get_pending_briefings_with_opener(
+        self,
+        user: str,
+        limit: int = 10,
+        delivery_target: str = VOICE_DELIVERY,
+        briefing_ids: Optional[List[str]] = None,
+    ) -> List[Dict[str, Any]]:
         """
-        Get pending briefings that have a pre-generated opener (ready for TTS).
+        Get pending briefings that have a pre-generated opener and are still
+        pending for the requested delivery channel.
         
         Only returns briefings that are currently active (active_from date <= today)
         and whose events haven't already happened.
@@ -668,13 +774,16 @@ class BriefingManager:
         Args:
             user: User ID
             limit: Max briefings to return
+            delivery_target: Which delivery channel should still receive the briefing
+            briefing_ids: Optional subset of IDs to check
             
         Returns:
             List of briefings with opener_text ready to speak
         """
+        delivery_target = _normalize_delivery_target(delivery_target)
         if self.is_available():
             try:
-                response = (
+                query = (
                     self._client.table(self.TABLE_NAME)
                     .select("*")
                     .eq("user_id", user)
@@ -682,9 +791,12 @@ class BriefingManager:
                     .not_.is_("opener_text", "null")
                     .order("priority", desc=False)
                     .order("created_at", desc=False)
-                    .limit(limit * 3)  # Fetch extra to account for filtered/skipped ones
-                    .execute()
                 )
+                if briefing_ids:
+                    query = query.in_("id", briefing_ids)
+                else:
+                    query = query.limit(limit * 3)  # Fetch extra to account for filtered/skipped ones
+                response = query.execute()
                 
                 if not response.data:
                     return []
@@ -694,6 +806,8 @@ class BriefingManager:
                 valid_briefings = []
                 
                 for b in response.data:
+                    if not _is_delivery_pending(b, delivery_target):
+                        continue
                     if _is_briefing_expired(b):
                         expired_ids.append(b.get("id"))
                     elif _is_briefing_active(b):
@@ -710,7 +824,7 @@ class BriefingManager:
                 )[:limit]
                 
                 if briefings:
-                    print(f"📋 BriefingManager: Found {len(briefings)} briefing(s) with opener for {user}")
+                    print(f"📋 BriefingManager: Found {len(briefings)} briefing(s) with opener for {user} ({delivery_target})")
                 return briefings
                 
             except Exception as e:
@@ -732,6 +846,10 @@ class BriefingManager:
                         or b.get("status") != "pending"
                         or not b.get("opener_text")):
                         continue
+                    if briefing_ids and b.get("id") not in set(briefing_ids):
+                        continue
+                    if not _is_delivery_pending(b, delivery_target):
+                        continue
                     
                     if _is_briefing_expired(b):
                         expired_ids.append(b.get("id"))
@@ -746,7 +864,7 @@ class BriefingManager:
                 valid_briefings.sort(key=lambda b: (priority_order.get(b.get("priority", "normal"), 1), b.get("created_at", "")))
                 
                 if valid_briefings:
-                    print(f"📋 BriefingManager (local): Found {len(valid_briefings)} briefing(s) with opener for {user}")
+                    print(f"📋 BriefingManager (local): Found {len(valid_briefings)} briefing(s) with opener for {user} ({delivery_target})")
                 return valid_briefings[:limit]
             except Exception:
                 return []

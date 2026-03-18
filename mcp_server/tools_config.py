@@ -18,6 +18,7 @@ ENABLED_TOOLS = {
     # Active MCP tools
     "state_tool": True,
     "get_notifications": True,
+    "todos": True,
     "briefing": True,  # Create and manage briefing announcements
     "spotify_playback": True,
     "calendar_data": True,
@@ -30,7 +31,6 @@ ENABLED_TOOLS = {
     "send_sms": platform.system() == "Darwin",  # Only enable on macOS
     "cursor_composer": platform.system() == "Darwin",  # Only enable on macOS
     "read_clipboard": platform.system() == "Darwin",  # Only enable on macOS
-    "stickies": platform.system() == "Darwin",  # Only enable on macOS
 }
 
 # Tools that should NEVER be loaded (overrides ENABLED_TOOLS)

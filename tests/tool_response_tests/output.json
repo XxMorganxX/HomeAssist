@@ -1,8 +1,8 @@
 {
-  "generated_at": "2026-02-11T12:34:56.239548",
+  "generated_at": "2026-03-18T15:03:58.764145",
   "model": "openai",
   "orchestration_model": "gpt-4o-mini",
-  "total_tests": 50,
+  "total_tests": 55,
   "tool_signal_mode": true,
   "categories": [
     "Weather",
@@ -18,22 +18,22 @@
     "Read",
     "Capabilities",
     "Briefings",
-    "Stickies"
+    "Todos"
   ],
   "tool_signal_stats": {
-    "total_tests": 50,
-    "tool_signal_detected": 34,
-    "orchestration_called": 34,
-    "realtime_compose_called": 34,
-    "tools_used": 37,
-    "no_tools_used": 13
+    "total_tests": 55,
+    "tool_signal_detected": 38,
+    "orchestration_called": 38,
+    "realtime_compose_called": 38,
+    "tools_used": 41,
+    "no_tools_used": 14
   },
   "timing_summary": {
     "total_time": {
-      "avg": 6182,
+      "avg": 6035,
       "min": 204,
       "max": 33337,
-      "total": 309117
+      "total": 331955
     },
     "tool_execution_time": {
       "avg": null,
@@ -1578,6 +1578,177 @@
       },
       "timing": {
         "total_time_ms": 7566
+      }
+    },
+    {
+      "category": "Todos",
+      "prompt": "What's on my to-do list?",
+      "response": "It looks like there\u2019s no to-do list currently in your sticky notes. You might want to create one first, then we can check it together. Let me know if you need help with that.",
+      "tools_used": [
+        {
+          "name": "stickies",
+          "arguments": {
+            "action": "read",
+            "section": "todo"
+          },
+          "result": "{\"success\":false,\"error\":\"No sticky note found. Please create one in the Stickies app first.\",\"error_code\":\"STICKIES_NOT_FOUND\"}"
+        }
+      ],
+      "tool_signal_flow": {
+        "tool_signal_detected": true,
+        "realtime_raw_output": "TOOL...",
+        "orchestration_called": true,
+        "orchestration_model": null,
+        "realtime_compose_called": true,
+        "timing": {
+          "realtime_signal_ms": 460,
+          "orchestration_api_ms": null,
+          "tool_execution_ms": 4279,
+          "realtime_compose_ms": 563,
+          "orchestration_total_ms": 6311
+        }
+      },
+      "timing": {
+        "total_time_ms": 7061
+      }
+    },
+    {
+      "category": "Todos",
+      "prompt": "Add hello world to my to-do list",
+      "response": "It looks like there\u2019s no to-do list set up yet. You\u2019ll need to create a sticky note first in the Stickies app, and then we can add \u201chello world\u201d to it. Let me know if you need help getting that started.",
+      "tools_used": [
+        {
+          "name": "stickies",
+          "arguments": {
+            "action": "write",
+            "edits": [
+              {
+                "op": "add_todo",
+                "item": "hello world"
+              }
+            ]
+          },
+          "result": "{\"success\":false,\"error\":\"No sticky note found. Please create one in the Stickies app first.\",\"error_code\":\"STICKIES_NOT_FOUND\"}"
+        }
+      ],
+      "tool_signal_flow": {
+        "tool_signal_detected": true,
+        "realtime_raw_output": "TOOL...",
+        "orchestration_called": true,
+        "orchestration_model": null,
+        "realtime_compose_called": true,
+        "timing": {
+          "realtime_signal_ms": 392,
+          "orchestration_api_ms": null,
+          "tool_execution_ms": 1685,
+          "realtime_compose_ms": 670,
+          "orchestration_total_ms": 4053
+        }
+      },
+      "timing": {
+        "total_time_ms": 4665
+      }
+    },
+    {
+      "category": "Todos",
+      "prompt": "Mark hello world done",
+      "response": "It seems we still need to create a to-do list first. Once you've set up a sticky note with your tasks, I can help mark \"hello world\" as done. Let me know when you're ready.",
+      "tools_used": [],
+      "tool_signal_flow": {
+        "tool_signal_detected": false,
+        "realtime_raw_output": "It seems we still need to create a to-do list first. Once you've set up a sticky note with your tasks, I can help mark \"hello world\" as done. Let me k...",
+        "orchestration_called": false,
+        "orchestration_model": null,
+        "realtime_compose_called": false,
+        "timing": {
+          "realtime_signal_ms": null,
+          "orchestration_api_ms": null,
+          "tool_execution_ms": null,
+          "realtime_compose_ms": null,
+          "orchestration_total_ms": null
+        }
+      },
+      "timing": {
+        "total_time_ms": 780
+      }
+    },
+    {
+      "category": "Todos",
+      "prompt": "What's due today?",
+      "response": "It looks like there\u2019s no to-do list created yet. You might need to set one up in the Stickies app first, and then we can check what\u2019s due today. Let me know if you need help.",
+      "tools_used": [
+        {
+          "name": "stickies",
+          "arguments": {
+            "action": "read",
+            "section": "todo"
+          },
+          "result": "{\"success\":false,\"error\":\"No sticky note found. Please create one in the Stickies app first.\",\"error_code\":\"STICKIES_NOT_FOUND\"}"
+        }
+      ],
+      "tool_signal_flow": {
+        "tool_signal_detected": true,
+        "realtime_raw_output": "TOOL...",
+        "orchestration_called": true,
+        "orchestration_model": null,
+        "realtime_compose_called": true,
+        "timing": {
+          "realtime_signal_ms": 390,
+          "orchestration_api_ms": null,
+          "tool_execution_ms": 1336,
+          "realtime_compose_ms": 674,
+          "orchestration_total_ms": 3151
+        }
+      },
+      "timing": {
+        "total_time_ms": 3746
+      }
+    },
+    {
+      "category": "Todos",
+      "prompt": "Remind me to call the dentist at 2pm",
+      "response": "It seems we need to create a sticky note first, and the reminder needs a full date and time format. Could you give me the exact date along with 2 PM? Then I can help set it up.",
+      "tools_used": [
+        {
+          "name": "stickies",
+          "arguments": {
+            "action": "write",
+            "edits": [
+              {
+                "op": "add_todo",
+                "item": "call the dentist",
+                "due": "2pm"
+              }
+            ]
+          },
+          "result": "{\"success\":false,\"error\":\"No sticky note found. Please create one in the Stickies app first.\",\"error_code\":\"STICKIES_NOT_FOUND\"}"
+        },
+        {
+          "name": "briefing",
+          "arguments": {
+            "action": "create",
+            "message": "Call the dentist",
+            "remind_at": "2pm"
+          },
+          "result": "{\"success\":false,\"error\":\"Invalid datetime format: time data '2pm' does not match format '%Y-%m-%d'. Use ISO 8601 format like '2026-01-13T13:00:00'\"}"
+        }
+      ],
+      "tool_signal_flow": {
+        "tool_signal_detected": true,
+        "realtime_raw_output": "TOOL...",
+        "orchestration_called": true,
+        "orchestration_model": null,
+        "realtime_compose_called": true,
+        "timing": {
+          "realtime_signal_ms": 389,
+          "orchestration_api_ms": null,
+          "tool_execution_ms": 3398,
+          "realtime_compose_ms": 607,
+          "orchestration_total_ms": 5963
+        }
+      },
+      "timing": {
+        "total_time_ms": 6586
       }
     }
   ]

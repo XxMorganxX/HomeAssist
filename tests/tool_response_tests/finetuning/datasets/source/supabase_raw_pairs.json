@@ -1,0 +1,3306 @@
+[
+  {
+    "user_prompt": "what are the next three events i have my calendar",
+    "tool_calls": [
+      {
+        "name": "calendar_data",
+        "arguments": {
+          "commands": [
+            {
+              "params": {
+                "limit": 3
+              },
+              "command": "list"
+            }
+          ]
+        }
+      }
+    ],
+    "session_id": "77b3c665-ecb9-46e6-92a9-5ef06ae3d90e",
+    "timestamp": "2026-02-03T23:15:24.01125+00:00"
+  },
+  {
+    "user_prompt": "what do i have next in my calendar",
+    "tool_calls": [
+      {
+        "name": "calendar_data",
+        "arguments": {
+          "commands": [
+            {
+              "command": "get_next_event"
+            }
+          ]
+        }
+      }
+    ],
+    "session_id": "77b3c665-ecb9-46e6-92a9-5ef06ae3d90e",
+    "timestamp": "2026-02-03T23:14:56.642717+00:00"
+  },
+  {
+    "user_prompt": "what do i have next to my calendar",
+    "tool_calls": [
+      {
+        "name": "briefing",
+        "arguments": {
+          "action": "list"
+        }
+      },
+      {
+        "name": "calendar_data",
+        "arguments": {
+          "commands": [
+            {
+              "command": "list"
+            }
+          ]
+        }
+      }
+    ],
+    "session_id": "65358320-c6cf-4dbb-978b-fcb21af556ee",
+    "timestamp": "2026-02-03T22:50:56.43017+00:00"
+  },
+  {
+    "user_prompt": "What do I have next to my calendar?",
+    "tool_calls": [
+      {
+        "name": "calendar_data",
+        "arguments": {
+          "commands": [
+            {
+              "command": "get_upcoming_events",
+              "max_results": 1
+            }
+          ]
+        }
+      }
+    ],
+    "session_id": "c04cd05d-6585-4c53-8f6b-a169ddf38009",
+    "timestamp": "2026-02-03T02:11:24.57741+00:00"
+  },
+  {
+    "user_prompt": ". What is next on my calendar?",
+    "tool_calls": [
+      {
+        "name": "calendar_data",
+        "arguments": {
+          "commands": [
+            {
+              "command": "get_next_event"
+            }
+          ]
+        }
+      }
+    ],
+    "session_id": "90272380-4fb1-42f6-8e07-d078eca57b5d",
+    "timestamp": "2026-02-03T01:04:09.215727+00:00"
+  },
+  {
+    "user_prompt": "My personal calendar.",
+    "tool_calls": [
+      {
+        "name": "calendar_data",
+        "arguments": {
+          "commands": [
+            {
+              "type": "list_next_event",
+              "calendar": "morgan_personal"
+            }
+          ]
+        }
+      }
+    ],
+    "session_id": "df1b4523-fbda-4fae-8e14-8a86f9e5a763",
+    "timestamp": "2026-02-03T00:53:38.495479+00:00"
+  },
+  {
+    "user_prompt": "What do I have next on my calendar?",
+    "tool_calls": [
+      {
+        "name": "calendar_data",
+        "arguments": {}
+      }
+    ],
+    "session_id": "df1b4523-fbda-4fae-8e14-8a86f9e5a763",
+    "timestamp": "2026-02-03T00:53:18.920931+00:00"
+  },
+  {
+    "user_prompt": "What do I have on my calendar tomorrow?",
+    "tool_calls": [
+      {
+        "name": "calendar_data",
+        "arguments": {
+          "commands": [
+            {
+              "command": "list",
+              "calendar": "all",
+              "specific_date": "2026-02-03"
+            }
+          ]
+        }
+      }
+    ],
+    "session_id": "290a1480-5aa4-4ef0-842b-a8bc77bcd745",
+    "timestamp": "2026-02-03T00:42:25.313721+00:00"
+  },
+  {
+    "user_prompt": "what's the weather looking like today",
+    "tool_calls": [
+      {
+        "name": "weather",
+        "arguments": {
+          "days": 1
+        }
+      }
+    ],
+    "session_id": "589a25b6-32c9-4bd5-bda3-fcb96e7ba5ee",
+    "timestamp": "2026-01-28T22:16:49.96268+00:00"
+  },
+  {
+    "user_prompt": "Okay, summarize. Summarize what's on my clipboard.",
+    "tool_calls": [
+      {
+        "name": "read_clipboard",
+        "arguments": {
+          "max_length": 8000
+        }
+      }
+    ],
+    "session_id": "79717b29-57b8-46a3-b945-b977bd2b087a",
+    "timestamp": "2026-01-27T04:08:02.945334+00:00"
+  },
+  {
+    "user_prompt": ". Summariz. E the text that I have. Copied. To my clip. Board. It's a little bit tough because you want. A good balance of. Like. You need to be able to. Barge in. And talk over it. But at the same. Time when it's going to make. Tool calls. And you need a little bit more time. To think. Then you don't. Want to talk. Over that it needs to pick up, like, human conversation. How, just how, when we bought in. It's not like anything confusing. It's just like you have another thing to say. I mean, that's hard, though.",
+    "tool_calls": [
+      {
+        "name": "read_clipboard",
+        "arguments": {
+          "max_length": 8000
+        }
+      }
+    ],
+    "session_id": "c30fcc1d-c529-4203-b1dc-685aeb371111",
+    "timestamp": "2026-01-27T04:07:05.697441+00:00"
+  },
+  {
+    "user_prompt": ". Summariz. E the text that I have. Copied. To my clip. Board.",
+    "tool_calls": [
+      {
+        "name": "read_clipboard",
+        "arguments": {
+          "max_length": 8000
+        }
+      }
+    ],
+    "session_id": "34d5272c-8a5b-428d-a6e1-a65d43097114",
+    "timestamp": "2026-01-27T04:06:23.374303+00:00"
+  },
+  {
+    "user_prompt": "what do i have on my calendar what's the next thing i have on my calendar",
+    "tool_calls": [
+      {
+        "name": "calendar_data",
+        "arguments": {
+          "commands": [
+            {
+              "command": "list",
+              "time_zone": "local"
+            }
+          ]
+        }
+      }
+    ],
+    "session_id": "34d5272c-8a5b-428d-a6e1-a65d43097114",
+    "timestamp": "2026-01-27T04:05:29.02578+00:00"
+  },
+  {
+    "user_prompt": "Read me my emails.",
+    "tool_calls": [
+      {
+        "name": "get_notifications",
+        "arguments": {
+          "limit": 5,
+          "type_filter": "email"
+        }
+      }
+    ],
+    "session_id": "99beb456-ace0-4f76-ae89-4ed8171011e3",
+    "timestamp": "2026-01-24T21:14:48.122967+00:00"
+  },
+  {
+    "user_prompt": "An event to my calendar for this Saturday. to fill out research application form for four p m",
+    "tool_calls": [
+      {
+        "name": "calendar_data",
+        "arguments": {
+          "commands": [
+            {
+              "event": {
+                "title": "Fill out research application form",
+                "end_time": "2026-01-24T17:00:00",
+                "start_time": "2026-01-24T16:00:00"
+              },
+              "command": "add"
+            }
+          ]
+        }
+      }
+    ],
+    "session_id": "7dc7b9b2-64b7-45c1-8d4a-6f2809e5d952",
+    "timestamp": "2026-01-23T05:38:45.418244+00:00"
+  },
+  {
+    "user_prompt": "Add an event for. This Saturday. At 4pm. That should say be titled. Fill out job application. For research. Event.",
+    "tool_calls": [
+      {
+        "name": "calendar_data",
+        "arguments": {
+          "commands": [
+            {
+              "date": "2026-01-28",
+              "user": "morgan_personal",
+              "event": {
+                "title": "Fill out job application for research",
+                "end_time": "2026-01-28T17:00:00",
+                "start_time": "2026-01-28T16:00:00"
+              },
+              "command": "add",
+              "calendar": "morgan_personal",
+              "end_time": "17:00",
+              "start_time": "16:00",
+              "event_title": "Fill out job application for research",
+              "calendar_name": "homeassistant",
+              "read_or_write": "create_event"
+            }
+          ]
+        }
+      },
+      {
+        "name": "calendar_data",
+        "arguments": {
+          "commands": [
+            {
+              "event": {
+                "title": "Fill out job application for research",
+                "end_time": "2026-01-27T17:00:00",
+                "start_time": "2026-01-27T16:00:00"
+              },
+              "command": "add"
+            }
+          ]
+        }
+      }
+    ],
+    "session_id": "918c79c6-bb9a-4949-b229-0811f79ac201",
+    "timestamp": "2026-01-23T05:29:12.583682+00:00"
+  },
+  {
+    "user_prompt": "what are the events i have for the next four days",
+    "tool_calls": [
+      {
+        "name": "calendar_data",
+        "arguments": {
+          "commands": [
+            {
+              "read": {
+                "calendar": "all"
+              },
+              "user": "all",
+              "calendar": "all",
+              "read_type": "next_events",
+              "calendar_name": "primary",
+              "read_or_write": "read"
+            }
+          ]
+        }
+      },
+      {
+        "name": "calendar_data",
+        "arguments": {
+          "commands": [
+            {
+              "read": {
+                "calendar": "all"
+              },
+              "user": "all",
+              "calendar": "all",
+              "read_type": "next_events",
+              "calendar_name": "primary",
+              "read_or_write": "read"
+            }
+          ]
+        }
+      },
+      {
+        "name": "calendar_data",
+        "arguments": {
+          "commands": [
+            {
+              "read": {
+                "calendar": "all"
+              }
+            }
+          ]
+        }
+      },
+      {
+        "name": "calendar_data",
+        "arguments": {}
+      }
+    ],
+    "session_id": "eb112acd-ba92-4981-b034-5b649e394f8e",
+    "timestamp": "2026-01-22T19:50:56.631234+00:00"
+  },
+  {
+    "user_prompt": "at an event tomorrow my calendar forenoon to pay my parking ticket",
+    "tool_calls": [
+      {
+        "name": "calendar_data",
+        "arguments": {
+          "commands": [
+            {
+              "date": "2026-01-22",
+              "user": "morgan_personal",
+              "title": "Pay parking ticket",
+              "command": "add",
+              "calendar": "morgan_personal",
+              "end_time": "09:30",
+              "start_time": "09:00",
+              "event_title": "Pay parking ticket",
+              "calendar_name": "homeassist",
+              "read_or_write": "create_event"
+            }
+          ]
+        }
+      },
+      {
+        "name": "calendar_data",
+        "arguments": {
+          "commands": [
+            {
+              "title": "Pay parking ticket",
+              "command": "add",
+              "calendar": "morgan_personal",
+              "end_time": "2026-01-22T09:30:00",
+              "start_time": "2026-01-22T09:00:00"
+            }
+          ]
+        }
+      }
+    ],
+    "session_id": "bb26bbae-d8c9-4e11-bdea-abed6cfe4177",
+    "timestamp": "2026-01-21T22:48:14.039241+00:00"
+  },
+  {
+    "user_prompt": "what's next in my calendar",
+    "tool_calls": [
+      {
+        "name": "calendar_data",
+        "arguments": {
+          "commands": [
+            {
+              "read": {
+                "calendar": "all"
+              }
+            }
+          ]
+        }
+      },
+      {
+        "name": "calendar_data",
+        "arguments": {}
+      }
+    ],
+    "session_id": "4fc2ed14-f8cb-4dfe-b583-37b7f370ec48",
+    "timestamp": "2026-01-21T21:37:01.793764+00:00"
+  },
+  {
+    "user_prompt": "Play the song past my bed by jo g on Spotify.",
+    "tool_calls": [
+      {
+        "name": "spotify_playback",
+        "arguments": {
+          "query": "past my bed by joe g",
+          "action": "search_track"
+        }
+      },
+      {
+        "name": "spotify_playback",
+        "arguments": {
+          "query": "past my bed by jo g",
+          "action": "search",
+          "search_type": "track"
+        }
+      }
+    ],
+    "session_id": "4ede8e13-c1f0-4ef2-bd38-6ece02c5ffbc",
+    "timestamp": "2026-01-21T19:30:22.877395+00:00"
+  },
+  {
+    "user_prompt": "Play pass won't leave my bed. by joji on spotify",
+    "tool_calls": [
+      {
+        "name": "spotify_playback",
+        "arguments": {
+          "query": "pass won't leave my bed. by joji",
+          "action": "play"
+        }
+      },
+      {
+        "name": "spotify_playback",
+        "arguments": {
+          "query": "Pass Won't Leave My Bed by Joji",
+          "action": "play"
+        }
+      }
+    ],
+    "session_id": "507f79c8-be9b-48e0-a7e4-212d2d0e7afe",
+    "timestamp": "2026-01-21T18:46:47.90117+00:00"
+  },
+  {
+    "user_prompt": "Yeah. Create it for 2pM. And in this sense, it's basically just like a speaker and mic. Scratch. That. Mental calendar.",
+    "tool_calls": [
+      {
+        "name": "calendar_data",
+        "arguments": {
+          "commands": [
+            {
+              "command": "create",
+              "start_time": "2026-01-22T14:00:00",
+              "description": "Reminder to telemede to keep quiet"
+            }
+          ]
+        }
+      }
+    ],
+    "session_id": "91e95573-5fc5-4bf7-af2a-d8c337597369",
+    "timestamp": "2026-01-21T18:45:34.183355+00:00"
+  },
+  {
+    "user_prompt": "I just very finicky. At an event to my calendar tomorrow to remind me to telemede to shut the fuck up. Yeah. Create it for 2pM.",
+    "tool_calls": [
+      {
+        "name": "calendar_data",
+        "arguments": {
+          "commands": [
+            {
+              "title": "Reminder to telemede to shut the fuck up",
+              "command": "add",
+              "calendar": "morgan_personal",
+              "end_time": "2026-01-22T14:30:00",
+              "start_time": "2026-01-22T14:00:00"
+            }
+          ]
+        }
+      }
+    ],
+    "session_id": "91e95573-5fc5-4bf7-af2a-d8c337597369",
+    "timestamp": "2026-01-21T18:45:15.867132+00:00"
+  },
+  {
+    "user_prompt": "I just very finicky. At an event to my calendar tomorrow to remind me to telemede to shut the fuck up.",
+    "tool_calls": [
+      {
+        "name": "calendar_data",
+        "arguments": {
+          "commands": [
+            {
+              "title": "Reminder to telemede to be quiet",
+              "command": "add",
+              "calendar": "morgan_personal",
+              "start_time": "2026-01-22T18:00:00"
+            }
+          ]
+        }
+      }
+    ],
+    "session_id": "91e95573-5fc5-4bf7-af2a-d8c337597369",
+    "timestamp": "2026-01-21T18:44:58.579961+00:00"
+  },
+  {
+    "user_prompt": "Head. Yeah. Hit pause on Spotify.",
+    "tool_calls": [
+      {
+        "name": "spotify_playback",
+        "arguments": {
+          "action": "pause"
+        }
+      }
+    ],
+    "session_id": "64bdffda-eba5-41ad-8eb9-384c2d52fc38",
+    "timestamp": "2026-01-21T18:06:28.69821+00:00"
+  },
+  {
+    "user_prompt": "Put an event for 1pM on my calendar tomorrow to both set up posters and open dev application.",
+    "tool_calls": [
+      {
+        "name": "calendar_data",
+        "arguments": {
+          "commands": [
+            {
+              "event": {
+                "end": {
+                  "dateTime": "2026-01-21T14:00:00-05:00"
+                },
+                "start": {
+                  "dateTime": "2026-01-21T13:00:00-05:00"
+                },
+                "summary": "Set up posters and open dev application"
+              },
+              "command": "create",
+              "calendar": "morgan_personal"
+            }
+          ]
+        }
+      }
+    ],
+    "session_id": "c5c3fe7f-8236-45d9-9412-0eb901d8e3df",
+    "timestamp": "2026-01-21T00:21:10.268991+00:00"
+  },
+  {
+    "user_prompt": "Creighton event on my calendar to remind me to reach out to Professor Saban about. the lab application today at ten p m",
+    "tool_calls": [
+      {
+        "name": "calendar_data",
+        "arguments": {
+          "commands": [
+            {
+              "event": {
+                "end": {
+                  "dateTime": "2026-01-20T22:30:00-05:00"
+                },
+                "start": {
+                  "dateTime": "2026-01-20T22:00:00-05:00"
+                },
+                "summary": "Reach out to Professor Saban about the lab application"
+              },
+              "command": "create",
+              "calendar": "morgan_personal"
+            }
+          ]
+        }
+      }
+    ],
+    "session_id": "b05d5ff9-0d81-4201-b1fc-9657e582676f",
+    "timestamp": "2026-01-20T21:47:40.064469+00:00"
+  },
+  {
+    "user_prompt": "Creighton event on my calendar to remind me to reach out to Professor Saban about. the lab application",
+    "tool_calls": [
+      {
+        "name": "calendar_data",
+        "arguments": {
+          "commands": [
+            {
+              "title": "Reach out to Professor Saban about the lab application",
+              "command": "add",
+              "calendar": "morgan_personal"
+            }
+          ]
+        }
+      }
+    ],
+    "session_id": "b05d5ff9-0d81-4201-b1fc-9657e582676f",
+    "timestamp": "2026-01-20T21:47:00.488624+00:00"
+  },
+  {
+    "user_prompt": "Add an event to my calendar. Reminding me to reach out to Professor Saban. and tell her i will follow through on the application",
+    "tool_calls": [
+      {
+        "name": "weather",
+        "arguments": {
+          "days": 1
+        }
+      },
+      {
+        "name": "calendar_data",
+        "arguments": {
+          "commands": [
+            {
+              "event": {
+                "end": {
+                  "dateTime": "2026-01-21T10:30:00"
+                },
+                "start": {
+                  "dateTime": "2026-01-21T10:00:00"
+                },
+                "summary": "Reach out to Professor Saban and confirm follow-through on the application",
+                "description": "Reminder to contact Professor Saban about the application."
+              },
+              "command": "add"
+            }
+          ]
+        }
+      },
+      {
+        "name": "calendar_data",
+        "arguments": {
+          "commands": [
+            {
+              "event": {
+                "end": {
+                  "dateTime": "2026-01-21T10:30:00-05:00"
+                },
+                "start": {
+                  "dateTime": "2026-01-21T10:00:00-05:00"
+                },
+                "summary": "Reach out to Professor Saban and confirm follow-through on the application",
+                "description": "Reminder to contact Professor Saban about the application."
+              },
+              "command": "add"
+            }
+          ]
+        }
+      }
+    ],
+    "session_id": "d91806ed-66b3-433f-b225-144a8dcffb1f",
+    "timestamp": "2026-01-20T21:44:40.692283+00:00"
+  },
+  {
+    "user_prompt": "Put a new event on my calendar for tomorrow. Around. Let's say 1pM to read over. The info, psi. 3312 syllabus. Er.",
+    "tool_calls": [
+      {
+        "name": "calendar_data",
+        "arguments": {
+          "commands": [
+            {
+              "create": {
+                "end": {
+                  "dateTime": "2026-01-21T13:30:00",
+                  "timeZone": "America/New_York"
+                },
+                "start": {
+                  "dateTime": "2026-01-21T13:00:00",
+                  "timeZone": "America/New_York"
+                },
+                "summary": "Read over PSI 3312 syllabus"
+              }
+            }
+          ]
+        }
+      }
+    ],
+    "session_id": "acb45268-2e23-45f9-97a4-bdc50d2e0608",
+    "timestamp": "2026-01-20T19:48:06.574909+00:00"
+  },
+  {
+    "user_prompt": "what's the next thing my calendar",
+    "tool_calls": [
+      {
+        "name": "calendar_data",
+        "arguments": {
+          "commands": [
+            {
+              "type": "read",
+              "calendar": "all"
+            }
+          ]
+        }
+      },
+      {
+        "name": "calendar_data",
+        "arguments": {}
+      }
+    ],
+    "session_id": "d29c3b9c-800e-4e0d-85bd-7c0f9385fb7e",
+    "timestamp": "2026-01-17T00:07:59.898906+00:00"
+  },
+  {
+    "user_prompt": "what do i have next up on my calendar",
+    "tool_calls": [
+      {
+        "name": "calendar_data",
+        "arguments": {}
+      }
+    ],
+    "session_id": "d5dc7f34-507d-4a98-8e11-f42f0693bd0c",
+    "timestamp": "2026-01-17T00:04:52.827559+00:00"
+  },
+  {
+    "user_prompt": "What do I have next up on my calendar? Can we update the Belgians such that it will take consistently spoken. Barden in order for actually prevent to interrupt audio. Without it. And collect the audio frames. To prefill the transcription. But. If the user hasn't spoken for long enough. Then it should disregard those frames.",
+    "tool_calls": [
+      {
+        "name": "calendar_data",
+        "arguments": {
+          "commands": [
+            {
+              "command": "read",
+              "calendar": "all"
+            }
+          ]
+        }
+      },
+      {
+        "name": "calendar_data",
+        "arguments": {
+          "commands": [
+            {
+              "user": "Morgan",
+              "limit": 1,
+              "command": "list"
+            }
+          ]
+        }
+      }
+    ],
+    "session_id": "47562c82-a1ca-48af-9be9-8cb8a409cce6",
+    "timestamp": "2026-01-16T23:12:25.916148+00:00"
+  },
+  {
+    "user_prompt": "Search online and figure out how I can deploy a website to GoDaddy.",
+    "tool_calls": [
+      {
+        "name": "google_search",
+        "arguments": {
+          "query": "how to deploy a website to GoDaddy step-by-step"
+        }
+      }
+    ],
+    "session_id": "91267c10-a0fb-4901-86b3-36577d67214b",
+    "timestamp": "2026-01-16T22:36:48.88376+00:00"
+  },
+  {
+    "user_prompt": "Progressively. I kind of feel. The camera. what's the next thing that i have in my calendar",
+    "tool_calls": [
+      {
+        "name": "calendar_data",
+        "arguments": {
+          "commands": [
+            {
+              "action": "get_events",
+              "calendar": "morgan_personal",
+              "time_range": "upcoming"
+            },
+            {
+              "action": "get_events",
+              "calendar": "morgan_school",
+              "time_range": "upcoming"
+            },
+            {
+              "action": "get_events",
+              "calendar": "homeassist",
+              "time_range": "upcoming"
+            }
+          ]
+        }
+      }
+    ],
+    "session_id": "c1a2c38b-011b-41df-98b7-9e2e66d78b72",
+    "timestamp": "2026-01-16T22:31:22.644081+00:00"
+  },
+  {
+    "user_prompt": "an event called test event number two for twelve p m on my calendar tomorrow",
+    "tool_calls": [
+      {
+        "name": "calendar_data",
+        "arguments": {
+          "commands": [
+            {
+              "title": "test event number two",
+              "action": "create_event",
+              "calendar": "morgan_personal",
+              "end_time": "2026-01-16T13:00:00",
+              "start_time": "2026-01-16T12:00:00"
+            }
+          ]
+        }
+      }
+    ],
+    "session_id": "245a601e-c61a-4130-92dd-f5d4d6ab872f",
+    "timestamp": "2026-01-15T20:10:05.097788+00:00"
+  },
+  {
+    "user_prompt": "hit play on this spotify device",
+    "tool_calls": [
+      {
+        "name": "spotify_playback",
+        "arguments": {
+          "action": "play"
+        }
+      }
+    ],
+    "session_id": "dd3e0c28-db81-4dab-877a-4024c517ad9c",
+    "timestamp": "2026-01-15T15:11:33.411077+00:00"
+  },
+  {
+    "user_prompt": "hit play on spotify",
+    "tool_calls": [
+      {
+        "name": "spotify_playback",
+        "arguments": {
+          "action": "play"
+        }
+      }
+    ],
+    "session_id": "27e223a4-e049-4035-b4a3-fe640d41937c",
+    "timestamp": "2026-01-14T16:45:39.088485+00:00"
+  },
+  {
+    "user_prompt": "Dual web search to find information on Greg Stewart.",
+    "tool_calls": [
+      {
+        "name": "google_search",
+        "arguments": {
+          "query": "Greg Stewart",
+          "query_type": "general"
+        }
+      }
+    ],
+    "session_id": "3737f969-d926-4230-accc-93d2d784c941",
+    "timestamp": "2026-01-14T16:21:39.354444+00:00"
+  },
+  {
+    "user_prompt": "Do a web search to find information on the New York State Food Processors Organization.",
+    "tool_calls": [
+      {
+        "name": "google_search",
+        "arguments": {
+          "query": "New York State Food Processors Organization information"
+        }
+      }
+    ],
+    "session_id": "6ee513bd-7afa-46cd-94ac-172cdabce4bd",
+    "timestamp": "2026-01-14T16:18:19.247187+00:00"
+  },
+  {
+    "user_prompt": "do a google search to find information on the new york state food processors organization and tell me what they do",
+    "tool_calls": [
+      {
+        "name": "google_search",
+        "arguments": {
+          "query": "New York State Food Processors organization information and what they do"
+        }
+      }
+    ],
+    "session_id": "4c266f02-2817-4ecb-8609-daf9c04f9067",
+    "timestamp": "2026-01-14T16:15:43.019619+00:00"
+  },
+  {
+    "user_prompt": "Something. I tried. Something I tried in engages. Was that? Since it has a web search tool. I asked it to search up the restaurant I was going to. And finally, unique things on the menu. Scratch that. Something else. Was. Set up. We had this person resetting twice. Scratch that. do a google search to find information on the associated news new york state food processor organization and find out what they do",
+    "tool_calls": [
+      {
+        "name": "google_search",
+        "arguments": {
+          "query": "Associated New York State Food Processors organization 2026 activities and purpose",
+          "query_type": "general"
+        }
+      }
+    ],
+    "session_id": "afc261c1-a7e6-4566-b058-83f42a537837",
+    "timestamp": "2026-01-14T16:05:42.003244+00:00"
+  },
+  {
+    "user_prompt": "what's the nice thing i have in my calendar",
+    "tool_calls": [
+      {
+        "name": "calendar_data",
+        "arguments": {
+          "commands": [
+            {
+              "command": "get_events",
+              "end_date": "2026-12-31",
+              "start_date": "2026-01-14"
+            }
+          ]
+        }
+      }
+    ],
+    "session_id": "afc261c1-a7e6-4566-b058-83f42a537837",
+    "timestamp": "2026-01-14T16:04:28.516996+00:00"
+  },
+  {
+    "user_prompt": "Yeah. tell me a little bit about how you're built",
+    "tool_calls": [
+      {
+        "name": "system_info",
+        "arguments": {
+          "section": "overview"
+        }
+      }
+    ],
+    "session_id": "92f87868-5f20-4d0c-812b-a86b3e109139",
+    "timestamp": "2026-01-14T05:29:32.358873+00:00"
+  },
+  {
+    "user_prompt": "Yeah, one hour long. And about, I'm thinking. starting at one p m",
+    "tool_calls": [
+      {
+        "name": "calendar_data",
+        "arguments": {
+          "commands": [
+            {
+              "action": "create_event",
+              "calendar": "morgan_personal",
+              "end_time": "2026-01-27T14:00:00",
+              "start_time": "2026-01-27T13:00:00",
+              "event_title": "Tell Spencer he's a cho guy"
+            }
+          ]
+        }
+      }
+    ],
+    "session_id": "f1b288bd-53d0-4e0d-9ff1-449da2cfcbec",
+    "timestamp": "2026-01-14T04:53:38.323415+00:00"
+  },
+  {
+    "user_prompt": "write an event for callan for calendar date january twenty seventh entitled tell spencer he's a cho guy",
+    "tool_calls": [
+      {
+        "name": "calendar_data",
+        "arguments": {
+          "commands": [
+            {
+              "date": "2026-01-27",
+              "title": "Tell Spencer he's a cho guy",
+              "action": "create"
+            }
+          ]
+        }
+      },
+      {
+        "name": "calendar_data",
+        "arguments": {
+          "commands": [
+            {
+              "title": "Tell Spencer he's a cho guy",
+              "action": "create_event",
+              "calendar": "morgan_personal",
+              "start_date": "2026-01-27"
+            }
+          ]
+        }
+      }
+    ],
+    "session_id": "f1b288bd-53d0-4e0d-9ff1-449da2cfcbec",
+    "timestamp": "2026-01-14T04:52:58.422502+00:00"
+  },
+  {
+    "user_prompt": "hit pause on spotify",
+    "tool_calls": [
+      {
+        "name": "spotify_playback",
+        "arguments": {
+          "user": "morgan",
+          "action": "pause"
+        }
+      }
+    ],
+    "session_id": "cebae0ee-15a4-4d2d-97a8-7f9ff2df5225",
+    "timestamp": "2026-01-14T04:36:08.096206+00:00"
+  },
+  {
+    "user_prompt": "Put an event on my calendar. For two Sundays from now. To tell spencer. that he's a nice guy",
+    "tool_calls": [
+      {
+        "name": "calendar_data",
+        "arguments": {
+          "commands": [
+            {
+              "create_event": {
+                "title": "Tell Spencer that he's a nice guy",
+                "end_time": "2026-01-29T15:00:00",
+                "calendars": [
+                  "morgan_school"
+                ],
+                "start_time": "2026-01-29T14:00:00"
+              }
+            }
+          ]
+        }
+      },
+      {
+        "name": "calendar_data",
+        "arguments": {
+          "commands": [
+            {
+              "create_event": {
+                "title": "Tell Spencer that he's a nice guy",
+                "end_time": "2026-01-29T15:00:00",
+                "calendars": [
+                  "morgan_personal"
+                ],
+                "start_time": "2026-01-29T14:00:00"
+              }
+            }
+          ]
+        }
+      },
+      {
+        "name": "calendar_data",
+        "arguments": {
+          "commands": [
+            {
+              "action": "create_event",
+              "calendars": [
+                "morgan_personal"
+              ],
+              "start_date": "2026-01-25",
+              "event_title": "Tell Spencer he's a nice guy"
+            }
+          ]
+        }
+      }
+    ],
+    "session_id": "0cca0630-0ff2-495c-a014-481dd1d3d4f4",
+    "timestamp": "2026-01-14T04:23:43.375705+00:00"
+  },
+  {
+    "user_prompt": "put an event on my personal calendar for twelve thirty p m tomorrow entitled test event number three",
+    "tool_calls": [
+      {
+        "name": "calendar_data",
+        "arguments": {
+          "commands": [
+            {
+              "title": "test event number three",
+              "action": "create_event",
+              "end_time": "2026-01-14T13:30:00",
+              "calendars": [
+                "morgan_personal"
+              ],
+              "start_time": "2026-01-14T12:30:00"
+            }
+          ]
+        }
+      }
+    ],
+    "session_id": "ba962f7e-4578-4eaa-94d4-fdd9826c288d",
+    "timestamp": "2026-01-14T02:28:12.393529+00:00"
+  },
+  {
+    "user_prompt": "an event for two p m on my calendar tomorrow called test event number one",
+    "tool_calls": [
+      {
+        "name": "calendar_data",
+        "arguments": {
+          "commands": [
+            {
+              "title": "test event number one",
+              "action": "create_event",
+              "end_time": "2026-01-14T15:00:00",
+              "calendars": [
+                "morgan_personal"
+              ],
+              "start_time": "2026-01-14T14:00:00"
+            }
+          ]
+        }
+      }
+    ],
+    "session_id": "03a11fa3-4f31-4043-b1b9-ab10e6dfc5cb",
+    "timestamp": "2026-01-14T01:34:09.539526+00:00"
+  },
+  {
+    "user_prompt": "Create a new event for 1pM on my calendar tomorrow called Meet with General Generative AI. Club. team",
+    "tool_calls": [
+      {
+        "name": "calendar_data",
+        "arguments": {
+          "commands": [
+            {
+              "title": "Meet with General Generative AI Club Team",
+              "action": "create_event",
+              "end_time": "2026-01-14T14:00:00",
+              "calendars": [
+                "morgan_personal",
+                "morgan_school"
+              ],
+              "start_time": "2026-01-14T13:00:00"
+            }
+          ]
+        }
+      }
+    ],
+    "session_id": "56c60643-e41e-456b-9051-af0ea065e241",
+    "timestamp": "2026-01-14T01:31:55.020413+00:00"
+  },
+  {
+    "user_prompt": "Create a new event on my calendar for 1pM Tomorrow. Called the cornell generative AI team.",
+    "tool_calls": [
+      {
+        "name": "calendar_data",
+        "arguments": {
+          "commands": [
+            {
+              "create_event": {
+                "title": "the cornell generative AI team",
+                "calendar": "morgan_personal",
+                "end_time": "2026-01-14T14:00:00",
+                "start_time": "2026-01-14T13:00:00"
+              }
+            },
+            {
+              "create_event": {
+                "title": "the cornell generative AI team",
+                "calendar": "morgan_school",
+                "end_time": "2026-01-14T14:00:00",
+                "start_time": "2026-01-14T13:00:00"
+              }
+            }
+          ]
+        }
+      },
+      {
+        "name": "calendar_data",
+        "arguments": {
+          "commands": [
+            {
+              "user": "all",
+              "calendar": "all",
+              "read_type": "next_events",
+              "create_event": {
+                "title": "the cornell generative AI team",
+                "calendar": "morgan_personal",
+                "end_time": "2026-01-14T14:00:00",
+                "start_time": "2026-01-14T13:00:00"
+              },
+              "calendar_name": "primary",
+              "read_or_write": "read"
+            }
+          ]
+        }
+      },
+      {
+        "name": "calendar_data",
+        "arguments": {
+          "commands": [
+            {
+              "create_event": {
+                "title": "the cornell generative AI team",
+                "calendar": "morgan_personal",
+                "end_time": "2026-01-14T14:00:00",
+                "start_time": "2026-01-14T13:00:00"
+              }
+            }
+          ]
+        }
+      },
+      {
+        "name": "calendar_data",
+        "arguments": {
+          "commands": [
+            {
+              "title": "Cornell Generative AI Team",
+              "action": "create_event",
+              "calendars": [
+                "morgan_personal"
+              ],
+              "start_time": "2026-01-14T13:00:00"
+            }
+          ]
+        }
+      }
+    ],
+    "session_id": "5b5d7c44-ae81-4ae5-88f5-f8c41e82faf2",
+    "timestamp": "2026-01-14T01:26:25.83078+00:00"
+  },
+  {
+    "user_prompt": "Dismiss.",
+    "tool_calls": [
+      {
+        "name": "briefing",
+        "arguments": {
+          "action": "dismiss",
+          "briefing_id": "weather_briefing"
+        }
+      }
+    ],
+    "session_id": "65ac478b-53dc-4975-a44c-3e7d09b46973",
+    "timestamp": "2026-01-14T01:21:11.771058+00:00"
+  },
+  {
+    "user_prompt": "read the copied text and summarize it for me",
+    "tool_calls": [
+      {
+        "name": "read_clipboard",
+        "arguments": {}
+      }
+    ],
+    "session_id": "6b3ec9a9-6d23-45a7-9421-a155172d333e",
+    "timestamp": "2026-01-13T22:01:27.178416+00:00"
+  },
+  {
+    "user_prompt": "do some web research to search up the associated new york state food processors organization and let me know what they do",
+    "tool_calls": [
+      {
+        "name": "google_search",
+        "arguments": {
+          "query": "Associated New York State Food Processors organization mission and activities"
+        }
+      }
+    ],
+    "session_id": "fa7bc8c5-925a-4782-a1a9-0243a6b94845",
+    "timestamp": "2026-01-13T22:00:26.053743+00:00"
+  },
+  {
+    "user_prompt": "do some web research to find the associated new york state food processors organization and tell me what they do",
+    "tool_calls": [
+      {
+        "name": "google_search",
+        "arguments": {
+          "query": "Associated New York State Food Processors Organization mission and activities",
+          "query_type": "general"
+        }
+      }
+    ],
+    "session_id": "e3c83f09-8940-4878-baf8-9ea408d581dd",
+    "timestamp": "2026-01-13T21:58:59.254428+00:00"
+  },
+  {
+    "user_prompt": "Do some web research to tell me information about the Associated New York State Food Processors Organization and what they do.",
+    "tool_calls": [
+      {
+        "name": "google_search",
+        "arguments": {
+          "query": "Associated New York State Food Processors Organization what they do",
+          "query_type": "general"
+        }
+      }
+    ],
+    "session_id": "339ab671-c773-4f8b-a861-9715c3bd639e",
+    "timestamp": "2026-01-13T21:52:47.788573+00:00"
+  },
+  {
+    "user_prompt": "They wanted to work with us to build a generative AI solutions for them. are you able to tell from a web search what type of generative ai solutions they're currently working on",
+    "tool_calls": [
+      {
+        "name": "google_search",
+        "arguments": {
+          "query": "Associated New York State Food Processors current generative AI projects or solutions 2026",
+          "query_type": "general"
+        }
+      }
+    ],
+    "session_id": "3817af1f-44a7-4bbd-a82a-3470ffae912c",
+    "timestamp": "2026-01-13T21:41:55.049741+00:00"
+  },
+  {
+    "user_prompt": "do some web research to find me information on the associated new york state food processors and let me know what they do as an organization",
+    "tool_calls": [
+      {
+        "name": "google_search",
+        "arguments": {
+          "query": "Associated New York State Food Processors organization purpose and activities",
+          "query_type": "general"
+        }
+      }
+    ],
+    "session_id": "3817af1f-44a7-4bbd-a82a-3470ffae912c",
+    "timestamp": "2026-01-13T21:41:02.49808+00:00"
+  },
+  {
+    "user_prompt": "do some web research to find information on the associated new york state food processors organization and let me know what they do",
+    "tool_calls": [
+      {
+        "name": "google_search",
+        "arguments": {
+          "query": "Associated New York State Food Processors organization what they do",
+          "query_type": "general"
+        }
+      }
+    ],
+    "session_id": "5d743c91-b74e-49b5-a3fd-409ce81831c4",
+    "timestamp": "2026-01-13T21:38:21.831076+00:00"
+  },
+  {
+    "user_prompt": "Write a cursor prompt. That will tell it to analyze the Google search tool and determine whether we are first looking to pull the pre generated Google search. ai results before we go to generate our own",
+    "tool_calls": [
+      {
+        "name": "cursor_composer",
+        "arguments": {
+          "prompt": "Analyze the Google search tool functionality. Determine if we are aiming to pull the pre-generated Google search.ai results first, before generating any of our own results. Focus on identifying the sequence: when to rely on pre-generated results and when to proceed to custom result generation. Provide a clear decision tree or logic flow for this determination."
+        }
+      }
+    ],
+    "session_id": "833ecdf2-7173-4934-aa40-8bd9b5e8c305",
+    "timestamp": "2026-01-13T21:26:14.89837+00:00"
+  },
+  {
+    "user_prompt": "Help me do more research on. The Associated New York State Food Processor Company. How long have they been operational? and when who do they work with",
+    "tool_calls": [
+      {
+        "name": "google_search",
+        "arguments": {
+          "query": "Associated New York State Food Processor Company history, founding date, partners and collaborators",
+          "query_type": "general"
+        }
+      }
+    ],
+    "session_id": "3454670f-fdaf-4c99-9a4e-ea7e385b45fe",
+    "timestamp": "2026-01-13T21:21:29.001798+00:00"
+  },
+  {
+    "user_prompt": "Yeah.",
+    "tool_calls": [
+      {
+        "name": "google_search",
+        "arguments": {
+          "query": "Carlango Anthony Associated New York State Food Processors organization role and initiatives",
+          "query_type": "general"
+        }
+      }
+    ],
+    "session_id": "8476803b-2ae8-4919-ac90-a77aa6a00e6d",
+    "timestamp": "2026-01-13T21:12:24.427349+00:00"
+  },
+  {
+    "user_prompt": "Do some web research to find me information on the an YSFP associate New York State Food Processor Organization. Specifically a man named. Carlango. And anthony.",
+    "tool_calls": [
+      {
+        "name": "google_search",
+        "arguments": {
+          "query": "YSFP associate New York State Food Processor Organization Carlango Anthony",
+          "query_type": "general"
+        }
+      }
+    ],
+    "session_id": "8476803b-2ae8-4919-ac90-a77aa6a00e6d",
+    "timestamp": "2026-01-13T21:11:48.442438+00:00"
+  },
+  {
+    "user_prompt": "write a prompt to cursor saying good boy Perfect. Hey, honey. write a prompt a cursor saying good job",
+    "tool_calls": [
+      {
+        "name": "cursor_composer",
+        "arguments": {
+          "prompt": "good boy Perfect. Hey, honey. good job"
+        }
+      }
+    ],
+    "session_id": "d8b810c8-bacc-4598-8613-354a41c4ca84",
+    "timestamp": "2026-01-13T04:48:35.565027+00:00"
+  },
+  {
+    "user_prompt": "write a prompt to cursor saying good boy",
+    "tool_calls": [
+      {
+        "name": "cursor_composer",
+        "arguments": {
+          "prompt": "good boy"
+        }
+      }
+    ],
+    "session_id": "d8b810c8-bacc-4598-8613-354a41c4ca84",
+    "timestamp": "2026-01-13T04:48:19.174446+00:00"
+  },
+  {
+    "user_prompt": "write a prompted cursor saying good boy",
+    "tool_calls": [
+      {
+        "name": "cursor_composer",
+        "arguments": {
+          "prompt": "good boy"
+        }
+      },
+      {
+        "name": "cursor_composer",
+        "arguments": {
+          "prompt": "Good boy"
+        }
+      },
+      {
+        "name": "cursor_composer",
+        "arguments": {
+          "prompt": "saying good boy"
+        }
+      }
+    ],
+    "session_id": "6050bfd4-60b6-425b-b648-c53dc27caa6d",
+    "timestamp": "2026-01-13T04:45:46.132049+00:00"
+  },
+  {
+    "user_prompt": "Hey. Honey. Write the prompt. Good boy. to cursor",
+    "tool_calls": [
+      {
+        "name": "cursor_composer",
+        "arguments": {
+          "prompt": "Good boy."
+        }
+      }
+    ],
+    "session_id": "3dd33632-d0b1-446f-ba71-257589bd9b21",
+    "timestamp": "2026-01-13T04:43:55.14967+00:00"
+  },
+  {
+    "user_prompt": "write a prompt to cursor saying good job",
+    "tool_calls": [
+      {
+        "name": "cursor_composer",
+        "arguments": {
+          "prompt": "Good job."
+        }
+      }
+    ],
+    "session_id": "3dd33632-d0b1-446f-ba71-257589bd9b21",
+    "timestamp": "2026-01-13T04:43:37.115995+00:00"
+  },
+  {
+    "user_prompt": "add a new event on my calendar for wednesday around noon to double check my amazon package delivery time",
+    "tool_calls": [
+      {
+        "name": "calendar_data",
+        "arguments": {
+          "commands": [
+            {
+              "title": "Double check Amazon package delivery time",
+              "action": "create_event",
+              "end_time": "2026-01-14T12:30:00",
+              "calendars": [
+                "morgan_personal"
+              ],
+              "start_time": "2026-01-14T12:00:00",
+              "create_briefing": true
+            }
+          ]
+        }
+      }
+    ],
+    "session_id": "91b93235-0674-4b5d-8127-0c5011c9d2a7",
+    "timestamp": "2026-01-13T04:37:30.438288+00:00"
+  },
+  {
+    "user_prompt": "Type a prompted cursor. Saying I want to talking about creating a plan, specifically a plan that. Will allow me to copy the text I'm looking at on my computer. And just by copying it, then I can have it fed to the AI in order to kind of read over and add to the context.",
+    "tool_calls": [
+      {
+        "name": "cursor_composer",
+        "arguments": {
+          "prompt": "I want to create a plan, specifically a plan that will allow me to copy the text I'm looking at on my computer. And just by copying it, I want to have it fed to the AI so it can read over and add to the context automatically."
+        }
+      }
+    ],
+    "session_id": "c4d33409-b722-4b5d-984e-0b76d7c72471",
+    "timestamp": "2026-01-13T04:33:30.586234+00:00"
+  },
+  {
+    "user_prompt": "No, no. Do web search to find out how long I have to swap them out. I currently have them in my possession and I want to get new lenses. I bought them about two weeks ago. what's the policy",
+    "tool_calls": [
+      {
+        "name": "google_search",
+        "arguments": {
+          "query": "Meta glasses return policy for lenses",
+          "query_type": "general"
+        }
+      },
+      {
+        "name": "google_search",
+        "arguments": {
+          "query": "Meta glasses return policy",
+          "query_type": "general"
+        }
+      },
+      {
+        "name": "google_search",
+        "arguments": {
+          "query": "Ray-Ban Meta glasses return policy",
+          "query_type": "general"
+        }
+      },
+      {
+        "name": "google_search",
+        "arguments": {
+          "query": "Meta glasses lens swap policy",
+          "query_type": "general"
+        }
+      },
+      {
+        "name": "google_search",
+        "arguments": {
+          "query": "Meta glasses lens swap policy after purchase",
+          "query_type": "general"
+        }
+      },
+      {
+        "name": "google_search",
+        "arguments": {
+          "query": "Meta glasses lens return or exchange policy for lens replacement after purchase",
+          "query_type": "general"
+        }
+      }
+    ],
+    "session_id": "d50d7f08-63c1-4e34-a05c-99726fef26d1",
+    "timestamp": "2026-01-13T04:26:10.890499+00:00"
+  },
+  {
+    "user_prompt": "Search the web to find out how long after I purchase meta glasses. I can swap in the lenses for them.",
+    "tool_calls": [
+      {
+        "name": "google_search",
+        "arguments": {
+          "query": "how long after purchasing Meta glasses can I swap in the lenses",
+          "query_type": "general"
+        }
+      }
+    ],
+    "session_id": "d50d7f08-63c1-4e34-a05c-99726fef26d1",
+    "timestamp": "2026-01-13T04:25:11.668233+00:00"
+  },
+  {
+    "user_prompt": "Okay, perfect. text that to my phone",
+    "tool_calls": [
+      {
+        "name": "google_search",
+        "arguments": {
+          "query": "closest meta store near me",
+          "query_type": "directions"
+        }
+      },
+      {
+        "name": "send_sms",
+        "arguments": {
+          "message": "Here are the directions to the closest Meta store where you can switch your Meta glasses: https://www.google.com/maps/dir/?api=1&destination=closest%20meta%20store%20near%20me"
+        }
+      }
+    ],
+    "session_id": "5c854088-778a-498e-83b1-c5ea1e38a459",
+    "timestamp": "2026-01-13T04:23:23.668648+00:00"
+  },
+  {
+    "user_prompt": "Find me directions to the closest meta store where I can switch in my meta glasses.",
+    "tool_calls": [
+      {
+        "name": "google_search",
+        "arguments": {
+          "query": "closest Meta store near me",
+          "query_type": "directions"
+        }
+      }
+    ],
+    "session_id": "5c854088-778a-498e-83b1-c5ea1e38a459",
+    "timestamp": "2026-01-13T04:23:07.813655+00:00"
+  },
+  {
+    "user_prompt": "Talk to me about your own implementation.",
+    "tool_calls": [
+      {
+        "name": "system_info",
+        "arguments": {
+          "section": "overview"
+        }
+      }
+    ],
+    "session_id": "263e63ee-7744-40f5-b744-d7ab6d8e267a",
+    "timestamp": "2026-01-13T04:11:57.749595+00:00"
+  },
+  {
+    "user_prompt": "put a reminder on my calendar for tomorrow at two p m called catch up with merrick",
+    "tool_calls": [
+      {
+        "name": "calendar_data",
+        "arguments": {
+          "commands": [
+            {
+              "title": "Catch up with Merrick",
+              "action": "create_event",
+              "end_time": "2026-01-13T15:00:00",
+              "calendars": [
+                "morgan_personal"
+              ],
+              "start_time": "2026-01-13T14:00:00",
+              "create_briefing": true
+            }
+          ]
+        }
+      }
+    ],
+    "session_id": "0d0a3f0a-24c0-42e5-b910-1e531c6b10a7",
+    "timestamp": "2026-01-13T00:48:20.664497+00:00"
+  },
+  {
+    "user_prompt": "Create me a new briefing to catch up with Merrick around 1pM Tomorrow.",
+    "tool_calls": [
+      {
+        "name": "briefing",
+        "arguments": {
+          "user": "Morgan",
+          "action": "create",
+          "message": "Catch up with Merrick",
+          "active_from": "2026-01-13T13:00:00"
+        }
+      }
+    ],
+    "session_id": "308f5a42-f567-4e5f-a425-e9f80d83e0cd",
+    "timestamp": "2026-01-13T00:34:20.39189+00:00"
+  },
+  {
+    "user_prompt": "Okay? hit pause on spotify",
+    "tool_calls": [
+      {
+        "name": "spotify_playback",
+        "arguments": {
+          "user": "morgan",
+          "action": "pause"
+        }
+      }
+    ],
+    "session_id": "73b5e262-4b62-4100-9bd3-2a55986c79bb",
+    "timestamp": "2026-01-12T01:44:56.570745+00:00"
+  },
+  {
+    "user_prompt": "Hit pause on Spotify. hit play on spotify",
+    "tool_calls": [
+      {
+        "name": "spotify_playback",
+        "arguments": {
+          "action": "pause"
+        }
+      },
+      {
+        "name": "spotify_playback",
+        "arguments": {
+          "user": "morgan",
+          "action": "pause"
+        }
+      }
+    ],
+    "session_id": "73b5e262-4b62-4100-9bd3-2a55986c79bb",
+    "timestamp": "2026-01-12T01:44:44.342032+00:00"
+  },
+  {
+    "user_prompt": "Hit pause on Spotify.",
+    "tool_calls": [
+      {
+        "name": "spotify_playback",
+        "arguments": {
+          "user": "morgan",
+          "action": "pause"
+        }
+      }
+    ],
+    "session_id": "73b5e262-4b62-4100-9bd3-2a55986c79bb",
+    "timestamp": "2026-01-12T01:44:32.80216+00:00"
+  },
+  {
+    "user_prompt": "search online for directions to one hundred and forty clinton avenue and text me the address on my phone",
+    "tool_calls": [
+      {
+        "name": "send_sms",
+        "arguments": {
+          "message": "Directions to 140 Clinton Avenue, Brooklyn, New York: https://www.google.com/maps/dir/?api=1&destination=140%20clinton%20avenue%2C%20brooklyn%2C%20new%20york"
+        }
+      },
+      {
+        "name": "google_search",
+        "arguments": {
+          "query": "directions to 140 clinton avenue, brooklyn, new york",
+          "query_type": "directions"
+        }
+      },
+      {
+        "name": "google_search",
+        "arguments": {
+          "query": "directions to 140 Clinton Avenue, Brooklyn, New York",
+          "query_type": "directions"
+        }
+      }
+    ],
+    "session_id": "2618ed20-e34a-4ad9-bd67-e53de34aa3ab",
+    "timestamp": "2026-01-11T07:54:51.987092+00:00"
+  },
+  {
+    "user_prompt": "Okay? Write a prompt into cursor that explains that. If there is no barge and detected, then we should not. Pre. Fill the audio with old chunks.",
+    "tool_calls": [
+      {
+        "name": "cursor_composer",
+        "arguments": {
+          "prompt": "If there is no 'barge-in' detected, then we should not pre-fill the audio buffer with old chunks. Write code or logic that ensures the system only retains or pre-fills audio chunks when a barge-in is detected. Otherwise, the buffer should remain empty or reset. Make it clear how the detection of barge-in controls the buffer behavior."
+        }
+      }
+    ],
+    "session_id": "1a73253f-e0db-4db6-a53f-0281756fc718",
+    "timestamp": "2026-01-11T06:33:42.846218+00:00"
+  },
+  {
+    "user_prompt": "Part an event on my main calendar tomorrow for 1pM to called Call Merrick.",
+    "tool_calls": [
+      {
+        "name": "calendar_data",
+        "arguments": {
+          "commands": [
+            {
+              "action": "create_event",
+              "end_time": "2026-01-11T14:00:00",
+              "calendars": [
+                "morgan_personal"
+              ],
+              "start_time": "2026-01-11T13:00:00",
+              "event_title": "Call Merrick"
+            }
+          ]
+        }
+      }
+    ],
+    "session_id": "b7bfadc4-b872-48b8-86fb-c3418b55d55e",
+    "timestamp": "2026-01-11T03:14:02.002268+00:00"
+  },
+  {
+    "user_prompt": "I'm going to a place tonight in Las Vegas called the High Stakes Vegas Steakhouse. Do a Google search for the menu and tell me what are good options to buy.",
+    "tool_calls": [
+      {
+        "name": "google_search",
+        "arguments": {
+          "query": "High Stakes Vegas Steakhouse Las Vegas menu",
+          "query_type": "general"
+        }
+      }
+    ],
+    "session_id": "bce3b453-d1a1-4bd0-83ea-b5e1b7ed9aba",
+    "timestamp": "2026-01-10T01:33:00.410471+00:00"
+  },
+  {
+    "user_prompt": "Put a test event on my calendar for tomorrow. called test event number two",
+    "tool_calls": [
+      {
+        "name": "calendar_data",
+        "arguments": {
+          "commands": [
+            {
+              "create_event": {
+                "title": "test event number two",
+                "end_time": "2026-01-07T16:00:00",
+                "calendars": [
+                  "morgan_personal",
+                  "homeassist"
+                ],
+                "start_time": "2026-01-07T15:00:00"
+              }
+            }
+          ]
+        }
+      },
+      {
+        "name": "calendar_data",
+        "arguments": {
+          "commands": [
+            {
+              "title": "test event number two",
+              "action": "create_event",
+              "calendars": [
+                "morgan_personal"
+              ],
+              "start_time": "2026-01-07"
+            }
+          ]
+        }
+      }
+    ],
+    "session_id": "0a5cdc88-eac0-457d-a3d6-dbb7129fac8c",
+    "timestamp": "2026-01-06T18:23:43.563436+00:00"
+  },
+  {
+    "user_prompt": "creating a test event number two on my calendar tomorrow",
+    "tool_calls": [
+      {
+        "name": "calendar_data",
+        "arguments": {
+          "commands": [
+            {
+              "title": "test event number two",
+              "action": "create_event",
+              "calendars": [
+                "morgan_personal"
+              ],
+              "start_time": "2026-01-07"
+            }
+          ]
+        }
+      }
+    ],
+    "session_id": "0b290a80-1882-4288-b6da-a752a8d4b470",
+    "timestamp": "2026-01-06T18:17:08.211643+00:00"
+  },
+  {
+    "user_prompt": "Create a new test event on my calendar for tomorrow. for my home assist calendar",
+    "tool_calls": [
+      {
+        "name": "calendar_data",
+        "arguments": {
+          "commands": [
+            {
+              "date": "2026-01-07",
+              "user": "morgan_personal",
+              "title": "test event",
+              "action": "create",
+              "calendar": "homeassist",
+              "end_time": "00:00",
+              "calendars": [
+                "homeassist"
+              ],
+              "start_time": "00:00",
+              "event_title": "test event",
+              "calendar_name": "homeassist",
+              "read_or_write": "create_event"
+            }
+          ]
+        }
+      },
+      {
+        "name": "calendar_data",
+        "arguments": {
+          "commands": [
+            {
+              "date": "2026-01-07",
+              "user": "morgan_personal",
+              "title": "test event",
+              "action": "create",
+              "calendar": "morgan_personal",
+              "end_time": "00:00",
+              "calendars": [
+                "homeassist"
+              ],
+              "start_time": "00:00",
+              "event_title": "test event",
+              "calendar_name": "homeassist",
+              "read_or_write": "create_event"
+            }
+          ]
+        }
+      },
+      {
+        "name": "calendar_data",
+        "arguments": {
+          "commands": [
+            {
+              "end": "2026-01-07",
+              "start": "2026-01-07",
+              "title": "test event",
+              "action": "create",
+              "calendars": [
+                "homeassist"
+              ]
+            }
+          ]
+        }
+      }
+    ],
+    "session_id": "95ff8451-5269-423f-87b9-e4cd1c5dd6f4",
+    "timestamp": "2026-01-06T18:11:59.962721+00:00"
+  },
+  {
+    "user_prompt": "it should be called test event number three and should be at four thirty p m",
+    "tool_calls": [
+      {
+        "name": "calendar_data",
+        "arguments": {
+          "commands": [
+            {
+              "event": {
+                "end": {
+                  "date": "2026-01-07",
+                  "time": "17:30"
+                },
+                "start": {
+                  "date": "2026-01-07",
+                  "time": "16:30"
+                },
+                "title": "test event number three"
+              },
+              "action": "create",
+              "calendar": "homeassist"
+            }
+          ]
+        }
+      }
+    ],
+    "session_id": "1c8d3ed5-4924-440c-9203-00a9873ea84d",
+    "timestamp": "2026-01-06T18:05:29.236619+00:00"
+  },
+  {
+    "user_prompt": "Put a new event on my calendar, on my home assist calendar called test event number three. For 4pm tomorrow.",
+    "tool_calls": [
+      {
+        "name": "weather",
+        "arguments": {
+          "region": "your location"
+        }
+      },
+      {
+        "name": "calendar_data",
+        "arguments": {
+          "commands": [
+            {
+              "event": {
+                "end": "2026-01-07T17:00:00",
+                "start": "2026-01-07T16:00:00",
+                "title": "test event number three"
+              },
+              "action": "create",
+              "calendar": "homeassist"
+            },
+            {
+              "event": {
+                "end": "2026-01-06T17:00:00",
+                "start": "2026-01-06T16:00:00",
+                "title": "test event number three"
+              },
+              "action": "create",
+              "calendar": "homeassist"
+            }
+          ]
+        }
+      },
+      {
+        "name": "calendar_data",
+        "arguments": {
+          "commands": [
+            {
+              "event": {
+                "end": "2026-01-07T17:00:00",
+                "start": "2026-01-07T16:00:00",
+                "title": "test event number three"
+              },
+              "action": "create",
+              "calendar": "homeassist"
+            }
+          ]
+        }
+      }
+    ],
+    "session_id": "b2a0bdef-8d46-4571-a3c1-9847b7be8211",
+    "timestamp": "2026-01-06T18:02:42.131114+00:00"
+  },
+  {
+    "user_prompt": "Put a new event on my calendar called test event Number two. for wednesday january seventh at four p m",
+    "tool_calls": [
+      {
+        "name": "calendar_data",
+        "arguments": {
+          "commands": [
+            {
+              "event": {
+                "end": {
+                  "date": "2026-01-07",
+                  "time": "17:00",
+                  "timezone": "local"
+                },
+                "start": {
+                  "date": "2026-01-07",
+                  "time": "16:00",
+                  "timezone": "local"
+                },
+                "title": "test event Number two."
+              },
+              "action": "create",
+              "calendars": [
+                "morgan_personal"
+              ]
+            }
+          ]
+        }
+      }
+    ],
+    "session_id": "b2a0bdef-8d46-4571-a3c1-9847b7be8211",
+    "timestamp": "2026-01-06T18:02:00.829868+00:00"
+  },
+  {
+    "user_prompt": "create a new event on my home assist calendar called test event number two",
+    "tool_calls": [
+      {
+        "name": "calendar_data",
+        "arguments": {
+          "commands": [
+            {
+              "title": "test event number two",
+              "calendar": "homeassist",
+              "end_time": "2026-01-06T16:00:00",
+              "start_time": "2026-01-06T15:00:00"
+            }
+          ]
+        }
+      },
+      {
+        "name": "calendar_data",
+        "arguments": {
+          "commands": [
+            {
+              "event": {
+                "end": {
+                  "date": "2026-01-06"
+                },
+                "start": {
+                  "date": "2026-01-06"
+                },
+                "title": "test event number two"
+              },
+              "action": "create",
+              "calendars": [
+                "homeassist"
+              ]
+            }
+          ]
+        }
+      }
+    ],
+    "session_id": "0ee97781-a158-4f5d-b6bb-a3a5955d31d3",
+    "timestamp": "2026-01-06T17:54:57.076668+00:00"
+  },
+  {
+    "user_prompt": "create a test event number two on my calendar tomorrow for three p m Now create a test event number three to put on my personal and home assist calendar for Wednesday the 7th at 8pM Man.",
+    "tool_calls": [
+      {
+        "name": "calendar_data",
+        "arguments": {
+          "commands": [
+            {
+              "event": {
+                "title": "test event number two",
+                "end_time": "2026-01-06T16:00:00",
+                "start_time": "2026-01-06T15:00:00"
+              },
+              "command": "create_event",
+              "calendar": "homeassist"
+            }
+          ]
+        }
+      },
+      {
+        "name": "calendar_data",
+        "arguments": {
+          "commands": [
+            {
+              "event": {
+                "title": "test event number three",
+                "end_time": "2026-01-07T21:00:00",
+                "start_time": "2026-01-07T20:00:00"
+              },
+              "command": "create_event",
+              "calendar": "homeassist"
+            }
+          ]
+        }
+      },
+      {
+        "name": "calendar_data",
+        "arguments": {
+          "commands": [
+            {
+              "event": {
+                "title": "test event number three",
+                "end_time": "2026-01-07T21:00:00",
+                "start_time": "2026-01-07T20:00:00"
+              },
+              "command": "create_event",
+              "calendar": "morgan_personal"
+            }
+          ]
+        }
+      },
+      {
+        "name": "calendar_data",
+        "arguments": {
+          "commands": [
+            {
+              "event": {
+                "title": "test event number three",
+                "end_time": "2026-01-07T21:00:00",
+                "start_time": "2026-01-07T20:00:00"
+              },
+              "command": "create_event",
+              "calendar": "morgan_personal"
+            },
+            {
+              "event": {
+                "title": "test event number three",
+                "end_time": "2026-01-07T21:00:00",
+                "start_time": "2026-01-07T20:00:00"
+              },
+              "command": "create_event",
+              "calendar": "homeassist"
+            }
+          ]
+        }
+      },
+      {
+        "name": "calendar_data",
+        "arguments": {
+          "commands": [
+            {
+              "event": {
+                "title": "test event number two",
+                "end_time": "2026-01-06T16:00:00",
+                "start_time": "2026-01-06T15:00:00"
+              },
+              "command": "create_event",
+              "calendar": "morgan_personal"
+            }
+          ]
+        }
+      },
+      {
+        "name": "calendar_data",
+        "arguments": {
+          "commands": [
+            {
+              "end": "2026-01-06T16:00:00",
+              "start": "2026-01-06T15:00:00",
+              "title": "test event number two",
+              "action": "create",
+              "calendars": [
+                "morgan_personal"
+              ]
+            },
+            {
+              "end": "2026-01-07T21:00:00",
+              "start": "2026-01-07T20:00:00",
+              "title": "test event number three",
+              "action": "create",
+              "calendars": [
+                "morgan_personal",
+                "homeassist"
+              ]
+            }
+          ]
+        }
+      }
+    ],
+    "session_id": "cbfc350f-4bae-434e-bf97-e744b0b2b280",
+    "timestamp": "2026-01-06T03:11:18.159101+00:00"
+  },
+  {
+    "user_prompt": "create a test event number two on my calendar tomorrow for three p m",
+    "tool_calls": [
+      {
+        "name": "calendar_data",
+        "arguments": {
+          "commands": [
+            {
+              "event": {
+                "title": "test event number two",
+                "end_time": "2026-01-06T16:00:00",
+                "start_time": "2026-01-06T15:00:00"
+              },
+              "command": "create_event",
+              "calendar": "morgan_personal"
+            }
+          ]
+        }
+      },
+      {
+        "name": "calendar_data",
+        "arguments": {
+          "commands": [
+            {
+              "event": {
+                "end": "2026-01-06T16:00:00",
+                "start": "2026-01-06T15:00:00",
+                "title": "test event number two"
+              },
+              "action": "create",
+              "calendar": "all"
+            }
+          ]
+        }
+      }
+    ],
+    "session_id": "cbfc350f-4bae-434e-bf97-e744b0b2b280",
+    "timestamp": "2026-01-06T03:10:29.814387+00:00"
+  },
+  {
+    "user_prompt": "write a test event to my personal calendar tomorrow at two p m Get. It.",
+    "tool_calls": [
+      {
+        "name": "calendar_data",
+        "arguments": {
+          "commands": [
+            {
+              "event": {
+                "end": "2026-01-06T14:30:00",
+                "start": "2026-01-06T14:00:00",
+                "title": "Test Event"
+              },
+              "action": "create",
+              "calendar": "morgan_personal"
+            }
+          ]
+        }
+      }
+    ],
+    "session_id": "9c9c296b-123e-4482-b217-f532a9d36cc0",
+    "timestamp": "2026-01-06T03:06:09.05985+00:00"
+  },
+  {
+    "user_prompt": "write a test event to my personal calendar tomorrow at two p m",
+    "tool_calls": [
+      {
+        "name": "calendar_data",
+        "arguments": {
+          "commands": [
+            {
+              "date": "2026-01-06",
+              "action": "create_event",
+              "calendar": "morgan_personal",
+              "end_time": "14:30",
+              "start_time": "14:00",
+              "event_title": "Test Event"
+            }
+          ]
+        }
+      },
+      {
+        "name": "calendar_data",
+        "arguments": {
+          "commands": [
+            {
+              "date": "2026-01-06",
+              "action": "create_event",
+              "calendar": "morgan_personal",
+              "end_time": "14:30",
+              "start_time": "14:00",
+              "event_title": "Test Event"
+            }
+          ]
+        }
+      },
+      {
+        "name": "calendar_data",
+        "arguments": {
+          "commands": [
+            {
+              "date": "2026-01-06",
+              "user": "morgan_personal",
+              "action": "create_event",
+              "calendar": "morgan_personal",
+              "end_time": "14:30",
+              "start_time": "14:00",
+              "event_title": "Test Event",
+              "calendar_name": "homeassist",
+              "read_or_write": "create_event"
+            }
+          ]
+        }
+      },
+      {
+        "name": "calendar_data",
+        "arguments": {
+          "commands": [
+            {
+              "action": "create_event",
+              "calendar": "morgan_personal",
+              "end_time": "2026-01-06T14:30:00",
+              "start_time": "2026-01-06T14:00:00",
+              "event_title": "Test Event"
+            }
+          ]
+        }
+      }
+    ],
+    "session_id": "9c9c296b-123e-4482-b217-f532a9d36cc0",
+    "timestamp": "2026-01-06T03:05:48.541947+00:00"
+  },
+  {
+    "user_prompt": "what calendar events do i have tomorrow cream in create me an event and my home assist calendar that is called test event number two and set it for seven p m tomorrow",
+    "tool_calls": [
+      {
+        "name": "calendar_data",
+        "arguments": {
+          "commands": [
+            {
+              "user": "all",
+              "action": "get_events",
+              "calendar": "all",
+              "end_date": "2026-01-31",
+              "read_type": "next_events",
+              "start_date": "2026-01-15",
+              "calendar_name": "primary",
+              "read_or_write": "read"
+            }
+          ]
+        }
+      },
+      {
+        "name": "calendar_data",
+        "arguments": {
+          "commands": [
+            {
+              "user": "all",
+              "action": "get_events",
+              "calendar": "all",
+              "end_date": "2026-01-14",
+              "read_type": "next_events",
+              "start_date": "2026-01-07",
+              "calendar_name": "primary",
+              "read_or_write": "read"
+            }
+          ]
+        }
+      },
+      {
+        "name": "calendar_data",
+        "arguments": {
+          "commands": [
+            {
+              "title": "test event number two",
+              "action": "create_event",
+              "calendar": "homeassist",
+              "end_time": "2026-01-06T20:00:00",
+              "start_time": "2026-01-06T19:00:00"
+            }
+          ]
+        }
+      },
+      {
+        "name": "calendar_data",
+        "arguments": {
+          "commands": [
+            {
+              "user": "all",
+              "action": "get_events",
+              "calendar": "all",
+              "end_date": "2026-01-06",
+              "read_type": "next_events",
+              "start_date": "2026-01-06",
+              "calendar_name": "primary",
+              "read_or_write": "read"
+            }
+          ]
+        }
+      },
+      {
+        "name": "calendar_data",
+        "arguments": {
+          "commands": [
+            {
+              "action": "get_events",
+              "end_date": "2026-01-06",
+              "start_date": "2026-01-06"
+            },
+            {
+              "action": "create_event",
+              "calendar": "homeassist",
+              "end_time": "2026-01-06T20:00:00",
+              "start_time": "2026-01-06T19:00:00",
+              "event_title": "test event number two"
+            }
+          ]
+        }
+      }
+    ],
+    "session_id": "c76cb200-ac84-43a3-ba30-b82fb461713b",
+    "timestamp": "2026-01-06T02:59:24.839529+00:00"
+  },
+  {
+    "user_prompt": "what calendar events do i have tomorrow",
+    "tool_calls": [
+      {
+        "name": "calendar_data",
+        "arguments": {
+          "commands": [
+            {
+              "read": {
+                "end_date": "2026-01-06",
+                "start_date": "2026-01-06"
+              }
+            }
+          ]
+        }
+      }
+    ],
+    "session_id": "c76cb200-ac84-43a3-ba30-b82fb461713b",
+    "timestamp": "2026-01-06T02:58:20.324779+00:00"
+  },
+  {
+    "user_prompt": "what calendar events do i have coming up soon",
+    "tool_calls": [
+      {
+        "name": "calendar_data",
+        "arguments": {
+          "commands": [
+            {
+              "user": "all",
+              "action": "get_events",
+              "calendar": "all",
+              "read_type": "next_events",
+              "time_period": "upcoming",
+              "calendar_name": "primary",
+              "read_or_write": "read"
+            }
+          ]
+        }
+      },
+      {
+        "name": "calendar_data",
+        "arguments": {
+          "commands": [
+            {
+              "action": "get_events",
+              "calendar": "all",
+              "time_period": "upcoming"
+            }
+          ]
+        }
+      }
+    ],
+    "session_id": "c76cb200-ac84-43a3-ba30-b82fb461713b",
+    "timestamp": "2026-01-06T02:57:36.909484+00:00"
+  },
+  {
+    "user_prompt": "What events do I have in my calendars for the next three days? what events do i have upcoming on my calendar",
+    "tool_calls": [
+      {
+        "name": "calendar_data",
+        "arguments": {
+          "commands": [
+            {
+              "action": "read",
+              "calendar": "all",
+              "end_date": "2026-01-08",
+              "start_date": "2026-01-05"
+            }
+          ]
+        }
+      }
+    ],
+    "session_id": "b3b9ec24-8e36-41e6-ab68-35714683b9d7",
+    "timestamp": "2026-01-06T02:49:36.584591+00:00"
+  },
+  {
+    "user_prompt": "What events do I have in my calendars for the next three days?",
+    "tool_calls": [
+      {
+        "name": "calendar_data",
+        "arguments": {
+          "commands": [
+            {
+              "action": "read",
+              "calendar": "all",
+              "end_date": "2026-01-08",
+              "start_date": "2026-01-05"
+            }
+          ]
+        }
+      }
+    ],
+    "session_id": "b3b9ec24-8e36-41e6-ab68-35714683b9d7",
+    "timestamp": "2026-01-06T02:49:01.344136+00:00"
+  },
+  {
+    "user_prompt": "Update this code base. To include a test suite for our new Cursor Composer tool. Ryan update to this current code base that will create a test suite for the new cursor compose tool that we just generated.",
+    "tool_calls": [
+      {
+        "name": "cursor_composer",
+        "arguments": {
+          "prompt": "Update this code base to include a test suite for the new Cursor Composer tool that was just generated. Ensure comprehensive coverage for key functionalities: input parsing, multi-file edits, error handling, and performance benchmarks. The test suite should be modular, easy to run, and integrate seamlessly with the existing CI pipeline. Use a consistent testing framework that matches the current code base standards, and include clear documentation for how to run and interpret the tests."
+        }
+      }
+    ],
+    "session_id": "e392b2e2-0cc7-49ff-a899-9173cd597f56",
+    "timestamp": "2026-01-04T16:55:18.391977+00:00"
+  },
+  {
+    "user_prompt": "Update this code base. To include a test suite for our new Cursor Composer tool.",
+    "tool_calls": [
+      {
+        "name": "cursor_composer",
+        "arguments": {
+          "prompt": "Update the code base to include a comprehensive test suite for the new Cursor Composer tool. Ensure the test suite covers key functionality, including: (1) input parsing, (2) multi-file edits, (3) error handling, and (4) integration with the existing code infrastructure. Use a consistent testing framework already in the project, or suggest one if none is defined. Include both unit tests and integration tests as appropriate. Document the test setup and provide clear instructions for running the tests."
+        }
+      }
+    ],
+    "session_id": "5b25e783-128c-4730-918e-398b62cf7f28",
+    "timestamp": "2026-01-04T16:54:10.078037+00:00"
+  },
+  {
+    "user_prompt": "what emails do i have",
+    "tool_calls": [
+      {
+        "name": "get_notifications",
+        "arguments": {
+          "type_filter": "email"
+        }
+      }
+    ],
+    "session_id": "a24bf738-84e5-4cc6-97c0-3bf66805c61d",
+    "timestamp": "2026-01-03T04:37:52.615913+00:00"
+  },
+  {
+    "user_prompt": "what news do i have",
+    "tool_calls": [
+      {
+        "name": "get_notifications",
+        "arguments": {
+          "type_filter": "news"
+        }
+      }
+    ],
+    "session_id": "8a0a62b7-dd6d-4d3a-8abd-c05441b0695e",
+    "timestamp": "2026-01-03T04:32:23.601776+00:00"
+  },
+  {
+    "user_prompt": "what news do i have what emails do i have",
+    "tool_calls": [
+      {
+        "name": "get_notifications",
+        "arguments": {
+          "user": "Morgan",
+          "type_filter": "all"
+        }
+      }
+    ],
+    "session_id": "35e304f7-32d5-4c85-9566-aef14024599d",
+    "timestamp": "2026-01-03T03:36:14.646534+00:00"
+  },
+  {
+    "user_prompt": "what emails do i have what news do i have",
+    "tool_calls": [
+      {
+        "name": "get_notifications",
+        "arguments": {
+          "user": "Morgan",
+          "limit": 5,
+          "type_filter": "email",
+          "include_metadata": true
+        }
+      }
+    ],
+    "session_id": "4125b93c-84ff-4f26-9f54-be7c2e27f1f9",
+    "timestamp": "2026-01-03T03:31:36.685485+00:00"
+  },
+  {
+    "user_prompt": "Permanent for tomorrow on my calendar for around 3:30pM entitled Testing the Bot.",
+    "tool_calls": [
+      {
+        "name": "calendar_data",
+        "arguments": {
+          "commands": [
+            {
+              "date": "2026-01-03",
+              "title": "Testing the Bot",
+              "action": "create_event",
+              "end_time": "16:00",
+              "start_time": "15:30"
+            }
+          ]
+        }
+      },
+      {
+        "name": "calendar_data",
+        "arguments": {
+          "commands": [
+            {
+              "user": "morgan_personal",
+              "action": "create_event",
+              "event_end": "2026-01-03T16:30:00",
+              "event_start": "2026-01-03T15:30:00",
+              "event_title": "Testing the Bot"
+            }
+          ]
+        }
+      }
+    ],
+    "session_id": "89885bdd-c76b-4ffc-925c-d9b6245c5be0",
+    "timestamp": "2026-01-03T01:33:28.265321+00:00"
+  },
+  {
+    "user_prompt": "what news do i have today",
+    "tool_calls": [
+      {
+        "name": "get_notifications",
+        "arguments": {
+          "type_filter": "news"
+        }
+      }
+    ],
+    "session_id": "424620a8-3b7d-4e14-8861-0cf25099647d",
+    "timestamp": "2026-01-03T00:51:10.065913+00:00"
+  },
+  {
+    "user_prompt": "find me a spotify link to a mac miller song and text it to my phone",
+    "tool_calls": [
+      {
+        "name": "google_search",
+        "arguments": {
+          "query": "Mac Miller song",
+          "query_type": "link"
+        }
+      },
+      {
+        "name": "send_sms",
+        "arguments": {
+          "message": "Here's a link to a Mac Miller song on Spotify: https://open.spotify.com/track/4uG2e0fG8gX8zY6n8cW8Ue"
+        }
+      },
+      {
+        "name": "google_search",
+        "arguments": {
+          "query": "Mac Miller song Spotify link",
+          "query_type": "link"
+        }
+      },
+      {
+        "name": "spotify_playback",
+        "arguments": {
+          "query": "Mac Miller",
+          "action": "search",
+          "search_limit": 1
+        }
+      }
+    ],
+    "session_id": "d4d7dbe1-0ccc-4c8c-b830-40857def617a",
+    "timestamp": "2026-01-03T00:08:42.777859+00:00"
+  },
+  {
+    "user_prompt": "Find me that song, the link to it on Spotify. and then text me that link to my phone",
+    "tool_calls": [
+      {
+        "name": "google_search",
+        "arguments": {
+          "query": "Clair de Lune Debussy Spotify",
+          "query_type": "link"
+        }
+      }
+    ],
+    "session_id": "582964e6-8757-4018-b2aa-6415e54ebe46",
+    "timestamp": "2026-01-03T00:06:07.241934+00:00"
+  },
+  {
+    "user_prompt": "go online and find the link for that song on spotify and text it to my phone",
+    "tool_calls": [
+      {
+        "name": "google_search",
+        "arguments": {
+          "query": "Clair de Lune Debussy Spotify",
+          "query_type": "link"
+        }
+      }
+    ],
+    "session_id": "05e9d881-1604-46ed-8600-68ca5429c618",
+    "timestamp": "2026-01-03T00:00:51.67569+00:00"
+  },
+  {
+    "user_prompt": "what's the next event that i have on my calendar",
+    "tool_calls": [
+      {
+        "name": "calendar_data",
+        "arguments": {
+          "commands": [
+            {
+              "user": "morgan_personal",
+              "limit": 1,
+              "action": "read",
+              "timeframe": "upcoming"
+            }
+          ]
+        }
+      }
+    ],
+    "session_id": "0bc50659-dc40-4d62-8e8a-5669f1b84aca",
+    "timestamp": "2026-01-02T23:57:45.477457+00:00"
+  },
+  {
+    "user_prompt": "Put an event on my calendar for tomorrow around 6pM to remind me to read over my emails.",
+    "tool_calls": [
+      {
+        "name": "calendar_data",
+        "arguments": {
+          "commands": [
+            {
+              "user": "morgan_personal",
+              "action": "create_event",
+              "end_time": "2026-01-03T18:30:00",
+              "start_time": "2026-01-03T18:00:00",
+              "event_title": "Read over emails"
+            }
+          ]
+        }
+      }
+    ],
+    "session_id": "0bc50659-dc40-4d62-8e8a-5669f1b84aca",
+    "timestamp": "2026-01-02T23:57:25.227476+00:00"
+  },
+  {
+    "user_prompt": "Write an event to my calendar. to remind me to read over my emails tomorrow around six p m",
+    "tool_calls": [
+      {
+        "name": "calendar_data",
+        "arguments": {
+          "commands": [
+            {
+              "date": "2026-01-03",
+              "action": "read"
+            }
+          ]
+        }
+      },
+      {
+        "name": "calendar_data",
+        "arguments": {
+          "commands": [
+            {
+              "date": "2026-01-03",
+              "title": "Read over emails",
+              "action": "create_event",
+              "end_time": "18:30",
+              "start_time": "18:00"
+            }
+          ]
+        }
+      },
+      {
+        "name": "calendar_data",
+        "arguments": {
+          "commands": [
+            {
+              "user": "morgan_personal",
+              "event": {
+                "end": "2026-01-03T18:30:00",
+                "start": "2026-01-03T18:00:00",
+                "title": "Read over emails"
+              },
+              "action": "create_event"
+            }
+          ]
+        }
+      }
+    ],
+    "session_id": "05752c65-bd52-4d7b-b367-d0d64fa0002f",
+    "timestamp": "2026-01-02T23:53:04.653244+00:00"
+  },
+  {
+    "user_prompt": "What is the next event I have on my calendar, man?",
+    "tool_calls": [
+      {
+        "name": "calendar_data",
+        "arguments": {
+          "commands": [
+            {
+              "user": "morgan_personal",
+              "action": "get_next_event"
+            }
+          ]
+        }
+      }
+    ],
+    "session_id": "05752c65-bd52-4d7b-b367-d0d64fa0002f",
+    "timestamp": "2026-01-02T23:52:30.648743+00:00"
+  },
+  {
+    "user_prompt": "find the next event that i have on my calendar and text me the link to my phone with that event",
+    "tool_calls": [
+      {
+        "name": "send_sms",
+        "arguments": {
+          "message": "Your next event is titled \"test event number eight\" scheduled for tomorrow, January 3rd, 2026, at 6 PM. You can find the details and link to the event here: https://www.google.com/calendar/event?eid=M2szb2V..."
+        }
+      },
+      {
+        "name": "calendar_data",
+        "arguments": {
+          "commands": [
+            {
+              "user": "morgan_personal",
+              "action": "read",
+              "params": {
+                "limit": 1,
+                "range_start": "2026-01-02T00:00:00Z"
+              }
+            }
+          ]
+        }
+      }
+    ],
+    "session_id": "4717ee4f-8839-4e48-8934-247d61e6dc23",
+    "timestamp": "2026-01-02T23:51:14.341377+00:00"
+  },
+  {
+    "user_prompt": "text that link to my phone",
+    "tool_calls": [
+      {
+        "name": "send_sms",
+        "arguments": {
+          "message": "Here's the link to your next calendar event: https://www.google.com/calendar/event?eid=M2szb2YxZDhhc29iNzgwbG90MjlwdWluZW8gbW9yZ2FubnN0dWFydEBt"
+        }
+      }
+    ],
+    "session_id": "269c9dc5-fe6c-4318-b782-8af95b2164a7",
+    "timestamp": "2026-01-02T23:47:37.495015+00:00"
+  },
+  {
+    "user_prompt": "send me the link to the next event i have in my calendar",
+    "tool_calls": [
+      {
+        "name": "calendar_data",
+        "arguments": {
+          "commands": [
+            {
+              "user": "morgan_personal",
+              "action": "read",
+              "timeframe": "upcoming",
+              "max_results": 1
+            }
+          ]
+        }
+      }
+    ],
+    "session_id": "269c9dc5-fe6c-4318-b782-8af95b2164a7",
+    "timestamp": "2026-01-02T23:47:09.385394+00:00"
+  },
+  {
+    "user_prompt": "That link to my phone. Text me that link to my phone.",
+    "tool_calls": [
+      {
+        "name": "send_sms",
+        "arguments": {
+          "message": "Here\u2019s the link to your next calendar event: https://www.google.com/calendar/event?eid=M2szb2YxZDhhc29iNzgwbG90MjlwdWluZW8gbW9yZ2FubnN0dWFydEBt"
+        }
+      }
+    ],
+    "session_id": "2f4bbcdd-2457-451c-a057-9101e2c69219",
+    "timestamp": "2026-01-02T23:45:40.60293+00:00"
+  },
+  {
+    "user_prompt": "fetch me the link to the next event on my calendar",
+    "tool_calls": [
+      {
+        "name": "calendar_data",
+        "arguments": {
+          "commands": [
+            {
+              "user": "morgan_personal",
+              "action": "read_next_event"
+            }
+          ]
+        }
+      }
+    ],
+    "session_id": "2f4bbcdd-2457-451c-a057-9101e2c69219",
+    "timestamp": "2026-01-02T23:45:21.5318+00:00"
+  },
+  {
+    "user_prompt": "Send a text to my phone saying, hello, world.",
+    "tool_calls": [
+      {
+        "name": "send_sms",
+        "arguments": {
+          "message": "hello, world"
+        }
+      }
+    ],
+    "session_id": "2f4bbcdd-2457-451c-a057-9101e2c69219",
+    "timestamp": "2026-01-02T23:44:52.472414+00:00"
+  },
+  {
+    "user_prompt": "send a text to my phone with the link of the next event that i have on my calendar",
+    "tool_calls": [
+      {
+        "name": "send_sms",
+        "arguments": {
+          "message": "Here's the link to your next event: https://www.google.com/calendar/event?eid=o1oer4o8n4eip9hdrrnn7943jo_20260103T180000Z"
+        }
+      },
+      {
+        "name": "calendar_data",
+        "arguments": {
+          "commands": [
+            {
+              "user": "morgan_personal",
+              "action": "read",
+              "params": {
+                "start_time": "now",
+                "max_results": 1
+              }
+            }
+          ]
+        }
+      }
+    ],
+    "session_id": "7294b87e-84f1-4248-bf67-de8b735e6e9e",
+    "timestamp": "2026-01-02T23:43:32.453082+00:00"
+  },
+  {
+    "user_prompt": "that read over emails event that i have tomorrow which is only thirty minutes can we make that an hour long",
+    "tool_calls": [
+      {
+        "name": "calendar_data",
+        "arguments": {
+          "commands": [
+            {
+              "user": "morgan_personal",
+              "action": "update_event",
+              "updates": {
+                "end_time": "2026-01-03T19:00:00",
+                "start_time": "2026-01-03T18:00:00"
+              },
+              "calendar_name": "primary",
+              "read_or_write": "write",
+              "event_identifier": "M2szb2YxZDhhc29iNzgwbG90MjlwdWluZW8gbW9yZGFubnN0dWFydEBt"
+            }
+          ]
+        }
+      },
+      {
+        "name": "calendar_data",
+        "arguments": {
+          "commands": [
+            {
+              "user": "morgan_personal",
+              "action": "update_event",
+              "updates": {
+                "end_time": "2026-01-03T19:00:00",
+                "start_time": "2026-01-03T18:00:00"
+              },
+              "read_type": "next_events",
+              "calendar_name": "primary",
+              "read_or_write": "read",
+              "event_identifier": "M2szb2YxZDhhc29iNzgwbG90MjlwdWluZW8gbW9yZGFubnN0dWFydEBt"
+            }
+          ]
+        }
+      },
+      {
+        "name": "calendar_data",
+        "arguments": {
+          "commands": [
+            {
+              "user": "morgan_personal",
+              "action": "update_event",
+              "updates": {
+                "end_time": "2026-01-03T19:00:00",
+                "start_time": "2026-01-03T18:00:00"
+              },
+              "event_identifier": "M2szb2YxZDhhc29iNzgwbG90MjlwdWluZW8gbW9yZGFubnN0dWFydEBt"
+            }
+          ]
+        }
+      }
+    ],
+    "session_id": "76762bac-2b0c-496d-95a5-11e1fc640385",
+    "timestamp": "2026-01-02T23:42:37.917091+00:00"
+  },
+  {
+    "user_prompt": "Something. That's true. I think I have an event before that.",
+    "tool_calls": [
+      {
+        "name": "calendar_data",
+        "arguments": {
+          "commands": [
+            {
+              "user": "morgan_personal",
+              "action": "read",
+              "time_frame": "upcoming",
+              "max_results": 5
+            }
+          ]
+        }
+      }
+    ],
+    "session_id": "76762bac-2b0c-496d-95a5-11e1fc640385",
+    "timestamp": "2026-01-02T23:41:51.927023+00:00"
+  },
+  {
+    "user_prompt": "What's the next thing I have on my calendar? Man.",
+    "tool_calls": [
+      {
+        "name": "calendar_data",
+        "arguments": {
+          "commands": [
+            {
+              "user": "morgan_personal",
+              "action": "read",
+              "params": {
+                "order_by": "startTime",
+                "time_min": "2026-01-02T00:00:00Z",
+                "max_results": 1,
+                "single_events": true
+              }
+            }
+          ]
+        }
+      }
+    ],
+    "session_id": "76762bac-2b0c-496d-95a5-11e1fc640385",
+    "timestamp": "2026-01-02T23:41:25.185373+00:00"
+  },
+  {
+    "user_prompt": "can we edit that event to be an hour long",
+    "tool_calls": [
+      {
+        "name": "calendar_data",
+        "arguments": {
+          "commands": [
+            {
+              "user": "morgan_personal",
+              "action": "read",
+              "filters": {
+                "end_date": "2026-01-03",
+                "keywords": [
+                  "Read Over Emails"
+                ],
+                "start_date": "2026-01-03"
+              }
+            }
+          ]
+        }
+      }
+    ],
+    "session_id": "76762bac-2b0c-496d-95a5-11e1fc640385",
+    "timestamp": "2026-01-02T23:40:22.765894+00:00"
+  },
+  {
+    "user_prompt": "Print an event on my calendar for tomorrow called Read Over Emails. around six pm",
+    "tool_calls": [
+      {
+        "name": "calendar_data",
+        "arguments": {
+          "commands": [
+            {
+              "date": "2026-01-03",
+              "title": "Read Over Emails",
+              "action": "create_event",
+              "end_time": "18:30",
+              "start_time": "18:00"
+            }
+          ]
+        }
+      },
+      {
+        "name": "calendar_data",
+        "arguments": {
+          "commands": [
+            {
+              "user": "morgan_personal",
+              "event": {
+                "end": "2026-01-03T18:30:00",
+                "start": "2026-01-03T18:00:00",
+                "title": "Read Over Emails"
+              },
+              "action": "create_event"
+            }
+          ]
+        }
+      }
+    ],
+    "session_id": "76762bac-2b0c-496d-95a5-11e1fc640385",
+    "timestamp": "2026-01-02T23:39:54.959222+00:00"
+  },
+  {
+    "user_prompt": "put an event on my calendar for tomorrow to read over my emails around six pm",
+    "tool_calls": [
+      {
+        "name": "calendar_data",
+        "arguments": {
+          "commands": [
+            {
+              "user": "morgan_personal",
+              "action": "create_event",
+              "end_time": "2026-01-03T18:30:00",
+              "start_time": "2026-01-03T18:00:00",
+              "event_title": "Read over emails"
+            }
+          ]
+        }
+      }
+    ],
+    "session_id": "3ee2a793-6513-41f8-b99b-1853d68c0137",
+    "timestamp": "2026-01-02T23:35:49.300131+00:00"
+  },
+  {
+    "user_prompt": "calendar print event on my calendar tomorrow for six p m titled test event number eight",
+    "tool_calls": [
+      {
+        "name": "calendar_data",
+        "arguments": {
+          "commands": [
+            {
+              "user": "morgan_personal",
+              "event": {
+                "title": "test event number eight",
+                "end_time": "2026-01-03T19:00:00",
+                "start_time": "2026-01-03T18:00:00"
+              },
+              "action": "create_event"
+            }
+          ]
+        }
+      }
+    ],
+    "session_id": "0f2dc74d-6df5-44b8-a304-933b1efad12f",
+    "timestamp": "2026-01-02T23:30:12.152933+00:00"
+  },
+  {
+    "user_prompt": "Can you put an event on my calendar tomorrow at 6pM to remind me to. read my emails",
+    "tool_calls": [
+      {
+        "name": "calendar_data",
+        "arguments": {
+          "commands": [
+            {
+              "user": "morgan_personal",
+              "event": {
+                "end": {
+                  "dateTime": "2026-01-03T18:30:00",
+                  "timeZone": "America/Costa_Rica"
+                },
+                "start": {
+                  "dateTime": "2026-01-03T18:00:00",
+                  "timeZone": "America/Costa_Rica"
+                },
+                "summary": "Read my emails"
+              },
+              "action": "create_event"
+            }
+          ]
+        }
+      }
+    ],
+    "session_id": "60480d95-466f-42df-b592-0d8f9b6742c7",
+    "timestamp": "2026-01-02T23:27:07.893357+00:00"
+  },
+  {
+    "user_prompt": "Tell me about your system architecture.",
+    "tool_calls": [
+      {
+        "name": "system_info",
+        "arguments": {
+          "section": "architecture"
+        }
+      }
+    ],
+    "session_id": "7e6b8ac1-405a-430f-aaad-5ab5bad9a485",
+    "timestamp": "2026-01-02T23:08:36.993582+00:00"
+  },
+  {
+    "user_prompt": "saturday january third at six p m",
+    "tool_calls": [
+      {
+        "name": "get_notifications",
+        "arguments": {
+          "user": "Morgan",
+          "limit": 5,
+          "type_filter": "email"
+        }
+      },
+      {
+        "name": "calendar_data",
+        "arguments": {
+          "commands": [
+            {
+              "date": "2024-01-03",
+              "action": "create_event",
+              "summary": "Read over emails",
+              "end_time": "19:00",
+              "start_time": "18:00"
+            }
+          ]
+        }
+      },
+      {
+        "name": "calendar_data",
+        "arguments": {
+          "commands": [
+            {
+              "user": "morgan_personal",
+              "action": "create_event",
+              "end_time": "Saturday January 3rd 6:30 PM",
+              "start_time": "Saturday January 3rd 6:00 PM",
+              "event_title": "Reminder: Read over emails"
+            }
+          ]
+        }
+      }
+    ],
+    "session_id": "0e46531f-3699-4751-97d1-9a106f957538",
+    "timestamp": "2026-01-02T23:04:56.438074+00:00"
+  },
+  {
+    "user_prompt": "let's create a new event on my calendar for tomorrow that will remind me to read over my emails",
+    "tool_calls": [
+      {
+        "name": "calendar_data",
+        "arguments": {
+          "commands": [
+            {
+              "user": "morgan_personal",
+              "action": "create_event",
+              "end_time": "tomorrow 9:30 AM",
+              "start_time": "tomorrow 9:00 AM",
+              "event_title": "Reminder: Read over emails"
+            }
+          ]
+        }
+      }
+    ],
+    "session_id": "0e46531f-3699-4751-97d1-9a106f957538",
+    "timestamp": "2026-01-02T23:04:19.720868+00:00"
+  },
+  {
+    "user_prompt": "what's in my emails right now",
+    "tool_calls": [
+      {
+        "name": "get_notifications",
+        "arguments": {
+          "user": "Morgan",
+          "limit": 5,
+          "type_filter": "email",
+          "include_metadata": true
+        }
+      }
+    ],
+    "session_id": "0e46531f-3699-4751-97d1-9a106f957538",
+    "timestamp": "2026-01-02T23:03:43.485272+00:00"
+  },
+  {
+    "user_prompt": "how's the weather looking like today",
+    "tool_calls": [
+      {
+        "name": "weather",
+        "arguments": {
+          "days": 1,
+          "region": "ithaca"
+        }
+      },
+      {
+        "name": "weather",
+        "arguments": {
+          "region": "ithaca"
+        }
+      },
+      {
+        "name": "weather",
+        "arguments": {
+          "hours": 24,
+          "region": "Costa Rica"
+        }
+      }
+    ],
+    "session_id": "66fb88af-7fda-4abe-bd02-c2027e15ae4c",
+    "timestamp": "2026-01-02T23:02:52.653153+00:00"
+  },
+  {
+    "user_prompt": "Send me a text telling. Reminding me to tell Miles to shut the fuck up.",
+    "tool_calls": [
+      {
+        "name": "send_sms",
+        "arguments": {
+          "message": "Remind yourself to tell Miles to shut the fuck up."
+        }
+      }
+    ],
+    "session_id": "11c58a3a-ab15-4498-ba0c-37d0f00992ef",
+    "timestamp": "2025-12-31T05:14:43.615228+00:00"
+  },
+  {
+    "user_prompt": "send me a text saying hello world",
+    "tool_calls": [
+      {
+        "name": "send_sms",
+        "arguments": {
+          "message": "hello world"
+        }
+      }
+    ],
+    "session_id": "483a0b2c-9b00-4e30-9af7-397e5ffbc3e3",
+    "timestamp": "2025-12-31T04:57:37.344221+00:00"
+  },
+  {
+    "user_prompt": "what's the weather like today in ithaca",
+    "tool_calls": [
+      {
+        "name": "weather",
+        "arguments": {
+          "hours": 24,
+          "region": "Ithaca"
+        }
+      }
+    ],
+    "session_id": "e21b8556-b831-49a0-bde2-1fdb8436c11c",
+    "timestamp": "2025-12-07T04:30:44.008629+00:00"
+  }
+]

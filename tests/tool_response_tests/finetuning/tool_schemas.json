@@ -47,7 +47,7 @@
     },
     {
       "name": "calendar_data",
-      "description": "Google Calendar access. Read events or create new events. Use 'all' to read from all calendars.",
+      "description": "Google Calendar access only. Read events or create new events. Use 'all' to read from all configured Google calendars.",
       "parameters": {
         "type": "object",
         "properties": {
@@ -71,36 +71,6 @@
             }
           }
         }
-      }
-    },
-    {
-      "name": "stickies",
-      "description": "Read and edit the user's desktop sticky note (macOS Stickies app). For notes, to-do lists, things written down.",
-      "parameters": {
-        "type": "object",
-        "properties": {
-          "action": {"type": "string", "enum": ["read", "write"], "description": "'read' returns note content; 'write' applies edits."},
-          "section": {"type": "string", "enum": ["notes", "todo", "both"], "description": "For read: which section to return. Default: 'both'."},
-          "edits": {
-            "type": "array",
-            "description": "For write: array of edit operations.",
-            "items": {
-              "type": "object",
-              "properties": {
-                "op": {"type": "string", "enum": ["add_todo", "remove_todo", "edit_todo", "add_note", "remove_note", "edit_note"]},
-                "item": {"type": "string", "description": "For add_todo: the task text."},
-                "due": {"type": "string", "description": "For add_todo: optional due date (e.g., 'Feb 12', 'Monday')."},
-                "match": {"type": "string", "description": "For remove operations: text to match (case-insensitive, partial)."},
-                "old": {"type": "string", "description": "For edit operations: existing text to find."},
-                "new": {"type": "string", "description": "For edit operations: replacement text."},
-                "subheading": {"type": "string", "description": "For add_note: the note subheading/topic."},
-                "content": {"type": "string", "description": "For add_note: the note content."}
-              },
-              "required": ["op"]
-            }
-          }
-        },
-        "required": ["action"]
       }
     },
     {
@@ -138,17 +108,37 @@
     },
     {
       "name": "briefing",
-      "description": "Create and manage briefing announcements spoken to users when they wake up the assistant.",
+      "description": "Inspect and dismiss autonomous briefing announcements spoken to users when they wake up the assistant.",
       "parameters": {
         "type": "object",
         "properties": {
-          "action": {"type": "string", "enum": ["create", "list", "dismiss"], "description": "'create' new briefing, 'list' pending, 'dismiss' cancel."},
-          "message": {"type": "string", "description": "For create: the briefing message."},
-          "remind_at": {"type": "string", "description": "Absolute reminder time. ISO format or natural language like '9am', 'tomorrow 3pm'."},
-          "remind_before_minutes": {"type": "integer", "description": "Minutes before event_time to remind. Requires event_time."},
-          "event_time": {"type": "string", "description": "When the actual event is (for relative reminders). ISO format."},
+          "action": {"type": "string", "enum": ["list", "dismiss"], "description": "'list' pending autonomous briefings, 'dismiss' cancel one."},
           "priority": {"type": "string", "enum": ["high", "normal", "low"], "description": "Priority level. Default: 'normal'."},
           "briefing_id": {"type": "string", "description": "For dismiss: the briefing ID."}
+        },
+        "required": ["action"]
+      }
+    },
+    {
+      "name": "todos",
+      "description": "Manage the user's persistent todo list. Use for tasks, reminders, due items, and completion state.",
+      "parameters": {
+        "type": "object",
+        "properties": {
+          "action": {"type": "string", "enum": ["create", "list", "complete", "reopen", "update", "delete"], "description": "Todo action to perform."},
+          "title": {"type": "string", "description": "Todo title/task text for create or rename during update."},
+          "message": {"type": "string", "description": "Alias for title when phrased as a reminder message."},
+          "details": {"type": "string", "description": "Optional extra details for the todo."},
+          "due_at": {"type": "string", "description": "Optional due time. ISO or natural language like 'tomorrow 5pm'."},
+          "event_time": {"type": "string", "description": "Optional event time for event-relative reminder creation."},
+          "remind_before_minutes": {"type": "integer", "description": "Minutes before event_time for reminder-style todo creation."},
+          "todo_id": {"type": "string", "description": "Specific todo ID for complete/reopen/update/delete."},
+          "match": {"type": "string", "description": "Todo title match when todo_id is unknown."},
+          "include_completed": {"type": "boolean", "description": "For list: include completed tasks."},
+          "only_due_today": {"type": "boolean", "description": "For list: return only tasks due today."},
+          "only_overdue": {"type": "boolean", "description": "For list: return only overdue tasks."},
+          "source_type": {"type": "string", "description": "Optional source for created todos such as calendar, voice, or discord."},
+          "source_id": {"type": "string", "description": "Optional external source identifier for linked todos."}
         },
         "required": ["action"]
       }

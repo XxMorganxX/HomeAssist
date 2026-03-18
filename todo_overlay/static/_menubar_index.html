@@ -1,0 +1,109 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>HomeAssist Todos</title>
+  <link rel="stylesheet" href="styles.css">
+<script>window.API_BASE="http://127.0.0.1:8421";</script>
+</head>
+<body>
+  <main class="app-shell">
+    <section class="overlay-card">
+      <header class="app-header">
+        <div class="header-title-group">
+          <h1 class="header-title">Todos</h1>
+          <span id="userLabel" class="header-user">Loading…</span>
+        </div>
+        <div class="header-actions">
+          <button id="addToggleButton" class="header-icon-button" type="button" title="Add todo" aria-label="Add todo">+</button>
+          <button id="refreshButton" class="header-icon-button" type="button" title="Refresh" aria-label="Refresh">↻</button>
+        </div>
+      </header>
+
+      <section class="summary-grid" aria-label="Todo counts">
+        <button class="summary-tile is-active" data-mode="open" type="button">
+          <span class="summary-label">Open</span>
+          <span id="openCount" class="summary-count">0</span>
+        </button>
+        <button class="summary-tile" data-mode="due" type="button">
+          <span class="summary-label">Due Today</span>
+          <span id="dueCount" class="summary-count">0</span>
+        </button>
+        <button class="summary-tile" data-mode="completed" type="button">
+          <span class="summary-label">Completed</span>
+          <span id="completedCount" class="summary-count">0</span>
+        </button>
+      </section>
+
+      <section id="addPanel" class="panel hidden">
+        <div class="panel-header">
+          <h2>New Todo</h2>
+          <p class="subtle">Natural language due times like "tomorrow 5pm".</p>
+        </div>
+        <form id="createForm" class="todo-form">
+          <label>
+            <span>Title</span>
+            <input id="createTitle" name="title" type="text" maxlength="200" placeholder="What do you need to do?" required>
+          </label>
+          <label>
+            <span>Due</span>
+            <input id="createDueAt" name="due_at" type="text" maxlength="100" placeholder="Optional: tomorrow 5pm">
+          </label>
+          <label class="full-width">
+            <span>Details</span>
+            <textarea id="createDetails" name="details" rows="2" maxlength="500" placeholder="Optional extra context"></textarea>
+          </label>
+          <div class="form-actions full-width">
+            <button class="ghost-button" type="button" id="addCancelButton">Cancel</button>
+            <button class="primary-button" type="submit">Add</button>
+          </div>
+        </form>
+      </section>
+
+      <section class="panel list-panel">
+        <div class="panel-header">
+          <h2 id="listHeading">Open Todos</h2>
+          <p id="statusMessage" class="status-message" role="status" aria-live="polite"></p>
+        </div>
+        <div id="errorBanner" class="banner hidden" role="alert"></div>
+        <div id="emptyState" class="empty-state hidden">No matching todos.</div>
+        <div id="todoList" class="todo-list" aria-live="polite"></div>
+      </section>
+    </section>
+  </main>
+
+  <div id="modalBackdrop" class="modal-backdrop hidden">
+    <section class="modal-card" role="dialog" aria-modal="true" aria-labelledby="editModalTitle">
+      <div class="panel-header">
+        <div>
+          <h2 id="editModalTitle">Edit Todo</h2>
+          <p class="subtle">Update the fields you want to change.</p>
+        </div>
+        <button id="closeModalButton" class="ghost-button" type="button">Close</button>
+      </div>
+      <form id="editForm" class="todo-form">
+        <input id="editTodoId" type="hidden">
+        <label>
+          <span>Title</span>
+          <input id="editTitle" name="title" type="text" maxlength="200" required>
+        </label>
+        <label>
+          <span>Due</span>
+          <input id="editDueAt" name="due_at" type="text" maxlength="100" placeholder="Optional: tomorrow 5pm">
+        </label>
+        <label class="full-width">
+          <span>Details</span>
+          <textarea id="editDetails" name="details" rows="4" maxlength="500"></textarea>
+        </label>
+        <div class="form-actions full-width modal-actions">
+          <button id="clearDueButton" class="ghost-button" type="button">Clear Due Date</button>
+          <button class="primary-button" type="submit">Save Changes</button>
+        </div>
+      </form>
+    </section>
+  </div>
+
+  <script src="app.js"></script>
+</body>
+</html>

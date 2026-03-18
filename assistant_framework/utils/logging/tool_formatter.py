@@ -91,13 +91,18 @@ def _format_value(value: Any, depth: int = 0) -> str:
     return str(value)
 
 
-def format_tool_call(tool_name: str, arguments: Dict[str, Any]) -> str:
+def format_tool_call(
+    tool_name: str,
+    arguments: Dict[str, Any],
+    subagent: Optional[str] = None,
+) -> str:
     """
     Format a tool call for console output.
     
     Args:
         tool_name: Name of the tool being called
         arguments: Arguments passed to the tool
+        subagent: Optional tool-routing backend label
         
     Returns:
         Formatted string for console display
@@ -107,6 +112,9 @@ def format_tool_call(tool_name: str, arguments: Dict[str, Any]) -> str:
         f"{Colors.BOLD}┌─ 🔧 TOOL CALL ─────────────────────────────────{Colors.RESET}",
         f"{Colors.BOLD}│{Colors.RESET} Tool: {Colors.YELLOW}{tool_name}{Colors.RESET}",
     ]
+
+    if subagent:
+        lines.append(f"{Colors.BOLD}│{Colors.RESET} Subagent: {Colors.CYAN}{subagent}{Colors.RESET}")
     
     if arguments:
         lines.append(f"{Colors.BOLD}│{Colors.RESET} Arguments:")
@@ -131,7 +139,8 @@ def format_tool_result(
     tool_name: str,
     result: Any,
     success: Optional[bool] = None,
-    execution_time_ms: Optional[float] = None
+    execution_time_ms: Optional[float] = None,
+    subagent: Optional[str] = None,
 ) -> str:
     """
     Format a tool result for console output.
@@ -141,6 +150,7 @@ def format_tool_result(
         result: Result data (can be dict, str, or any JSON-serializable type)
         success: Whether the tool succeeded (auto-detected if None)
         execution_time_ms: Execution time in milliseconds
+        subagent: Optional tool-routing backend label
         
     Returns:
         Formatted string for console display
@@ -172,6 +182,9 @@ def format_tool_result(
         f"{border_color}{Colors.BOLD}┌─ 📥 TOOL RESULT ───────────────────────────────{Colors.RESET}",
         f"{border_color}{Colors.BOLD}│{Colors.RESET} Tool: {Colors.YELLOW}{tool_name}{Colors.RESET}  Status: {status}",
     ]
+
+    if subagent:
+        lines.append(f"{border_color}{Colors.BOLD}│{Colors.RESET} Subagent: {Colors.CYAN}{subagent}{Colors.RESET}")
     
     if execution_time_ms is not None:
         lines.append(f"{border_color}{Colors.BOLD}│{Colors.RESET} Time: {Colors.CYAN}{execution_time_ms:.1f}ms{Colors.RESET}")
@@ -232,7 +245,12 @@ def format_tool_result(
     return "\n".join(lines)
 
 
-def format_tool_error(tool_name: str, error: str, traceback_str: Optional[str] = None) -> str:
+def format_tool_error(
+    tool_name: str,
+    error: str,
+    traceback_str: Optional[str] = None,
+    subagent: Optional[str] = None,
+) -> str:
     """
     Format a tool error for console output.
     
@@ -240,6 +258,7 @@ def format_tool_error(tool_name: str, error: str, traceback_str: Optional[str] =
         tool_name: Name of the tool that failed
         error: Error message
         traceback_str: Optional traceback string
+        subagent: Optional tool-routing backend label
         
     Returns:
         Formatted string for console display
@@ -248,9 +267,15 @@ def format_tool_error(tool_name: str, error: str, traceback_str: Optional[str] =
         "",
         f"{Colors.RED}{Colors.BOLD}┌─ ❌ TOOL ERROR ─────────────────────────────────{Colors.RESET}",
         f"{Colors.RED}{Colors.BOLD}│{Colors.RESET} Tool: {Colors.YELLOW}{tool_name}{Colors.RESET}",
+    ]
+
+    if subagent:
+        lines.append(f"{Colors.RED}{Colors.BOLD}│{Colors.RESET} Subagent: {Colors.CYAN}{subagent}{Colors.RESET}")
+
+    lines.extend([
         f"{Colors.RED}{Colors.BOLD}│{Colors.RESET}",
         f"{Colors.RED}{Colors.BOLD}│{Colors.RESET} {Colors.RED}Error: {error}{Colors.RESET}",
-    ]
+    ])
     
     if traceback_str:
         lines.append(f"{Colors.RED}{Colors.BOLD}│{Colors.RESET}")

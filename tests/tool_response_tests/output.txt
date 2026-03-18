@@ -1,55 +1,88 @@
 MCP Tool Test Results
-Generated: 2026-02-11T12:34:56.239548
+Generated: 2026-03-18T15:03:58.764145
 Model: openai (gpt-4o-mini)
-Total Tests: 1 across 14 categories
+Total Tests: 5 across 14 categories
 TOOL_SIGNAL_MODE: True
 ======================================================================
 
 TOOL SIGNAL FLOW STATISTICS
 ----------------------------------------------------------------------
-Total tests:              1
-Tool signal detected:     1
-Orchestration called:     1
-Realtime compose called:  1
-Tests with tools:         1
-Tests without tools:      0
+Total tests:              5
+Tool signal detected:     4
+Orchestration called:     4
+Realtime compose called:  4
+Tests with tools:         4
+Tests without tools:      1
 ======================================================================
 
 TIMING STATISTICS
 ----------------------------------------------------------------------
 Total Response Time:
-  Average:  7566ms
-  Min:      7566ms
-  Max:      7566ms
+  Average:  4567ms
+  Min:      780ms
+  Max:      7061ms
 Tool Execution Time:
-  Average:  3807ms
-  Min:      3807ms
-  Max:      3807ms
-  Total:    3807ms
+  Average:  2674ms
+  Min:      1336ms
+  Max:      4279ms
+  Total:    10698ms
 ======================================================================
 
 
 ######################################################################
-#  CATEGORY: STICKIES
-#  Tests: 1
+#  CATEGORY: TODOS
+#  Tests: 5
 ######################################################################
 
-TEST 1: Add hello world to my to-do list
+TEST 1: What's on my to-do list?
 ----------------------------------------------------------------------
 
 TIMING:
-  Total time:       7566ms
+  Total time:       7061ms
   Tool execution:   N/A
 
 TOOL SIGNAL FLOW:
   Signal detected:     True
   Realtime output:     TOOL...
   Orchestration:       True
-  Orchestration model: gpt-4o-mini
+  Orchestration model: None
   Realtime compose:    True
 
 RESPONSE:
-Got it—“hello world” has been added to your to-do list. Anything else you’d like to adjust?
+It looks like there’s no to-do list currently in your sticky notes. You might want to create one first, then we can check it together. Let me know if you need help with that.
+
+TOOLS USED (1):
+
+  Tool: stickies
+  Arguments: {
+    "action": "read",
+    "section": "todo"
+}
+  Result:
+    {
+        "success": false,
+        "error": "No sticky note found. Please create one in the Stickies app first.",
+        "error_code": "STICKIES_NOT_FOUND"
+    }
+
+======================================================================
+
+TEST 2: Add hello world to my to-do list
+----------------------------------------------------------------------
+
+TIMING:
+  Total time:       4665ms
+  Tool execution:   N/A
+
+TOOL SIGNAL FLOW:
+  Signal detected:     True
+  Realtime output:     TOOL...
+  Orchestration:       True
+  Orchestration model: None
+  Realtime compose:    True
+
+RESPONSE:
+It looks like there’s no to-do list set up yet. You’ll need to create a sticky note first in the Stickies app, and then we can add “hello world” to it. Let me know if you need help getting that started.
 
 TOOLS USED (1):
 
@@ -65,11 +98,114 @@ TOOLS USED (1):
 }
   Result:
     {
-        "success": true,
-        "edits_applied": [
-            "Added to-do: hello world"
-        ],
-        "updated_content": "My Notes\nHiring\nReceived 18 interview applicants.\n\nTo Do List\n    - Buy deodorant\n    - hello world"
+        "success": false,
+        "error": "No sticky note found. Please create one in the Stickies app first.",
+        "error_code": "STICKIES_NOT_FOUND"
+    }
+
+======================================================================
+
+TEST 3: Mark hello world done
+----------------------------------------------------------------------
+
+TIMING:
+  Total time:       780ms
+  Tool execution:   N/A
+
+TOOL SIGNAL FLOW:
+  Signal detected:     False
+  Realtime output:     It seems we still need to create a to-do list first. Once you've set up a sticky note with your tasks, I can help mark "hello world" as done. Let me k...
+  Orchestration:       False
+  Orchestration model: None
+  Realtime compose:    False
+
+RESPONSE:
+It seems we still need to create a to-do list first. Once you've set up a sticky note with your tasks, I can help mark "hello world" as done. Let me know when you're ready.
+
+TOOLS USED: None
+
+======================================================================
+
+TEST 4: What's due today?
+----------------------------------------------------------------------
+
+TIMING:
+  Total time:       3746ms
+  Tool execution:   N/A
+
+TOOL SIGNAL FLOW:
+  Signal detected:     True
+  Realtime output:     TOOL...
+  Orchestration:       True
+  Orchestration model: None
+  Realtime compose:    True
+
+RESPONSE:
+It looks like there’s no to-do list created yet. You might need to set one up in the Stickies app first, and then we can check what’s due today. Let me know if you need help.
+
+TOOLS USED (1):
+
+  Tool: stickies
+  Arguments: {
+    "action": "read",
+    "section": "todo"
+}
+  Result:
+    {
+        "success": false,
+        "error": "No sticky note found. Please create one in the Stickies app first.",
+        "error_code": "STICKIES_NOT_FOUND"
+    }
+
+======================================================================
+
+TEST 5: Remind me to call the dentist at 2pm
+----------------------------------------------------------------------
+
+TIMING:
+  Total time:       6586ms
+  Tool execution:   N/A
+
+TOOL SIGNAL FLOW:
+  Signal detected:     True
+  Realtime output:     TOOL...
+  Orchestration:       True
+  Orchestration model: None
+  Realtime compose:    True
+
+RESPONSE:
+It seems we need to create a sticky note first, and the reminder needs a full date and time format. Could you give me the exact date along with 2 PM? Then I can help set it up.
+
+TOOLS USED (2):
+
+  Tool: stickies
+  Arguments: {
+    "action": "write",
+    "edits": [
+        {
+            "op": "add_todo",
+            "item": "call the dentist",
+            "due": "2pm"
+        }
+    ]
+}
+  Result:
+    {
+        "success": false,
+        "error": "No sticky note found. Please create one in the Stickies app first.",
+        "error_code": "STICKIES_NOT_FOUND"
+    }
+
+  Tool: briefing
+  Arguments: {
+    "action": "create",
+    "message": "Call the dentist",
+    "remind_at": "2pm"
+}
+  Result:
+    {
+        "success": false,
+        "error": "Invalid datetime format: time data '2pm' does not match format '%Y-%m-%d'. Use ISO 8601 format like '2026-01-13T13:00:00'"
     }
 
 ======================================================================

@@ -4,18 +4,15 @@ Calendar Data Tool using BaseTool.
 This tool provides comprehensive Google Calendar access with enhanced parameter
 descriptions, better command validation, and detailed event management.
 
-When creating events, can optionally create smart briefing reminders using the
-same AI-powered analysis as the scheduled calendar briefing job.
+When creating events, can optionally create linked todo items so autonomous
+briefings can summarize them later.
 """
 
 from mcp_server.base_tool import BaseTool
 from typing import Dict, Any, List, Optional
 from datetime import datetime
-import uuid
-import os
-import sys
-from pathlib import Path
 from mcp_server.config import LOG_TOOLS
+from assistant_framework.utils.todo_manager import TodoManager
 
 # Natural language date parsing (for "this Saturday", "next Tuesday", etc.)
 try:
@@ -29,22 +26,6 @@ try:
 except ImportError:
     # Fallback for MCP server context
     config = None
-
-# Add scripts path for importing the calendar briefing analyzer
-PROJECT_ROOT = Path(__file__).resolve().parents[2]
-CALENDAR_BRIEFING_PATH = PROJECT_ROOT / "scripts" / "scheduled" / "calendar_briefing"
-if str(CALENDAR_BRIEFING_PATH) not in sys.path:
-    sys.path.insert(0, str(CALENDAR_BRIEFING_PATH))
-
-# Import the same analyzer and briefing creator used by the scheduled job
-try:
-    from analyzer import ReminderAnalyzer
-    from briefing_creator import BriefingCreator
-    BRIEFING_SYSTEM_AVAILABLE = True
-except ImportError:
-    BRIEFING_SYSTEM_AVAILABLE = False
-    ReminderAnalyzer = None
-    BriefingCreator = None
 
 # Import user config for dynamic user resolution
 try:
@@ -107,6 +88,7 @@ class CalendarTool(BaseTool):
         self._available_calendars = None
         self.available_actions = ["read", "create_event"]
         self.available_read_types = ["next_events", "day_summary", "week_summary", "specific_date"]
+        self._todo_manager = TodoManager()
         
         super().__init__()
     
@@ -249,10 +231,14 @@ class CalendarTool(BaseTool):
                                 "items": {"type": "string"},
                                 "description": "Create only. Optional list of attendee email addresses."
                             },
+                            "create_todo": {
+                                "type": "boolean",
+                                "description": "Create only. Create or update a linked calendar-backed todo (default: true).",
+                                "default": True
+                            },
                             "create_briefing": {
                                 "type": "boolean",
-                                "description": "Create only. Auto-create smart reminder briefings (default: true). Set false to disable.",
-                                "default": True
+                                "description": "Deprecated legacy flag. Calendar-created items now sync into todos and autonomous briefings read from those todos.",
                             }
                         },
                         "required": []
@@ -811,38 +797,42 @@ class CalendarTool(BaseTool):
         if errors:
             result["warnings"] = errors
         
-        # Create smart briefing reminder if enabled (default: True)
-        create_briefing = cmd.get("create_briefing", True)
-        
-        if create_briefing and created_events:
-            # Use the first successfully created event for briefing
-            first_event = created_events[0]
-            first_calendar = first_event.get("calendar", target_calendars[0])
-            event_id = first_event.get("event_id", "")
-            
-            briefing_result = self._create_briefing_for_event(
-                event_title=cmd["event_title"],
-                event_date=cmd["date"],
-                event_time=cmd["start_time"],
-                event_description=cmd.get("event_description", ""),
-                location=cmd.get("location", ""),
-                calendar_user=first_calendar,
-                event_id=event_id
-            )
-            
-            if briefing_result:
-                result["briefing"] = briefing_result
-                
-                if briefing_result.get("success"):
-                    if LOG_TOOLS:
-                        self.logger.info(
-                            f"Created {briefing_result.get('briefings_created', 0)} smart briefing(s) for event: {cmd['event_title']}"
+        create_todo = cmd.get("create_todo", True)
+        if create_todo and created_events:
+            todo_results = []
+            todo_errors = []
+            for created_event in created_events:
+                try:
+                    todo_results.append(
+                        self._create_todo_for_event(
+                            event_title=cmd["event_title"],
+                            event_date=cmd["date"],
+                            event_time=cmd["start_time"],
+                            event_description=cmd.get("event_description", ""),
+                            location=cmd.get("location", ""),
+                            calendar_user=created_event.get("calendar", target_calendars[0]),
+                            event_id=created_event.get("event_id", ""),
                         )
-                else:
-                    # Add warning but don't fail the overall operation
-                    warnings = result.get("warnings", [])
-                    warnings.append(f"Briefing creation warning: {briefing_result.get('error', 'Unknown error')}")
-                    result["warnings"] = warnings
+                    )
+                except Exception as exc:
+                    todo_errors.append(str(exc))
+
+            result["linked_todos"] = {
+                "created": len(todo_results),
+                "todos": todo_results,
+            }
+
+            if cmd.get("create_briefing") is not None:
+                warnings = result.get("warnings", [])
+                warnings.append(
+                    "create_briefing is deprecated. Calendar-created items now sync into todos, and autonomous briefings summarize those todos."
+                )
+                result["warnings"] = warnings
+
+            if todo_errors:
+                warnings = result.get("warnings", [])
+                warnings.extend(todo_errors)
+                result["warnings"] = warnings
         
         return result
 
@@ -1318,11 +1308,7 @@ class CalendarTool(BaseTool):
         
         return cleaned
     
-    # ========== Smart Briefing Creation ==========
-    # Uses the same AI-powered ReminderAnalyzer and BriefingCreator
-    # as the scheduled calendar briefing job for consistent behavior.
-    
-    def _create_briefing_for_event(
+    def _create_todo_for_event(
         self,
         event_title: str,
         event_date: str,
@@ -1332,118 +1318,29 @@ class CalendarTool(BaseTool):
         calendar_user: str = "morgan_personal",
         event_id: str = ""
     ) -> Optional[Dict[str, Any]]:
-        """
-        Create a smart briefing announcement for a calendar event using the same
-        AI-powered analysis as the scheduled calendar briefing job.
-        
-        Args:
-            event_title: Title of the event
-            event_date: Date in YYYY-MM-DD format
-            event_time: Time in HH:MM format
-            event_description: Optional event description
-            location: Optional event location
-            calendar_user: Calendar user identifier
-            event_id: Optional Google Calendar event ID
-            
-        Returns:
-            Dict with briefing creation result, or None if failed
-        """
-        if not BRIEFING_SYSTEM_AVAILABLE:
-            self.logger.warning("Briefing system not available - ReminderAnalyzer/BriefingCreator not imported")
-            return {
-                "success": False,
-                "error": "Briefing system not available"
-            }
-        
-        try:
-            # Format the event in the same structure expected by the analyzer
-            # (same format as CalendarComponent.format_event)
-            formatted_event = {
-                "id": event_id or f"manual_{uuid.uuid4().hex[:8]}",
-                "summary": event_title,
-                "start_date": event_date,
-                "start_time": event_time,
-                "end_time": event_time,  # Will be updated if we have end time
-                "location": location or "",
-                "description": event_description or "",
-                "calendar_name": calendar_user,
-                "all_day": False,
-            }
-            
-            # Initialize the analyzer (uses Gemini AI if available, heuristic fallback)
-            analyzer = ReminderAnalyzer()
-            
-            # Analyze the event to get optimal reminder timing
-            # This uses the same AI prompt and logic as the scheduled job
-            analyses = analyzer.analyze_events([formatted_event], calendar_user)
-            
-            if not analyses:
-                return {
-                    "success": False,
-                    "error": "Event analysis returned no results"
-                }
-            
-            analysis = analyses[0]
-            
-            # Initialize the briefing creator (handles Supabase storage)
-            local_tz = os.getenv("DEFAULT_TIME_ZONE", "America/New_York")
-            briefing_creator = BriefingCreator(timezone_str=local_tz, generate_openers=True)
-            
-            if not briefing_creator.is_available():
-                return {
-                    "success": False,
-                    "error": "Supabase not available for briefing storage"
-                }
-            
-            # Create briefings from the analysis (same as scheduled job)
-            suggestions = {calendar_user: [analysis]}
-            briefings = briefing_creator.create_briefings_from_suggestions(suggestions)
-            
-            if not briefings:
-                return {
-                    "success": True,
-                    "briefings_created": 0,
-                    "note": "No briefings created - all reminder times may be in the past"
-                }
-            
-            # Store briefings to Supabase
-            success = briefing_creator.store_briefings(briefings)
-            
-            if not success:
-                return {
-                    "success": False,
-                    "error": "Failed to store briefings to Supabase"
-                }
-            
-            # Format human-readable reminder times
-            reminder_minutes = analysis.get("reminders_minutes_before", [])
-            
-            def format_minutes(m):
-                if m >= 1440:
-                    return f"{m // 1440} day{'s' if m >= 2880 else ''}"
-                elif m >= 60:
-                    return f"{m // 60} hour{'s' if m >= 120 else ''}"
-                else:
-                    return f"{m} minute{'s' if m != 1 else ''}"
-            
-            reminder_times_str = [format_minutes(m) for m in reminder_minutes]
-            
-            return {
-                "success": True,
-                "briefings_created": len(briefings),
-                "event_type": analysis.get("event_type", "default"),
-                "priority": analysis.get("priority", "medium"),
-                "reminder_times": reminder_times_str,
-                "briefing_ids": [b.get("id") for b in briefings],
-                "analysis_method": "AI" if analyzer.model else "heuristic",
-                "note": f"Created {len(briefings)} smart reminder(s): {', '.join(reminder_times_str)} before"
-            }
-            
-        except Exception as e:
-            self.logger.error(f"Error creating briefing: {e}")
-            import traceback
-            traceback.print_exc()
-            return {
-                "success": False,
-                "error": str(e)
-            }
+        """Create or update a linked calendar-backed todo for the new event."""
+        formatted_event = {
+            "id": event_id,
+            "summary": event_title,
+            "description": event_description or "",
+            "start_date": event_date,
+            "start_time": event_time,
+            "end_date": event_date,
+            "end_time": event_time,
+            "location": location or "",
+            "calendar_name": calendar_user,
+            "all_day": False,
+        }
+
+        todo = self._todo_manager.upsert_calendar_todo(
+            calendar_user=calendar_user,
+            event=formatted_event,
+        )
+        return {
+            "success": True,
+            "todo_id": todo.get("id"),
+            "title": todo.get("title"),
+            "due_at": todo.get("due_at"),
+            "source_type": todo.get("source_type"),
+            "source_id": todo.get("source_id"),
+        }

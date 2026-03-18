@@ -28,6 +28,8 @@ from dotenv import load_dotenv
 load_dotenv()
 
 # Import after path setup
+from assistant_framework.utils.todo_manager import TodoManager
+from mcp_server.user_config import get_notification_users
 from analyzer import ReminderAnalyzer
 from briefing_creator import BriefingCreator, EventCache
 
@@ -268,6 +270,7 @@ def main():
     print_separator("INITIALIZING")
     analyzer = ReminderAnalyzer()
     event_cache = EventCache()
+    todo_manager = TodoManager()
     
     # Determine users to process
     if args.user:
@@ -291,6 +294,12 @@ def main():
         if not events:
             print(f"   ℹ️  No upcoming events for {user}")
             continue
+
+        if todo_manager.is_available():
+            sync_result = todo_manager.sync_calendar_events(calendar_user=user, events=events)
+            print(f"   ✅ Synced {sync_result['synced']} calendar event todo(s)")
+            if sync_result["failed"]:
+                print(f"   ⚠️  Todo sync had {sync_result['failed']} failure(s)")
         
         # Filter out already-processed events
         original_count = len(events)
@@ -348,6 +357,15 @@ def main():
                         print("⚠️  Supabase not available, briefings not stored")
                 else:
                     print("📭 No future briefings to create (all reminders in the past)")
+
+                if todo_manager.is_available():
+                    print_separator("UPDATING TODO BRIEFINGS")
+                    for assistant_user in get_notification_users():
+                        digest_result = todo_manager.upsert_daily_briefing(user=assistant_user)
+                        if digest_result.get("briefing_created"):
+                            print(f"   ✅ Updated todo digest briefing for {assistant_user}")
+                        else:
+                            print(f"   ℹ️  No todo briefing needed for {assistant_user}")
             else:
                 print("⏭️  Skipping Supabase briefing storage")
     

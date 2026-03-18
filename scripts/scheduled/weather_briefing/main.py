@@ -19,6 +19,7 @@ Environment Variables:
 import argparse
 import json
 import os
+import re
 import sys
 import uuid
 from datetime import datetime, timezone
@@ -39,6 +40,29 @@ except ImportError:
 
 # Load environment variables
 load_dotenv()
+
+
+def _normalize_delivery_status(briefing: Dict[str, Any], status_field: str, legacy_terminal_status: str) -> str:
+    """Treat legacy shared delivery fields as terminal delivery states."""
+    current = briefing.get(status_field)
+    if isinstance(current, str) and current:
+        return current
+    if briefing.get("status") == "delivered" or briefing.get("delivered_at"):
+        return legacy_terminal_status
+    return "pending"
+
+
+def _has_pending_delivery(briefing: Dict[str, Any]) -> bool:
+    """Return True while either Discord or voice still needs the briefing."""
+    discord_status = _normalize_delivery_status(briefing, "discord_status", "sent")
+    voice_status = _normalize_delivery_status(briefing, "voice_status", "read")
+    return discord_status == "pending" or voice_status == "pending"
+
+
+def _slugify_location_name(location_name: str) -> str:
+    """Build a stable ASCII slug for weather briefing IDs."""
+    slug = re.sub(r"[^a-z0-9]+", "_", location_name.lower()).strip("_")
+    return slug or "location"
 
 
 def print_banner():
@@ -220,9 +244,10 @@ def create_location_briefing(
     # Get alert types for metadata
     alert_types = list(set(a.alert_type.value for a in alerts))
     
-    # Create briefing ID: weather_{date}_{uuid}
+    # Create briefing ID: weather_{location}_{date}_{uuid}
     today = datetime.now().strftime("%Y-%m-%d")
-    briefing_id = f"weather_{today}_{uuid.uuid4()}"
+    location_slug = _slugify_location_name(location_name)
+    briefing_id = f"weather_{location_slug}_{today}_{uuid.uuid4()}"
     
     return {
         "id": briefing_id,
@@ -271,7 +296,7 @@ def cancel_existing_weather_briefings(client, user_id: str, location_slug: Optio
         
         response = (
             client.table("briefing_announcements")
-            .select("id")
+            .select("id, status, delivered_at, discord_status, voice_status")
             .eq("user_id", user_id)
             .eq("status", "pending")
             .like("id", pattern)
@@ -284,6 +309,8 @@ def cancel_existing_weather_briefings(client, user_id: str, location_slug: Optio
         # Cancel each pending weather briefing
         cancelled = 0
         for briefing in response.data:
+            if not _has_pending_delivery(briefing):
+                continue
             try:
                 client.table("briefing_announcements").update({
                     "status": "cancelled"

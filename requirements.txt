@@ -18,6 +18,8 @@ sounddevice>=0.4.6
 pyaudio>=0.2.14
 tiktoken>=0.6.0
 pydantic>=2.0.0
+dateparser
+parsedatetime
 
 # Supabase (vector memory + conversation recorder + notifications)
 supabase>=2.0.0
@@ -32,6 +34,10 @@ spotipy
 
 # Discord bot
 discord.py>=2.3.0
+
+# macOS todo menu bar app
+pyobjc-framework-Cocoa
+pyobjc-framework-WebKit
 
 # Scheduled email/news summarizers
 openai>=1.0.0

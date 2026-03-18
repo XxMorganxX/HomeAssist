@@ -61,11 +61,17 @@ Edit `.env` with your API keys (see Configuration section below).
 ### Step 5: Run the Assistant
 
 ```bash
+# Recommended launcher (starts voice assistant and ensures the todo overlay is available)
+./homeassist run
+
 # Continuous conversation mode (recommended)
 python -m assistant_framework.main continuous
 
 # Single interaction mode
 python -m assistant_framework.main single
+
+# Todo menu bar app
+./homeassist todo-ui start
 ```
 
 > 💡 **Tip:** On first run, a configuration summary will print showing which components are active and any missing credentials.
@@ -97,6 +103,8 @@ Create a `.env` file in the project root with your API keys.
 
 - `DISCORD_BOT_TOKEN` — Bot token from the [Discord Developer Portal](https://discord.com/developers/applications)
 - `DISCORD_CHANNEL_ID` — Numeric ID of the channel the bot listens and responds in
+- `DISCORD_BRIEFING_CHANNEL_ID` — Numeric ID of the dedicated channel for proactive briefing posts
+- `DISCORD_TODO_CHANNEL_ID` — Numeric ID of the dedicated channel for `/todo` slash commands
 
 #### Optional — Integrations
 
@@ -468,7 +476,7 @@ CREATE INDEX idx_notifications_batch ON notification_sources(batch_id);
 
 **Briefing Announcements Table (Wake-Word Briefings):**
 
-Briefing announcements are reported proactively to the user when they trigger the wake word. Briefings persist until explicitly dismissed.
+Briefing announcements are reported proactively to the user when they trigger the wake word. Briefings are now treated as an autonomous output queue, not the primary store for user-created reminders or tasks.
 
 ```sql
 CREATE TABLE briefing_announcements (
@@ -477,17 +485,21 @@ CREATE TABLE briefing_announcements (
     content JSONB NOT NULL,            -- { message: str, llm_instructions?: str, meta?: {...} }
     opener_text TEXT,                  -- Pre-generated conversation opener (via BriefingProcessor)
     priority TEXT DEFAULT 'normal',    -- 'high', 'normal', 'low'
-    status TEXT DEFAULT 'pending',     -- 'pending', 'delivered', 'dismissed', 'skipped'
+    status TEXT DEFAULT 'pending',     -- lifecycle: 'pending', 'dismissed', 'skipped', 'cancelled', 'expired'
+    discord_status TEXT DEFAULT 'pending',
+    discord_sent_at TIMESTAMPTZ,
+    voice_status TEXT DEFAULT 'pending',
+    voice_read_at TIMESTAMPTZ,
     created_at TIMESTAMPTZ DEFAULT NOW(),
-    delivered_at TIMESTAMPTZ,
+    delivered_at TIMESTAMPTZ,          -- legacy compatibility only
     dismissed_at TIMESTAMPTZ
 );
 
 CREATE INDEX idx_briefings_user_status ON briefing_announcements(user_id, status);
 CREATE INDEX idx_briefings_created ON briefing_announcements(created_at DESC);
 
--- To add opener_text to existing table:
--- ALTER TABLE briefing_announcements ADD COLUMN opener_text TEXT;
+-- Apply the latest migration for split Discord/voice delivery tracking:
+-- scripts/scheduled/briefing_announcements_realtime_migration.sql
 ```
 
 Content structure:
@@ -508,8 +520,42 @@ Content structure:
 - The `BriefingProcessor` utility (`assistant_framework/utils/briefing_processor.py`) pre-generates `opener_text` via LLM.
 - On wake word, the assistant fetches briefings with `opener_text` and speaks via TTS only (no LLM latency).
 - If briefings don't have openers yet, falls back to LLM generation at wake time.
-- After speaking, briefings are marked `delivered` (remain until explicitly `dismissed`).
+- Discord delivery is tracked independently through `discord_status` / `discord_sent_at`.
+- Voice delivery is tracked independently through `voice_status` / `voice_read_at`.
 - If `event_datetime_iso` is in the past when fetched, the briefing is automatically marked `skipped` (event already happened).
+
+**Todos Table (Persistent Tasks & Reminder Intent):**
+
+Persistent todos are the system of record for user-driven tasks, Discord-created items, and calendar-linked action items:
+
+```sql
+CREATE TABLE IF NOT EXISTS todos (
+    id TEXT PRIMARY KEY,
+    user_id TEXT NOT NULL,
+    title TEXT NOT NULL,
+    details TEXT,
+    due_at TIMESTAMPTZ,
+    completed BOOLEAN NOT NULL DEFAULT FALSE,
+    completed_at TIMESTAMPTZ,
+    source_type TEXT NOT NULL,
+    source_id TEXT,
+    source_metadata JSONB NOT NULL DEFAULT '{}'::jsonb,
+    created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+
+CREATE INDEX IF NOT EXISTS idx_todos_user_completed_due
+ON todos(user_id, completed, due_at);
+```
+
+- `source_type` — Origin of the todo, such as `voice`, `discord`, `calendar`, or `manual`
+- `source_id` — External or generated identifier for that source
+- `source_metadata` — Extra context like calendar event details or Discord interaction metadata
+
+💡 **Todo/briefing boundary**
+- User-driven reminder requests should become rows in `todos`
+- Autonomous briefings read and summarize from current state, including open todos
+- Calendar events sync into `todos` and can also contribute autonomous briefing output later
 
 💡 **Multiple Wake Words for Selective Briefings**
 
@@ -634,12 +680,13 @@ The `system_info` tool allows the assistant to explain its own architecture and 
 - No configuration required
 - Supports section filtering: `overview`, `structure`, `tools`, `memory`, `config`, `framework`, `troubleshooting`, or `all`
 
-#### Stickies Tool (macOS)
+#### Todos Tool
 
-The `stickies` tool lets the assistant list, read, and edit macOS Stickies notes by UUID.
+The `todos` tool manages persistent tasks in Supabase.
 
-- Enabled by default in `mcp_server/tools_config.py` on macOS
-- No configuration required
+- Enabled by default in `mcp_server/tools_config.py`
+- Supports `create`, `list`, `complete`, `reopen`, `update`, and `delete`
+- Absorbs user-driven reminder/task requests that used to overlap with the briefing flow
 
 #### Kasa Smart Lights
 
@@ -661,6 +708,8 @@ Place credentials in `creds/`:
 
 - **READ operations** — Default to ALL calendars (the tool uses `calendar: "all"` internally, which aggregates across all configured calendars)
 - **WRITE operations** — Default to `morgan_personal` if the user doesn’t specify a target calendar
+
+> 💡 **Note:** Calendar access is Google Calendar only. The assistant does not read from macOS Calendar / Calendar.app.
 
 > 💡 **Tip:** Create a calendar named "HomeAssist" in Google Calendar to keep assistant events organized separately from your main calendar.
 
@@ -1368,14 +1417,20 @@ HomeAssist includes an optional Discord bot that gives you a text-based channel 
 2. Under **Bot**, click **Reset Token** to get your `DISCORD_BOT_TOKEN`
 3. Enable the **Message Content Intent** under **Bot → Privileged Gateway Intents**
 4. Under **OAuth2 → URL Generator**, select scopes `bot` and permissions `Send Messages`, `Read Message History`
+   Add the `applications.commands` scope so slash commands can register.
 5. Use the generated URL to invite the bot to your server
-6. Right-click the target channel in Discord and **Copy Channel ID** (requires Developer Mode in Discord settings)
-7. Add both values to `.env`:
+6. Right-click the target assistant channel in Discord and **Copy Channel ID** (requires Developer Mode in Discord settings)
+7. Right-click the dedicated todo channel and copy that channel ID too
+8. Add the values to `.env`:
 
 ```bash
 DISCORD_BOT_TOKEN=your-bot-token
 DISCORD_CHANNEL_ID=123456789012345678
+DISCORD_BRIEFING_CHANNEL_ID=234567890123456789
+DISCORD_TODO_CHANNEL_ID=345678901234567890
 ```
+
+The Discord bot performs a catch-up query on startup, then listens for live `briefing_announcements` inserts and updates through Supabase Realtime. Run `scripts/scheduled/briefing_announcements_realtime_migration.sql` before enabling the dedicated briefing channel so the new delivery-state columns and Realtime publication are available.
 
 ### Running
 
@@ -1394,6 +1449,45 @@ The bot runs as a fully independent process with its own MCP server. It can run 
 - Replies to messages in the configured channel using the full assistant pipeline (LLM + tools)
 - Shows which MCP tools were used in each response
 - Proactively posts briefing announcements (weather, calendar, etc.) as they become available
+- Exposes a dedicated `/todo` slash-command workflow in the configured todo channel
+- Keeps todo management isolated from the free-text assistant channel
+
+---
+
+## Todo UI
+
+The todo UI now has two surfaces built on the same persistent backend:
+
+- A native macOS menu bar app that toggles the todo window
+- A browser version served locally on `http://127.0.0.1:8421`
+
+### Running
+
+```bash
+# Start the native menu bar app and local server
+./homeassist todo-ui start
+
+# Open the browser version
+./homeassist todo-ui open
+
+# Run the native menu bar app directly
+python -m todo_menubar
+
+# Run the local web server directly in the foreground
+python -m todo_overlay
+```
+
+The browser UI binds to `http://127.0.0.1:8421`, and the menu bar app embeds that same UI in a native macOS window. Both can stay available even when the voice assistant is not running.
+
+### Features
+
+- Native menu bar icon that toggles the todo window on click
+- View open, due-today, and completed todos
+- Add, edit, complete, reopen, and delete manual todos
+- Refreshes automatically every 30 seconds and also on demand
+- Shows calendar-synced todos as read-only so sync jobs do not overwrite manual edits
+
+> 💡 **Tip:** `./homeassist run` now ensures the menu bar app and overlay server are started too, and `Ctrl+C` shuts them down with the main assistant.
 
 ---
 

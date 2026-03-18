@@ -37,7 +37,14 @@ try:
     # Try relative imports first (when used as package)
     from ...interfaces.response import ResponseInterface
     from ...models.data_models import ResponseChunk, ToolCall, HandoffContext
-    from ...config import PRIMARY_USER, TOOL_SUBAGENT_CONFIG, TOOL_SIGNAL_MODE
+    from ...config import (
+        PRIMARY_USER,
+        TOOL_SUBAGENT_CONFIG,
+        TOOL_SIGNAL_MODE,
+        TOOL_ROUTING_PROVIDER,
+        TOOL_CALLING_MINI_CONFIG,
+        OPENAI_TOOL_ROUTING_CONFIG,
+    )
 except ImportError:
     # Fall back to absolute imports (when run as module)
     import sys
@@ -46,11 +53,21 @@ except ImportError:
     from interfaces.response import ResponseInterface
     from models.data_models import ResponseChunk, ToolCall, HandoffContext
     try:
-        from assistant_framework.config import PRIMARY_USER, TOOL_SUBAGENT_CONFIG, TOOL_SIGNAL_MODE
+        from assistant_framework.config import (
+            PRIMARY_USER,
+            TOOL_SUBAGENT_CONFIG,
+            TOOL_SIGNAL_MODE,
+            TOOL_ROUTING_PROVIDER,
+            TOOL_CALLING_MINI_CONFIG,
+            OPENAI_TOOL_ROUTING_CONFIG,
+        )
     except ImportError:
         PRIMARY_USER = "User"
         TOOL_SUBAGENT_CONFIG = {}
         TOOL_SIGNAL_MODE = True
+        TOOL_ROUTING_PROVIDER = "tool_calling_mini"
+        TOOL_CALLING_MINI_CONFIG = {}
+        OPENAI_TOOL_ROUTING_CONFIG = {}
 
 
 class OpenAIWebSocketResponseProvider(ResponseInterface):
@@ -114,6 +131,14 @@ class OpenAIWebSocketResponseProvider(ResponseInterface):
         self._tts_provider = None
         # Tool routing provider (set by orchestrator); when None, falls back to inline logic
         self._tool_routing_provider = None
+        self._default_tool_routing_provider_name = config.get(
+            "tool_routing_provider",
+            TOOL_ROUTING_PROVIDER,
+        )
+        self._tool_routing_provider_configs = {
+            "tool_calling_mini": config.get("tool_calling_mini_config", TOOL_CALLING_MINI_CONFIG),
+            "openai": config.get("openai_tool_routing_config", OPENAI_TOOL_ROUTING_CONFIG),
+        }
     
     def _sanitize_output(self, text: str) -> str:
         """Remove emojis from output text."""
@@ -141,9 +166,12 @@ class OpenAIWebSocketResponseProvider(ResponseInterface):
                 except Exception as e:
                     # Non-fatal: will connect on first request
                     print(f"⚠️  WebSocket pre-connect failed (will retry on first request): {e}")
+
+            async def init_tool_routing():
+                await self._ensure_default_tool_routing_provider()
             
             # Run both in parallel
-            await asyncio.gather(init_mcp(), init_ws(), return_exceptions=True)
+            await asyncio.gather(init_mcp(), init_ws(), init_tool_routing(), return_exceptions=True)
             
             return True
         except Exception as e:
@@ -166,8 +194,15 @@ class OpenAIWebSocketResponseProvider(ResponseInterface):
     def _routing_label(self) -> str:
         """Human-readable name for the active tool routing backend."""
         if self._tool_routing_provider:
-            return type(self._tool_routing_provider).__name__
-        return f"inline/{self.tool_subagent_model}"
+            provider = self._tool_routing_provider
+            provider_name = type(provider).__name__
+            if provider_name == "ToolCallingMiniProvider":
+                return "Tool Calling Mini API"
+            if provider_name == "OpenAIToolRoutingProvider":
+                model = getattr(provider, "model", self.tool_subagent_model)
+                return f"OpenAI tool router ({model})"
+            return provider_name
+        return f"OpenAI inline router ({self.tool_subagent_model})"
     
     def set_tool_routing_provider(self, tool_routing_provider) -> None:
         """
@@ -180,6 +215,45 @@ class OpenAIWebSocketResponseProvider(ResponseInterface):
             tool_routing_provider: Initialized ToolRoutingInterface instance
         """
         self._tool_routing_provider = tool_routing_provider
+
+    async def _create_tool_routing_provider_instance(self, provider_name: str):
+        """Create and initialize a tool routing provider instance."""
+        try:
+            try:
+                from ...factory import ProviderFactory
+            except ImportError:
+                from assistant_framework.factory import ProviderFactory
+
+            provider_config = self._tool_routing_provider_configs.get(provider_name, {})
+            provider = ProviderFactory.create_tool_routing_provider(provider_name, provider_config)
+            if await provider.initialize():
+                return provider
+        except Exception as e:
+            print(f"⚠️ [ToolRouting] Exception while creating '{provider_name}': {e}")
+        return None
+
+    async def _ensure_default_tool_routing_provider(self) -> None:
+        """Initialize the default tool routing provider with fallback to OpenAI."""
+        if self._tool_routing_provider is not None:
+            return
+
+        primary_name = self._default_tool_routing_provider_name or "tool_calling_mini"
+        provider = await self._create_tool_routing_provider_instance(primary_name)
+        if provider is not None:
+            self._tool_routing_provider = provider
+            print(f"✅ [ToolRouting] Active provider: {self._routing_label}")
+            return
+
+        print(f"⚠️ [ToolRouting] Provider '{primary_name}' failed initialization")
+
+        if primary_name != "openai":
+            print("🔄 [ToolRouting] Falling back to OpenAI tool routing provider")
+            fallback = await self._create_tool_routing_provider_instance("openai")
+            if fallback is not None:
+                self._tool_routing_provider = fallback
+                print(f"✅ [ToolRouting] Active provider after fallback: {self._routing_label}")
+                return
+            print("⚠️ [ToolRouting] OpenAI fallback failed; using inline OpenAI tool routing")
     
     async def _initialize_mcp(self):
         """Initialize MCP connection and discover tools.
@@ -1067,7 +1141,12 @@ class OpenAIWebSocketResponseProvider(ResponseInterface):
         
         self._mcp_connection_mode = None
     
-    async def execute_tool(self, tool_name: str, arguments: Dict[str, Any]) -> str:
+    async def execute_tool(
+        self,
+        tool_name: str,
+        arguments: Dict[str, Any],
+        routing_label: Optional[str] = None,
+    ) -> str:
         """Execute a tool/function call via MCP."""
         import time
         from assistant_framework.utils.logging import format_tool_call, format_tool_result, format_tool_error
@@ -1086,7 +1165,7 @@ class OpenAIWebSocketResponseProvider(ResponseInterface):
             beep_tool_call()
             
             # Log the tool call with formatted output
-            print(format_tool_call(tool_name, arguments))
+            print(format_tool_call(tool_name, arguments, subagent=routing_label))
             
             # Execute and time the tool
             mcp_call_start = time.time()
@@ -1108,7 +1187,14 @@ class OpenAIWebSocketResponseProvider(ResponseInterface):
             parse_ms = int((time.time() - parse_start) * 1000)
             
             # Log formatted result
-            print(format_tool_result(tool_name, result_text, execution_time_ms=mcp_call_ms))
+            print(
+                format_tool_result(
+                    tool_name,
+                    result_text,
+                    execution_time_ms=mcp_call_ms,
+                    subagent=routing_label,
+                )
+            )
             
             # Play audio feedback and TTS announcement based on result
             feedback_start = time.time()
@@ -1118,7 +1204,8 @@ class OpenAIWebSocketResponseProvider(ResponseInterface):
             feedback_ms = int((time.time() - feedback_start) * 1000)
             
             total_ms = int((time.time() - total_start) * 1000)
-            print(f"⏱️ [execute_tool] {tool_name}: total={total_ms}ms (mcp_connect={mcp_check_ms}ms, mcp_call={mcp_call_ms}ms, parse={parse_ms}ms, feedback={feedback_ms}ms)")
+            source = routing_label or "direct MCP"
+            print(f"⏱️ [execute_tool] {tool_name} via {source}: total={total_ms}ms (mcp_connect={mcp_check_ms}ms, mcp_call={mcp_call_ms}ms, parse={parse_ms}ms, feedback={feedback_ms}ms)")
             
             return result_text
                 
@@ -1130,7 +1217,7 @@ class OpenAIWebSocketResponseProvider(ResponseInterface):
             tb_str = traceback.format_exc()
             
             # Log formatted error to local console
-            print(format_tool_error(tool_name, str(e), tb_str))
+            print(format_tool_error(tool_name, str(e), tb_str, subagent=routing_label))
             
             # Log detailed error to webconsole API
             await console_log_async(f"Tool error [{tool_name}]: {e}", "command", is_positive=False)
@@ -1140,7 +1227,8 @@ class OpenAIWebSocketResponseProvider(ResponseInterface):
             self._announce_tool_result(tool_name, success=False)
             
             total_ms = int((time.time() - total_start) * 1000)
-            print(f"⏱️ [execute_tool] {tool_name}: FAILED total={total_ms}ms (mcp_connect={mcp_check_ms}ms)")
+            source = routing_label or "direct MCP"
+            print(f"⏱️ [execute_tool] {tool_name} via {source}: FAILED total={total_ms}ms (mcp_connect={mcp_check_ms}ms)")
             
             # Return simple error message to model (details in webconsole)
             return f"Error during {tool_name} tool call"
@@ -1644,7 +1732,7 @@ class OpenAIWebSocketResponseProvider(ResponseInterface):
             for i, tc in enumerate(routed_calls):
                 print(f"🔧 Tool {i+1}: {tc.name}")
                 print(f"   Args: {json.dumps(tc.arguments, indent=2)[:300]}")
-                tc.result = await self.execute_tool(tc.name, tc.arguments)
+                tc.result = await self.execute_tool(tc.name, tc.arguments, routing_label=routing)
                 result_preview = str(tc.result)[:200] if tc.result else "(empty)"
                 print(f"   Result: {result_preview}...")
                 all_tool_calls.append(tc)
@@ -1705,7 +1793,11 @@ class OpenAIWebSocketResponseProvider(ResponseInterface):
                     
                     for fc in more_tools:
                         tool_call = ToolCall(name=fc["name"], arguments=fc.get("arguments", {}))
-                        tool_call.result = await self.execute_tool(fc["name"], fc.get("arguments", {}))
+                        tool_call.result = await self.execute_tool(
+                            fc["name"],
+                            fc.get("arguments", {}),
+                            routing_label=routing,
+                        )
                         all_tool_calls.append(tool_call)
             elif all_one_shot:
                 print(f"⚡ [Tool Orchestration] Skipping iterative check — all tools are one-shot: {[tc.name for tc in all_tool_calls]}")
@@ -1779,7 +1871,7 @@ class OpenAIWebSocketResponseProvider(ResponseInterface):
         messages.append({"role": "user", "content": user_message})
         
         orchestration_model = self.tool_subagent_model
-        print(f"🔄 [Tool Orchestration] Inline fallback: {orchestration_model} with {len(messages)} messages, tool_choice=required")
+        print(f"🔄 [Tool Orchestration] Inline fallback subagent: OpenAI ({orchestration_model}) with {len(messages)} messages, tool_choice=required")
         
         orch_api_start = time.time()
         result = await client.chat.completions.create(
@@ -2104,7 +2196,7 @@ class OpenAIWebSocketResponseProvider(ResponseInterface):
             for i, tc in enumerate(routed_calls):
                 print(f"🔧 [Signal Orchestration] Tool {i+1}: {tc.name}")
                 print(f"   Arguments: {json.dumps(tc.arguments, indent=2)[:500]}")
-                tc.result = await self.execute_tool(tc.name, tc.arguments)
+                tc.result = await self.execute_tool(tc.name, tc.arguments, routing_label=routing)
                 result_preview = str(tc.result)[:300] if tc.result else "(empty)"
                 print(f"   Result preview: {result_preview}...")
                 all_tool_calls.append(tc)
@@ -2160,7 +2252,11 @@ class OpenAIWebSocketResponseProvider(ResponseInterface):
                     
                     for fc in more_tools:
                         tool_call = ToolCall(name=fc["name"], arguments=fc.get("arguments", {}))
-                        tool_call.result = await self.execute_tool(fc["name"], fc.get("arguments", {}))
+                        tool_call.result = await self.execute_tool(
+                            fc["name"],
+                            fc.get("arguments", {}),
+                            routing_label=routing,
+                        )
                         all_tool_calls.append(tool_call)
             elif all_one_shot:
                 print(f"⚡ [Signal Orchestration] Skipping iterative check — all tools are one-shot: {[tc.name for tc in all_tool_calls]}")
@@ -2233,7 +2329,7 @@ class OpenAIWebSocketResponseProvider(ResponseInterface):
                 messages.append({"role": role, "content": content})
         messages.append({"role": "user", "content": user_message})
         
-        print(f"🔄 [Signal Orchestration] Inline fallback: {self.tool_subagent_model} with {len(messages)} messages")
+        print(f"🔄 [Signal Orchestration] Inline fallback subagent: OpenAI ({self.tool_subagent_model}) with {len(messages)} messages")
         
         result = await client.chat.completions.create(
             model=self.tool_subagent_model,
@@ -2513,7 +2609,11 @@ class OpenAIWebSocketResponseProvider(ResponseInterface):
             
             async def execute_one(fc):
                 tool_call = ToolCall(name=fc["name"], arguments=fc.get("arguments", {}))
-                tool_call.result = await self.execute_tool(fc["name"], fc.get("arguments", {}))
+                tool_call.result = await self.execute_tool(
+                    fc["name"],
+                    fc.get("arguments", {}),
+                    routing_label=routing,
+                )
                 return tool_call
             
             new_tool_calls = await asyncio.gather(*[execute_one(fc) for fc in more_tools])

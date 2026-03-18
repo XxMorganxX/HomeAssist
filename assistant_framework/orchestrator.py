@@ -386,10 +386,14 @@ class RefactoredOrchestrator:
             
             # Create and inject tool routing provider
             try:
-                tool_routing = await self._create_tool_routing_provider()
-                if tool_routing and self._response and hasattr(self._response, 'set_tool_routing_provider'):
-                    self._response.set_tool_routing_provider(tool_routing)
-                    print(f"✅ {elapsed()} Tool routing provider injected: {type(tool_routing).__name__}")
+                existing_tool_routing = getattr(self._response, '_tool_routing_provider', None) if self._response else None
+                if existing_tool_routing:
+                    print(f"✅ {elapsed()} Tool routing provider already active: {type(existing_tool_routing).__name__}")
+                else:
+                    tool_routing = await self._create_tool_routing_provider()
+                    if tool_routing and self._response and hasattr(self._response, 'set_tool_routing_provider'):
+                        self._response.set_tool_routing_provider(tool_routing)
+                        print(f"✅ {elapsed()} Tool routing provider injected: {type(tool_routing).__name__}")
             except Exception as e:
                 print(f"⚠️ {elapsed()} Tool routing provider failed (falling back to inline): {e}")
             
@@ -2237,7 +2241,7 @@ class RefactoredOrchestrator:
         
         Uses pre-generated openers (TTS only, no LLM latency) if available.
         Falls back to LLM generation if briefings don't have openers yet.
-        Marks delivered after speaking.
+        Marks the briefing as read by voice after speaking.
         """
         if not self._briefing_manager:
             return
@@ -2280,7 +2284,7 @@ class RefactoredOrchestrator:
                 
                 ids = [b.get("id") for b in briefings_with_opener if b.get("id")]
                 try:
-                    await self._briefing_manager.mark_delivered(ids)
+                    await self._briefing_manager.mark_voice_read(ids)
                 except Exception:
                     pass
                 return
@@ -2351,7 +2355,7 @@ class RefactoredOrchestrator:
             
             ids = [b.get("id") for b in pending if b.get("id")]
             try:
-                await self._briefing_manager.mark_delivered(ids)
+                await self._briefing_manager.mark_voice_read(ids)
             except Exception:
                 pass
 

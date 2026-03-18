@@ -1,8 +1,8 @@
 """
 Briefing Management Tool using BaseTool.
 
-This tool allows the assistant to create, list, and dismiss briefing announcements
-that are spoken to users when they wake up the assistant.
+This tool allows the assistant to inspect and dismiss autonomous briefing
+announcements that are spoken to users when they wake up the assistant.
 
 Briefings are stored in Supabase (briefing_announcements table) and are delivered
 when the user activates the assistant with a briefing-enabled wake word.
@@ -40,43 +40,28 @@ DEFAULT_TIMEZONE = os.getenv("DEFAULT_TIME_ZONE", "America/New_York")
 
 
 class BriefingTool(BaseTool):
-    """Tool to create, list, and manage briefing announcements for the user."""
+    """Tool to inspect and dismiss autonomous briefing announcements."""
     
     name = "briefing"
-    description = """Create and manage briefing announcements that are spoken to users when they wake up the assistant.
+    description = """Inspect and manage autonomous briefing announcements that are spoken to users when they wake up the assistant.
 
 Use this tool when the user wants to:
-- Create a reminder or briefing to tell them something later
-- Schedule a notification to be announced at a specific time
 - Check what pending briefings they have
 - Dismiss or cancel a pending briefing
 
 IMPORTANT: Briefings are different from calendar events. Briefings are announcements 
-spoken by the assistant, while calendar events are appointments on the user's calendar.
+spoken by the assistant, while todos are the system of record for user-driven reminders and action items.
 
-REMINDER TIMING - Two ways to specify when to remind:
-1. ABSOLUTE TIME: Use 'remind_at' with a specific datetime
-   - "Remind me at 12:30pm" → remind_at='2026-01-13T12:30:00'
-2. RELATIVE TO EVENT: Use 'remind_before_minutes' with the event time
-   - "Remind me 30 minutes before" → event_time='2026-01-13T13:00:00', remind_before_minutes=30
-
-You MUST provide either 'remind_at' OR both 'event_time' and 'remind_before_minutes'.
+If the user wants to create or edit a reminder/task, use the `todos` tool instead of `briefing`.
 
 Actions:
-- 'create': Create a new briefing announcement (requires timing)
 - 'list': List pending briefings for a user
 - 'dismiss': Cancel/remove a pending briefing
 
 Examples:
-- "Set a reminder called 'Call Merrick' at 1pm and remind me at 12:30" 
-  → action='create', message='Call Merrick', event_time='2026-01-13T13:00:00', remind_at='2026-01-13T12:30:00'
-
-- "Set a reminder for 1pm tomorrow and remind me 30 minutes before"
-  → action='create', message='...', event_time='2026-01-13T13:00:00', remind_before_minutes=30
-
 - "What briefings do I have pending?" → action='list'
 - "Cancel that reminder" → action='dismiss', briefing_id='...'"""
-    version = "1.1.0"
+    version = "2.0.0"
     
     TABLE_NAME = "briefing_announcements"
     
@@ -123,9 +108,9 @@ Examples:
             "properties": {
                 "action": {
                     "type": "string",
-                    "description": "The action to perform. 'create' to add a new briefing, 'list' to see pending briefings, 'dismiss' to cancel a briefing.",
-                    "enum": ["create", "list", "dismiss"],
-                    "default": "create"
+                    "description": "The action to perform. 'list' to see pending briefings, 'dismiss' to cancel a briefing.",
+                    "enum": ["list", "dismiss"],
+                    "default": "list"
                 },
                 "user": {
                     "type": "string",
@@ -133,27 +118,9 @@ Examples:
                     "enum": self._configured_users,
                     "default": self._default_user
                 },
-                "message": {
-                    "type": "string",
-                    "description": "The message/content of the briefing. Required for 'create' action. This is what will be announced to the user. Be clear and concise (e.g., 'Call Merrick', 'Respond to email')."
-                },
-                "event_time": {
-                    "type": "string",
-                    "description": "When the actual event/task is scheduled. Use ISO 8601 format (e.g., '2026-01-13T13:00:00' for 1pm). Required when using 'remind_before_minutes'. This is the time of the event itself, NOT when you want to be reminded."
-                },
-                "remind_at": {
-                    "type": "string",
-                    "description": "ABSOLUTE reminder time - exactly when the briefing should be announced. Use ISO 8601 format (e.g., '2026-01-13T12:30:00' for 12:30pm). Use this when the user says 'remind me AT [time]'."
-                },
-                "remind_before_minutes": {
-                    "type": "integer",
-                    "description": "RELATIVE reminder time - how many minutes before 'event_time' to announce the briefing. Use this when the user says 'remind me X minutes before'. Requires 'event_time' to be set.",
-                    "minimum": 1,
-                    "maximum": 10080
-                },
                 "priority": {
                     "type": "string",
-                    "description": "Priority level of the briefing. 'high' for urgent items, 'normal' for regular reminders, 'low' for FYI items.",
+                    "description": "Priority level of the briefing when listing announcements.",
                     "enum": ["high", "normal", "low"],
                     "default": "normal"
                 },
@@ -184,16 +151,19 @@ Examples:
             if LOG_TOOLS:
                 self.logger.info("Executing Tool: Briefing -- %s", params)
             
-            if action == "create":
-                return self._create_briefing(params, user)
-            elif action == "list":
+            if action == "list":
                 return self._list_briefings(params, user)
             elif action == "dismiss":
                 return self._dismiss_briefing(params, user)
+            elif action == "create":
+                return {
+                    "success": False,
+                    "error": "Briefing creation is no longer exposed through this tool. Use the todos tool for user-driven reminders and tasks."
+                }
             else:
                 return {
                     "success": False,
-                    "error": f"Unknown action: {action}. Valid actions: create, list, dismiss"
+                    "error": f"Unknown action: {action}. Valid actions: list, dismiss"
                 }
         
         except Exception as e:
@@ -412,7 +382,7 @@ Examples:
         try:
             response = (
                 self._supabase_client.table(self.TABLE_NAME)
-                .select("id, content, priority, status, created_at")
+                .select("id, content, priority, status, created_at, discord_status, voice_status")
                 .eq("user_id", user)
                 .eq("status", "pending")
                 .order("created_at", desc=True)
@@ -422,6 +392,11 @@ Examples:
             
             briefings = []
             for row in response.data or []:
+                discord_status = row.get("discord_status") or "pending"
+                voice_status = row.get("voice_status") or "pending"
+                if discord_status != "pending" and voice_status != "pending":
+                    continue
+
                 content = row.get("content", {})
                 if isinstance(content, str):
                     try:
@@ -439,7 +414,9 @@ Examples:
                     "remind_at": content.get("active_from"),
                     "event_time": meta.get("event_datetime_iso"),
                     "remind_before_minutes": meta.get("remind_before_minutes"),
-                    "source": meta.get("source", "unknown")
+                    "source": meta.get("source", "unknown"),
+                    "discord_status": discord_status,
+                    "voice_status": voice_status,
                 }
                 briefings.append(briefing)
             
