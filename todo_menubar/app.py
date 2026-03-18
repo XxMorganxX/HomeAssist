@@ -23,6 +23,7 @@ from AppKit import (
     NSPanel,
     NSStatusBar,
     NSVariableStatusItemLength,
+    NSView,
     NSViewHeightSizable,
     NSViewWidthSizable,
     NSWindowCollectionBehaviorMoveToActiveSpace,
@@ -38,8 +39,22 @@ from todo_overlay.server import DEFAULT_HOST, DEFAULT_PORT, DEFAULT_URL, STATIC_
 APP_NAME = "HomeAssist Todos"
 DEFAULT_WIDTH = 460
 DEFAULT_HEIGHT = 700
+HEADER_DRAG_LEFT_INSET = 14
+HEADER_DRAG_TOP_INSET = 14
+HEADER_DRAG_HEIGHT = 34
+HEADER_DRAG_RIGHT_INSET = 110
 
 logger = logging.getLogger(__name__)
+
+
+class HeaderDragView(NSView):
+    """Transparent native drag area layered above the web header."""
+
+    def mouseDownCanMoveWindow(self):  # noqa: N802
+        return True
+
+    def acceptsFirstMouse_(self, event):  # noqa: N802
+        return True
 
 
 class OverlayRuntime:
@@ -110,6 +125,7 @@ class TodoMenubarApp(NSObject):
         self.status_item = None
         self.window = None
         self.webview = None
+        self.drag_view = None
         return self
 
     def applicationDidFinishLaunching_(self, notification):  # noqa: N802
@@ -128,6 +144,9 @@ class TodoMenubarApp(NSObject):
     def windowShouldClose_(self, sender):  # noqa: N802
         self.hideWindow_(None)
         return False
+
+    def windowDidResize_(self, notification):  # noqa: N802
+        self._layout_drag_region()
 
     def toggleWindow_(self, sender):  # noqa: N802
         if self.window is not None and self.window.isVisible():
@@ -223,6 +242,19 @@ class TodoMenubarApp(NSObject):
         self.webview.setAutoresizingMask_(NSViewWidthSizable | NSViewHeightSizable)
         self.webview.setValue_forKey_(False, "drawsBackground")
         self.window.contentView().addSubview_(self.webview)
+
+        self.drag_view = HeaderDragView.alloc().initWithFrame_(NSMakeRect(0, 0, 0, 0))
+        self.window.contentView().addSubview_(self.drag_view)
+        self._layout_drag_region()
+
+    def _layout_drag_region(self) -> None:
+        if self.window is None or self.drag_view is None:
+            return
+
+        bounds = self.window.contentView().bounds()
+        width = max(80, bounds.size.width - HEADER_DRAG_LEFT_INSET - HEADER_DRAG_RIGHT_INSET)
+        y = max(0, bounds.size.height - HEADER_DRAG_TOP_INSET - HEADER_DRAG_HEIGHT)
+        self.drag_view.setFrame_(NSMakeRect(HEADER_DRAG_LEFT_INSET, y, width, HEADER_DRAG_HEIGHT))
 
     def _load_overlay(self, force_reload: bool = False) -> None:
         if self.webview is None:
