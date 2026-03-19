@@ -37,6 +37,20 @@ from mcp_server.user_config import get_notification_users, get_default_notificat
 
 
 DEFAULT_TIMEZONE = os.getenv("DEFAULT_TIME_ZONE", "America/New_York")
+_DATETIME_ALIASES = (
+    (r"\btdy\b", "today"),
+    (r"\b2day\b", "today"),
+    (r"\btmrw\b", "tomorrow"),
+    (r"\btmrrw\b", "tomorrow"),
+    (r"\btmr\b", "tomorrow"),
+    (r"\btmrrow\b", "tomorrow"),
+    (r"\b2morrow\b", "tomorrow"),
+    (r"\byday\b", "yesterday"),
+    (r"\bystd\b", "yesterday"),
+    (r"\btonite\b", "tonight"),
+    (r"\b2nite\b", "tonight"),
+    (r"\btn\b", "tonight"),
+)
 
 
 class TodoManager:
@@ -150,6 +164,10 @@ class TodoManager:
                     parsed = parsed.replace(tzinfo=self._tz)
                 return parsed
 
+        relative_fallback = self._parse_relative_datetime_fallback(value)
+        if relative_fallback is not None:
+            return relative_fallback
+
         raise ValueError(
             f"Could not parse datetime '{raw}'. Use ISO 8601 or a natural phrase like 'tomorrow 5pm'."
         )
@@ -160,10 +178,80 @@ class TodoManager:
             return ""
 
         value = re.sub(r"\s+", " ", value)
+        for pattern, replacement in _DATETIME_ALIASES:
+            value = re.sub(pattern, replacement, value, flags=re.IGNORECASE)
         value = re.sub(r"\b(a\.?\s*m\.?)\b", "am", value, flags=re.IGNORECASE)
         value = re.sub(r"\b(p\.?\s*m\.?)\b", "pm", value, flags=re.IGNORECASE)
         value = re.sub(r"(\d)\s+(am|pm)\b", r"\1\2", value, flags=re.IGNORECASE)
         return value
+
+    def _parse_relative_datetime_fallback(self, value: str) -> Optional[datetime]:
+        match = re.fullmatch(r"(today|tomorrow|yesterday|tonight)(?:\s+at)?(?:\s+(.+))?", value.strip(), flags=re.IGNORECASE)
+        if not match:
+            return None
+
+        keyword = match.group(1).lower()
+        time_part = (match.group(2) or "").strip()
+        now_local = datetime.now(self._tz)
+        day_offset = {
+            "yesterday": -1,
+            "today": 0,
+            "tonight": 0,
+            "tomorrow": 1,
+        }[keyword]
+        target_date = now_local.date() + timedelta(days=day_offset)
+
+        parsed_time = self._parse_time_component(time_part)
+        if parsed_time is not None:
+            hour, minute = parsed_time
+        elif keyword == "tonight":
+            hour, minute = 20, 0
+        else:
+            hour, minute = now_local.hour, now_local.minute
+
+        return datetime(
+            year=target_date.year,
+            month=target_date.month,
+            day=target_date.day,
+            hour=hour,
+            minute=minute,
+            tzinfo=self._tz,
+        )
+
+    def _parse_time_component(self, value: str) -> Optional[Tuple[int, int]]:
+        text = value.strip().lower()
+        if not text:
+            return None
+
+        compact = text.replace(".", "")
+        compact = re.sub(r"\s+", "", compact)
+        if compact == "noon":
+            return (12, 0)
+        if compact == "midnight":
+            return (0, 0)
+
+        meridiem_match = re.fullmatch(r"(\d{1,2})(?::(\d{2}))?(am|pm)", compact)
+        if meridiem_match:
+            hour = int(meridiem_match.group(1))
+            minute = int(meridiem_match.group(2) or 0)
+            meridiem = meridiem_match.group(3)
+            if not 1 <= hour <= 12 or minute > 59:
+                return None
+            if meridiem == "am":
+                hour = 0 if hour == 12 else hour
+            else:
+                hour = 12 if hour == 12 else hour + 12
+            return (hour, minute)
+
+        twenty_four_hour_match = re.fullmatch(r"(\d{1,2})(?::(\d{2}))", compact)
+        if twenty_four_hour_match:
+            hour = int(twenty_four_hour_match.group(1))
+            minute = int(twenty_four_hour_match.group(2))
+            if hour > 23 or minute > 59:
+                return None
+            return (hour, minute)
+
+        return None
 
     def _now_iso(self) -> str:
         return datetime.now(timezone.utc).isoformat()

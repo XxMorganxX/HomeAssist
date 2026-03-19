@@ -5,6 +5,7 @@ const state = {
   defaultUser: "",
   refreshTimer: null,
   isEditing: false,
+  isRefreshing: false,
 };
 
 const elements = {
@@ -52,6 +53,26 @@ function setError(message) {
   elements.errorBanner.textContent = message;
 }
 
+function setButtonBusy(button, busy, busyLabel = "Working...") {
+  if (!button) return;
+  if (busy) {
+    if (!button.dataset.originalLabel) {
+      button.dataset.originalLabel = button.textContent;
+    }
+    button.disabled = true;
+    button.textContent = busyLabel;
+    button.classList.add("is-busy");
+    return;
+  }
+
+  if (button.dataset.originalLabel) {
+    button.textContent = button.dataset.originalLabel;
+    delete button.dataset.originalLabel;
+  }
+  button.disabled = false;
+  button.classList.remove("is-busy");
+}
+
 async function fetchJson(path, options = {}) {
   const url = (window.API_BASE || "") + path;
   const response = await fetch(url, {
@@ -97,6 +118,59 @@ function updateCounts(counts) {
   elements.openCount.textContent = String(counts.open || 0);
   elements.dueCount.textContent = String(counts.due || 0);
   elements.completedCount.textContent = String(counts.completed || 0);
+}
+
+function cloneTodos(todos) {
+  return todos.map((todo) => ({ ...todo }));
+}
+
+function optimisticCounts(todo, action) {
+  const counts = { ...state.counts };
+
+  if (action === "complete") {
+    counts.open = Math.max(0, (counts.open || 0) - 1);
+    counts.completed = (counts.completed || 0) + 1;
+    if (state.currentMode === "due") {
+      counts.due = Math.max(0, (counts.due || 0) - 1);
+    }
+  } else if (action === "reopen") {
+    counts.open = (counts.open || 0) + 1;
+    counts.completed = Math.max(0, (counts.completed || 0) - 1);
+  } else if (action === "delete") {
+    if (todo.completed) {
+      counts.completed = Math.max(0, (counts.completed || 0) - 1);
+    } else {
+      counts.open = Math.max(0, (counts.open || 0) - 1);
+      if (state.currentMode === "due") {
+        counts.due = Math.max(0, (counts.due || 0) - 1);
+      }
+    }
+  }
+
+  return counts;
+}
+
+function optimisticTodos(todoId, action) {
+  let todos = cloneTodos(state.currentTodos);
+
+  if (action === "delete") {
+    return todos.filter((todo) => todo.id !== todoId);
+  }
+
+  todos = todos.map((todo) => {
+    if (todo.id !== todoId) return todo;
+    return {
+      ...todo,
+      completed: action === "complete",
+    };
+  });
+
+  if ((action === "complete" && state.currentMode !== "completed")
+    || (action === "reopen" && state.currentMode === "completed")) {
+    todos = todos.filter((todo) => todo.id !== todoId);
+  }
+
+  return todos;
 }
 
 function updateActiveMode() {
@@ -248,16 +322,24 @@ async function refreshTodos() {
 }
 
 async function fullRefresh({ message } = {}) {
+  if (state.isRefreshing) {
+    return;
+  }
+
   try {
+    state.isRefreshing = true;
     setError("");
     if (message) {
       setStatus(message);
     }
-    await refreshSummary();
-    await refreshTodos();
+    setButtonBusy(elements.refreshButton, true, "...");
+    await Promise.all([refreshSummary(), refreshTodos()]);
   } catch (error) {
     setError(error.message);
     setStatus("Unable to load todos.", true);
+  } finally {
+    state.isRefreshing = false;
+    setButtonBusy(elements.refreshButton, false);
   }
 }
 
@@ -279,6 +361,7 @@ function closeEditModal() {
 
 async function createTodo(event) {
   event.preventDefault();
+  const submitButton = event.submitter || elements.createForm.querySelector('button[type="submit"]');
   const title = elements.createTitle.value.trim();
   if (!title) {
     setStatus("Title is required.", true);
@@ -292,6 +375,7 @@ async function createTodo(event) {
   };
 
   try {
+    setButtonBusy(submitButton, true, "Adding...");
     await fetchJson("/api/todos", {
       method: "POST",
       body: JSON.stringify(payload),
@@ -301,11 +385,14 @@ async function createTodo(event) {
     await fullRefresh({ message: `Added "${title}".` });
   } catch (error) {
     setStatus(error.message, true);
+  } finally {
+    setButtonBusy(submitButton, false);
   }
 }
 
 async function submitEdit(event) {
   event.preventDefault();
+  const submitButton = event.submitter || elements.editForm.querySelector('button[type="submit"]');
   const todoId = elements.editTodoId.value;
   if (!todoId) {
     return;
@@ -322,6 +409,7 @@ async function submitEdit(event) {
   }
 
   try {
+    setButtonBusy(submitButton, true, "Saving...");
     await fetchJson(`/api/todos/${encodeURIComponent(todoId)}`, {
       method: "PATCH",
       body: JSON.stringify(payload),
@@ -330,6 +418,8 @@ async function submitEdit(event) {
     await fullRefresh({ message: "Todo updated." });
   } catch (error) {
     setStatus(error.message, true);
+  } finally {
+    setButtonBusy(submitButton, false);
   }
 }
 
@@ -359,24 +449,43 @@ async function handleListClick(event) {
     return;
   }
 
+  const todo = state.currentTodos.find((item) => item.id === todoId);
+  if (!todo) {
+    setStatus("That todo is no longer available.", true);
+    return;
+  }
+
+  const previousTodos = cloneTodos(state.currentTodos);
+  const previousCounts = { ...state.counts };
+
   try {
     if (action === "complete" || action === "reopen") {
+      renderTodos(optimisticTodos(todoId, action));
+      updateCounts(optimisticCounts(todo, action));
+      setStatus(action === "complete" ? "Completing..." : "Reopening...");
       await fetchJson(`/api/todos/${encodeURIComponent(todoId)}/${action}`, {
         method: "POST",
         body: JSON.stringify({}),
       });
-      await fullRefresh({ message: action === "complete" ? "Todo completed." : "Todo reopened." });
+      setStatus(action === "complete" ? "Todo completed." : "Todo reopened.");
+      void fullRefresh();
       return;
     }
 
     if (action === "delete") {
+      renderTodos(optimisticTodos(todoId, action));
+      updateCounts(optimisticCounts(todo, action));
+      setStatus("Deleting...");
       await fetchJson(`/api/todos/${encodeURIComponent(todoId)}`, {
         method: "DELETE",
         body: JSON.stringify({}),
       });
-      await fullRefresh({ message: "Todo deleted." });
+      setStatus("Todo deleted.");
+      void fullRefresh();
     }
   } catch (error) {
+    renderTodos(previousTodos);
+    updateCounts(previousCounts);
     setStatus(error.message, true);
   }
 }

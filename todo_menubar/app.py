@@ -28,7 +28,6 @@ from AppKit import (
     NSViewWidthSizable,
     NSWindowCollectionBehaviorMoveToActiveSpace,
     NSWindowStyleMaskBorderless,
-    NSWindowStyleMaskNonactivatingPanel,
 )
 from Foundation import NSObject, NSURL
 from WebKit import WKWebView, WKWebViewConfiguration
@@ -50,10 +49,28 @@ logger = logging.getLogger(__name__)
 class HeaderDragView(NSView):
     """Transparent native drag area layered above the web header."""
 
+    def isOpaque(self):  # noqa: N802
+        return False
+
     def mouseDownCanMoveWindow(self):  # noqa: N802
         return True
 
     def acceptsFirstMouse_(self, event):  # noqa: N802
+        return True
+
+    def mouseDown_(self, event):  # noqa: N802
+        window = self.window()
+        if window is not None:
+            window.performWindowDragWithEvent_(event)
+
+
+class FloatingTodoPanel(NSPanel):
+    """Borderless floating panel that can still receive keyboard focus."""
+
+    def canBecomeKeyWindow(self):  # noqa: N802
+        return True
+
+    def canBecomeMainWindow(self):  # noqa: N802
         return True
 
 
@@ -126,6 +143,7 @@ class TodoMenubarApp(NSObject):
         self.window = None
         self.webview = None
         self.drag_view = None
+        self.last_window_frame = None
         return self
 
     def applicationDidFinishLaunching_(self, notification):  # noqa: N802
@@ -147,9 +165,13 @@ class TodoMenubarApp(NSObject):
 
     def windowDidResize_(self, notification):  # noqa: N802
         self._layout_drag_region()
+        self._remember_window_frame()
+
+    def windowDidMove_(self, notification):  # noqa: N802
+        self._remember_window_frame()
 
     def toggleWindow_(self, sender):  # noqa: N802
-        if self.window is not None and self.window.isVisible():
+        if self._is_window_visible_here():
             self.hideWindow_(sender)
         else:
             self.showWindow_(sender)
@@ -157,13 +179,16 @@ class TodoMenubarApp(NSObject):
     def showWindow_(self, sender):  # noqa: N802
         if self.window is None:
             return
-        self._load_overlay()
-        self._position_window()
+        if self.last_window_frame is None:
+            self._position_window()
+        else:
+            self.window.setFrame_display_animate_(self.last_window_frame, True, False)
         self.window.makeKeyAndOrderFront_(None)
         NSApp.activateIgnoringOtherApps_(True)
 
     def hideWindow_(self, sender):  # noqa: N802
         if self.window is not None:
+            self._remember_window_frame()
             self.window.orderOut_(None)
 
     def reloadOverlay_(self, sender):  # noqa: N802
@@ -214,8 +239,8 @@ class TodoMenubarApp(NSObject):
         button.setAction_("toggleWindow:")
 
     def _build_window(self) -> None:
-        style_mask = NSWindowStyleMaskBorderless | NSWindowStyleMaskNonactivatingPanel
-        self.window = NSPanel.alloc().initWithContentRect_styleMask_backing_defer_(
+        style_mask = NSWindowStyleMaskBorderless
+        self.window = FloatingTodoPanel.alloc().initWithContentRect_styleMask_backing_defer_(
             NSMakeRect(0, 0, DEFAULT_WIDTH, DEFAULT_HEIGHT),
             style_mask,
             NSBackingStoreBuffered,
@@ -229,7 +254,9 @@ class TodoMenubarApp(NSObject):
 
         self.window.setOpaque_(False)
         self.window.setBackgroundColor_(NSColor.clearColor())
-        self.window.setHasShadow_(True)
+        self.window.setHasShadow_(False)
+        self.window.contentView().setWantsLayer_(True)
+        self.window.contentView().layer().setBackgroundColor_(NSColor.clearColor().CGColor())
 
         wk_config = WKWebViewConfiguration.alloc().init()
         wk_config.preferences().setValue_forKey_(True, "javaScriptEnabled")
@@ -244,6 +271,7 @@ class TodoMenubarApp(NSObject):
         self.window.contentView().addSubview_(self.webview)
 
         self.drag_view = HeaderDragView.alloc().initWithFrame_(NSMakeRect(0, 0, 0, 0))
+        self.drag_view.setAutoresizingMask_(NSViewWidthSizable)
         self.window.contentView().addSubview_(self.drag_view)
         self._layout_drag_region()
 
@@ -255,6 +283,27 @@ class TodoMenubarApp(NSObject):
         width = max(80, bounds.size.width - HEADER_DRAG_LEFT_INSET - HEADER_DRAG_RIGHT_INSET)
         y = max(0, bounds.size.height - HEADER_DRAG_TOP_INSET - HEADER_DRAG_HEIGHT)
         self.drag_view.setFrame_(NSMakeRect(HEADER_DRAG_LEFT_INSET, y, width, HEADER_DRAG_HEIGHT))
+
+    def _is_window_visible_here(self) -> bool:
+        if self.window is None or not self.window.isVisible():
+            return False
+
+        try:
+            return bool(self.window.isOnActiveSpace())
+        except Exception:
+            return True
+
+    def _remember_window_frame(self) -> None:
+        if self.window is None:
+            return
+
+        frame = self.window.frame()
+        self.last_window_frame = NSMakeRect(
+            frame.origin.x,
+            frame.origin.y,
+            frame.size.width,
+            frame.size.height,
+        )
 
     def _load_overlay(self, force_reload: bool = False) -> None:
         if self.webview is None:
@@ -296,7 +345,9 @@ class TodoMenubarApp(NSObject):
             x = 12
         if y < 24:
             y = 24
-        self.window.setFrame_display_animate_(NSMakeRect(x, y, width, height), True, True)
+        target_frame = NSMakeRect(x, y, width, height)
+        self.window.setFrame_display_animate_(target_frame, True, True)
+        self.last_window_frame = target_frame
 
 
 def run_app(host: str = DEFAULT_HOST, port: int = DEFAULT_PORT) -> None:
