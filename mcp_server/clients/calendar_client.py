@@ -164,6 +164,83 @@ class CalendarComponent:
         
         # Generic fallback
         return os.getenv("GCAL_REFRESH_TOKEN") or os.getenv("GOOGLE_REFRESH_TOKEN")
+
+    def _base_user_key(self) -> str:
+        """Normalize calendar user keys like morgan_personal -> morgan."""
+        return self._user.lower().replace("_personal", "").replace("_school", "")
+
+    def _switch_to_local_oauth_for_invites(self) -> bool:
+        """Use end-user OAuth credentials for attendee invites.
+
+        Google rejects attendee invite writes from the service-account setup used for
+        normal calendar sync. For invite flows, prefer end-user OAuth when available.
+        """
+        scopes = getattr(
+            config,
+            "CALENDAR_SCOPES",
+            [
+                "https://www.googleapis.com/auth/calendar.readonly",
+                "https://www.googleapis.com/auth/calendar.events",
+            ],
+        )
+
+        # First try environment-based OAuth credentials if configured.
+        if self._try_env_credentials():
+            self.service = build('calendar', 'v3', credentials=self.creds, cache_discovery=False)
+            return True
+
+        base_user = self._base_user_key()
+        token_candidates = [project_root / "creds" / f"token_{base_user}.json"]
+        client_secret_candidates = [project_root / "creds" / f"google_creds_{base_user}.json"]
+
+        for token_path in token_candidates:
+            creds = None
+            if token_path.exists():
+                try:
+                    creds = Credentials.from_authorized_user_file(str(token_path), scopes)
+                    if creds and creds.expired and getattr(creds, "refresh_token", None):
+                        try:
+                            creds.refresh(Request())
+                            token_path.write_text(creds.to_json())
+                        except Exception as refresh_error:
+                            if getattr(config, "DEBUG_MODE", False):
+                                print(f"⚠️ Invite OAuth refresh failed for {token_path}: {refresh_error}")
+                            creds = None
+                    if creds and creds.valid:
+                        self.creds = creds
+                        self.service = build('calendar', 'v3', credentials=self.creds, cache_discovery=False)
+                        if getattr(config, "DEBUG_MODE", False):
+                            print(f"✅ Switched to local OAuth credentials for invite creation ({self.user})")
+                        return True
+                except Exception as e:
+                    if getattr(config, "DEBUG_MODE", False):
+                        print(f"⚠️ Failed to load local OAuth credentials for invites from {token_path}: {e}")
+
+            if self._is_headless():
+                continue
+
+            for client_secret_path in client_secret_candidates:
+                if not client_secret_path.exists():
+                    continue
+                try:
+                    flow = InstalledAppFlow.from_client_secrets_file(str(client_secret_path), scopes)
+                    creds = flow.run_local_server(
+                        port=0,
+                        access_type='offline',
+                        prompt='consent'
+                    )
+                    token_path.parent.mkdir(parents=True, exist_ok=True)
+                    token_path.write_text(creds.to_json())
+                    self.creds = creds
+                    self.service = build('calendar', 'v3', credentials=self.creds, cache_discovery=False)
+                    if getattr(config, "DEBUG_MODE", False):
+                        print(f"✅ Reauthorized local OAuth credentials for invite creation ({self.user})")
+                    return True
+                except Exception as oauth_error:
+                    if getattr(config, "DEBUG_MODE", False):
+                        print(f"⚠️ Failed local OAuth reauthorization for invites using {client_secret_path}: {oauth_error}")
+
+        return False
     
     def _try_service_account(self) -> bool:
         """Try to authenticate using a Google Service Account (best for headless/CI).
@@ -974,6 +1051,16 @@ class CalendarComponent:
     def create_event(self, event_data: Dict[str, Any]) -> Dict[str, Any]:
         """Create a new calendar event for the calendar tool."""
         try:
+            has_attendees = bool(event_data.get('attendees'))
+
+            if has_attendees and isinstance(self.creds, service_account.Credentials):
+                if not self._switch_to_local_oauth_for_invites():
+                    raise Exception(
+                        "Calendar invites require user OAuth credentials. "
+                        "The current service-account setup can create events for your calendars, "
+                        "but Google does not allow it to send attendee invites."
+                    )
+
             self._maybe_refresh_credentials()
             if not self.service:
                 raise Exception("Calendar service not initialized")
@@ -1063,10 +1150,14 @@ class CalendarComponent:
             
             for attempt in range(max_retries):
                 try:
-                    created_event = self.service.events().insert(
-                        calendarId=calendar_id,
-                        body=event_body
-                    ).execute()
+                    insert_kwargs = {
+                        "calendarId": calendar_id,
+                        "body": event_body,
+                    }
+                    if has_attendees:
+                        insert_kwargs["sendUpdates"] = "all"
+
+                    created_event = self.service.events().insert(**insert_kwargs).execute()
                     
                     return {
                         'id': created_event.get('id'),
@@ -1105,7 +1196,13 @@ class CalendarComponent:
             raise Exception("Failed to create event after retries")
             
         except Exception as e:
-            raise Exception(f"Failed to create event: {str(e)}")
+            error_text = str(e)
+            if "forbiddenForServiceAccounts" in error_text:
+                raise Exception(
+                    "Google blocked attendee invites for the current service-account credentials. "
+                    "Try again after authorizing the calendar with user OAuth credentials."
+                )
+            raise Exception(f"Failed to create event: {error_text}")
 
 
 

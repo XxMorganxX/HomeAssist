@@ -6,11 +6,40 @@
       "parameters": {
         "type": "object",
         "properties": {
-          "hours": {"type": "integer", "minimum": 1, "maximum": 168, "description": "Timeframe in hours (1-168). Uses hourly forecasts when <= 36 hours."},
-          "days": {"type": "integer", "minimum": 1, "maximum": 7, "description": "Timeframe in days (1-7)."},
-          "specific_date": {"type": "string", "description": "Get weather for a specific date. Format: 'YYYY-MM-DD' or relative terms like 'today', 'tomorrow', 'monday'."}
+          "hours": {
+            "type": "integer",
+            "minimum": 1,
+            "maximum": 168,
+            "description": "Timeframe in hours (1-168). Uses hourly forecasts when <= 36 hours."
+          },
+          "days": {
+            "type": "integer",
+            "minimum": 1,
+            "maximum": 7,
+            "description": "Timeframe in days (1-7)."
+          },
+          "specific_date": {
+            "type": "string",
+            "description": "Get weather for a specific date. Format: 'YYYY-MM-DD' or relative terms like 'today', 'tomorrow', 'monday'."
+          }
         },
-        "oneOf": [{"required": ["hours"]}, {"required": ["days"]}, {"required": ["specific_date"]}]
+        "oneOf": [
+          {
+            "required": [
+              "hours"
+            ]
+          },
+          {
+            "required": [
+              "days"
+            ]
+          },
+          {
+            "required": [
+              "specific_date"
+            ]
+          }
+        ]
       }
     },
     {
@@ -19,14 +48,59 @@
       "parameters": {
         "type": "object",
         "properties": {
-          "action": {"type": "string", "enum": ["play", "pause", "next", "previous", "volume", "search_track", "search_artist", "status", "devices", "shuffle", "repeat"], "description": "The Spotify action to perform."},
-          "query": {"type": "string", "description": "Search query for track or artist when using search actions or 'play' with a query."},
-          "search_type": {"type": "string", "enum": ["track", "artist"], "default": "track", "description": "When using 'play' with a query, choose whether to search tracks or artists."},
-          "volume_level": {"type": "integer", "minimum": 0, "maximum": 100, "description": "Volume level percentage (0-100) when action is 'volume'."},
-          "shuffle_state": {"type": "boolean", "description": "For shuffle action: true enables, false disables. If omitted, toggles."},
-          "repeat_mode": {"type": "string", "enum": ["off", "track", "context"], "description": "For repeat action: 'off', 'track' (loop one song), 'context' (loop playlist). If omitted, cycles."}
+          "action": {
+            "type": "string",
+            "enum": [
+              "play",
+              "pause",
+              "next",
+              "previous",
+              "volume",
+              "search_track",
+              "search_artist",
+              "status",
+              "devices",
+              "shuffle",
+              "repeat"
+            ],
+            "description": "The Spotify action to perform."
+          },
+          "query": {
+            "type": "string",
+            "description": "Search query for track or artist when using search actions or 'play' with a query."
+          },
+          "search_type": {
+            "type": "string",
+            "enum": [
+              "track",
+              "artist"
+            ],
+            "default": "track",
+            "description": "When using 'play' with a query, choose whether to search tracks or artists."
+          },
+          "volume_level": {
+            "type": "integer",
+            "minimum": 0,
+            "maximum": 100,
+            "description": "Volume level percentage (0-100) when action is 'volume'."
+          },
+          "shuffle_state": {
+            "type": "boolean",
+            "description": "For shuffle action: true enables, false disables. If omitted, toggles."
+          },
+          "repeat_mode": {
+            "type": "string",
+            "enum": [
+              "off",
+              "track",
+              "context"
+            ],
+            "description": "For repeat action: 'off', 'track' (loop one song), 'context' (loop playlist). If omitted, cycles."
+          }
         },
-        "required": ["action"]
+        "required": [
+          "action"
+        ]
       }
     },
     {
@@ -35,19 +109,58 @@
       "parameters": {
         "type": "object",
         "properties": {
-          "interaction": {"type": "string", "enum": ["direct", "scene"], "description": "'direct' to control a single light, 'scene' to apply a preset."},
-          "light_name": {"type": "string", "description": "Specific light to control (direct mode). e.g., 'Light 1', 'Light 2'."},
-          "room": {"type": "string", "description": "Room name for scene target. e.g., 'living room', 'bedroom'."},
-          "action": {"type": "string", "enum": ["on", "off"], "description": "Direct mode action: 'on' or 'off'."},
-          "scene_name": {"type": "string", "enum": ["movie", "work", "mood", "reading", "party", "relax"], "description": "Scene to apply (scene mode)."},
-          "light_names": {"type": "array", "items": {"type": "string"}, "description": "Optional list of specific lights for scene mode instead of room."}
+          "interaction": {
+            "type": "string",
+            "enum": [
+              "direct",
+              "scene"
+            ],
+            "description": "'direct' to control a single light, 'scene' to apply a preset."
+          },
+          "light_name": {
+            "type": "string",
+            "description": "Specific light to control (direct mode). e.g., 'Light 1', 'Light 2'."
+          },
+          "room": {
+            "type": "string",
+            "description": "Room name for scene target. e.g., 'living room', 'bedroom'."
+          },
+          "action": {
+            "type": "string",
+            "enum": [
+              "on",
+              "off"
+            ],
+            "description": "Direct mode action: 'on' or 'off'."
+          },
+          "scene_name": {
+            "type": "string",
+            "enum": [
+              "movie",
+              "work",
+              "mood",
+              "reading",
+              "party",
+              "relax"
+            ],
+            "description": "Scene to apply (scene mode)."
+          },
+          "light_names": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            },
+            "description": "Optional list of specific lights for scene mode instead of room."
+          }
         },
-        "required": ["interaction"]
+        "required": [
+          "interaction"
+        ]
       }
     },
     {
       "name": "calendar_data",
-      "description": "Google Calendar access only. Read events or create new events. Use 'all' to read from all configured Google calendars.",
+      "description": "Google Calendar access only. Read events or create new events. Use all to read from all configured Google calendars.",
       "parameters": {
         "type": "object",
         "properties": {
@@ -57,16 +170,76 @@
             "items": {
               "type": "object",
               "properties": {
-                "read_or_write": {"type": "string", "enum": ["read", "create_event"], "description": "'read' to view events, 'create_event' to add an event."},
-                "calendar": {"type": "string", "description": "'all' for reading all calendars, or specific calendar."},
-                "read_type": {"type": "string", "enum": ["next_events", "day_summary", "week_summary", "specific_date"], "description": "What to fetch for read operations."},
-                "limit": {"type": "integer", "description": "Max events to return (default: 10)."},
-                "date": {"type": "string", "description": "Date in YYYY-MM-DD or natural language like 'tomorrow', 'this Saturday'."},
-                "event_title": {"type": "string", "description": "For create_event: the event title."},
-                "event_description": {"type": "string", "description": "For create_event: optional event details/notes."},
-                "start_time": {"type": "string", "description": "For create_event: start time like '14:00' or '2pm'."},
-                "end_time": {"type": "string", "description": "For create_event: end time like '15:00' or '3pm'."},
-                "location": {"type": "string", "description": "For create_event: optional event location/address."}
+                "read_or_write": {
+                  "type": "string",
+                  "enum": [
+                    "read",
+                    "create_event"
+                  ],
+                  "description": "'read' to view events, 'create_event' to add an event."
+                },
+                "calendar": {
+                  "type": "string",
+                  "description": "For reads: 'all' for reading all calendars, or a specific calendar such as 'morgan_personal'."
+                },
+                "calendars": {
+                  "type": "array",
+                  "items": {
+                    "type": "string"
+                  },
+                  "description": "For creates: optional list of specific calendars to write the event to."
+                },
+                "read_type": {
+                  "type": "string",
+                  "enum": [
+                    "next_events",
+                    "day_summary",
+                    "week_summary",
+                    "specific_date"
+                  ],
+                  "description": "What to fetch for read operations."
+                },
+                "limit": {
+                  "type": "integer",
+                  "minimum": 1,
+                  "maximum": 50,
+                  "description": "Max events to return (default: 10)."
+                },
+                "date": {
+                  "type": "string",
+                  "description": "Date in YYYY-MM-DD or natural language like 'tomorrow', 'this Saturday'."
+                },
+                "event_title": {
+                  "type": "string",
+                  "description": "For create_event: the event title."
+                },
+                "event_description": {
+                  "type": "string",
+                  "description": "For create_event: optional event details/notes."
+                },
+                "start_time": {
+                  "type": "string",
+                  "description": "For create_event: start time like '14:00' or '2pm'."
+                },
+                "end_time": {
+                  "type": "string",
+                  "description": "For create_event: end time like '15:00' or '3pm'."
+                },
+                "location": {
+                  "type": "string",
+                  "description": "For create_event: optional event location/address."
+                },
+                "attendees": {
+                  "type": "array",
+                  "items": {
+                    "type": "string"
+                  },
+                  "description": "For create_event: optional attendee email addresses."
+                },
+                "create_todo": {
+                  "type": "boolean",
+                  "description": "For create_event: whether to create a linked calendar-backed todo."
+                }
               }
             }
           }
@@ -79,9 +252,14 @@
       "parameters": {
         "type": "object",
         "properties": {
-          "message": {"type": "string", "description": "The text message to send."}
+          "message": {
+            "type": "string",
+            "description": "The text message to send."
+          }
         },
-        "required": ["message"]
+        "required": [
+          "message"
+        ]
       }
     },
     {
@@ -90,10 +268,23 @@
       "parameters": {
         "type": "object",
         "properties": {
-          "query": {"type": "string", "description": "The search query. Be specific for better results."},
-          "query_type": {"type": "string", "enum": ["general", "link", "directions"], "description": "'general' for info, 'link' for URLs, 'directions' for navigation."}
+          "query": {
+            "type": "string",
+            "description": "The search query. Be specific for better results."
+          },
+          "query_type": {
+            "type": "string",
+            "enum": [
+              "general",
+              "link",
+              "directions"
+            ],
+            "description": "'general' for info, 'link' for URLs, 'directions' for navigation."
+          }
         },
-        "required": ["query"]
+        "required": [
+          "query"
+        ]
       }
     },
     {
@@ -102,7 +293,10 @@
       "parameters": {
         "type": "object",
         "properties": {
-          "max_length": {"type": "integer", "description": "Max characters to return (default: 8000)."}
+          "max_length": {
+            "type": "integer",
+            "description": "Max characters to return (default: 8000)."
+          }
         }
       }
     },
@@ -112,11 +306,41 @@
       "parameters": {
         "type": "object",
         "properties": {
-          "action": {"type": "string", "enum": ["list", "dismiss"], "description": "'list' pending autonomous briefings, 'dismiss' cancel one."},
-          "priority": {"type": "string", "enum": ["high", "normal", "low"], "description": "Priority level. Default: 'normal'."},
-          "briefing_id": {"type": "string", "description": "For dismiss: the briefing ID."}
+          "action": {
+            "type": "string",
+            "enum": [
+              "list",
+              "dismiss"
+            ],
+            "description": "'list' pending autonomous briefings, 'dismiss' cancel one."
+          },
+          "user": {
+            "type": "string",
+            "description": "Optional target user when managing pending briefings."
+          },
+          "priority": {
+            "type": "string",
+            "enum": [
+              "high",
+              "normal",
+              "low"
+            ],
+            "description": "Priority level when listing announcements."
+          },
+          "briefing_id": {
+            "type": "string",
+            "description": "For dismiss: the briefing ID."
+          },
+          "limit": {
+            "type": "integer",
+            "minimum": 1,
+            "maximum": 50,
+            "description": "Maximum number of briefings to return for list."
+          }
         },
-        "required": ["action"]
+        "required": [
+          "action"
+        ]
       }
     },
     {
@@ -125,22 +349,98 @@
       "parameters": {
         "type": "object",
         "properties": {
-          "action": {"type": "string", "enum": ["create", "list", "complete", "reopen", "update", "delete"], "description": "Todo action to perform."},
-          "title": {"type": "string", "description": "Todo title/task text for create or rename during update."},
-          "message": {"type": "string", "description": "Alias for title when phrased as a reminder message."},
-          "details": {"type": "string", "description": "Optional extra details for the todo."},
-          "due_at": {"type": "string", "description": "Optional due time. ISO or natural language like 'tomorrow 5pm'."},
-          "event_time": {"type": "string", "description": "Optional event time for event-relative reminder creation."},
-          "remind_before_minutes": {"type": "integer", "description": "Minutes before event_time for reminder-style todo creation."},
-          "todo_id": {"type": "string", "description": "Specific todo ID for complete/reopen/update/delete."},
-          "match": {"type": "string", "description": "Todo title match when todo_id is unknown."},
-          "include_completed": {"type": "boolean", "description": "For list: include completed tasks."},
-          "only_due_today": {"type": "boolean", "description": "For list: return only tasks due today."},
-          "only_overdue": {"type": "boolean", "description": "For list: return only overdue tasks."},
-          "source_type": {"type": "string", "description": "Optional source for created todos such as calendar, voice, or discord."},
-          "source_id": {"type": "string", "description": "Optional external source identifier for linked todos."}
+          "action": {
+            "type": "string",
+            "enum": [
+              "create",
+              "list",
+              "complete",
+              "reopen",
+              "update",
+              "delete",
+              "advance",
+              "chain"
+            ],
+            "description": "Todo action to perform. 'advance' completes a todo and creates its next step in a chain. 'chain' returns the full history of a chained todo."
+          },
+          "user": {
+            "type": "string",
+            "description": "Optional target user for the todo action."
+          },
+          "title": {
+            "type": "string",
+            "description": "Todo title/task text for create or rename during update."
+          },
+          "message": {
+            "type": "string",
+            "description": "Alias for title when phrased as a reminder message."
+          },
+          "details": {
+            "type": "string",
+            "description": "Optional extra details for the todo."
+          },
+          "due_at": {
+            "type": "string",
+            "description": "Optional due time. ISO or natural language like 'tomorrow 5pm'."
+          },
+          "event_time": {
+            "type": "string",
+            "description": "Optional event time for event-relative reminder creation."
+          },
+          "remind_before_minutes": {
+            "type": "integer",
+            "minimum": 1,
+            "maximum": 10080,
+            "description": "Minutes before event_time for reminder-style todo creation."
+          },
+          "todo_id": {
+            "type": "string",
+            "description": "Specific todo ID for complete, reopen, update, or delete."
+          },
+          "match": {
+            "type": "string",
+            "description": "Todo title match when todo_id is unknown."
+          },
+          "include_completed": {
+            "type": "boolean",
+            "description": "For list: include completed tasks."
+          },
+          "limit": {
+            "type": "integer",
+            "minimum": 1,
+            "maximum": 50,
+            "description": "For list: max todos to return."
+          },
+          "only_due_today": {
+            "type": "boolean",
+            "description": "For list: return only tasks due today."
+          },
+          "only_overdue": {
+            "type": "boolean",
+            "description": "For list: return only overdue tasks."
+          },
+          "clear_due_at": {
+            "type": "boolean",
+            "description": "For update: clear any due time on the todo."
+          },
+          "source_type": {
+            "type": "string",
+            "enum": [
+              "voice",
+              "discord",
+              "calendar",
+              "manual"
+            ],
+            "description": "Optional source for created todos."
+          },
+          "source_id": {
+            "type": "string",
+            "description": "Optional external source identifier for linked todos."
+          }
         },
-        "required": ["action"]
+        "required": [
+          "action"
+        ]
       }
     },
     {
@@ -149,9 +449,30 @@
       "parameters": {
         "type": "object",
         "properties": {
-          "type_filter": {"type": "string", "enum": ["email", "news", "other", "all"], "description": "'email' for email summaries, 'news' for news, 'all' for everything."},
-          "limit": {"type": "integer", "description": "Max notifications to return."},
-          "priority_filter": {"type": "string", "enum": ["high", "normal", "low", "all"], "description": "Filter by priority. Default: 'all'."}
+          "type_filter": {
+            "type": "string",
+            "enum": [
+              "email",
+              "news",
+              "other",
+              "all"
+            ],
+            "description": "'email' for email summaries, 'news' for news, 'all' for everything."
+          },
+          "limit": {
+            "type": "integer",
+            "description": "Max notifications to return."
+          },
+          "priority_filter": {
+            "type": "string",
+            "enum": [
+              "high",
+              "normal",
+              "low",
+              "all"
+            ],
+            "description": "Filter by priority. Default: all."
+          }
         }
       }
     },
@@ -161,7 +482,26 @@
       "parameters": {
         "type": "object",
         "properties": {
-          "section": {"type": "string", "enum": ["overview", "architecture", "providers", "orchestrator", "audio", "tools", "memory", "config", "all"], "description": "Specific documentation section."}
+          "section": {
+            "type": "string",
+            "enum": [
+              "overview",
+              "architecture",
+              "providers",
+              "orchestrator",
+              "audio",
+              "tools",
+              "memory",
+              "config",
+              "models",
+              "scheduled",
+              "errors",
+              "development",
+              "performance",
+              "all"
+            ],
+            "description": "Specific documentation section."
+          }
         }
       }
     },
@@ -171,9 +511,14 @@
       "parameters": {
         "type": "object",
         "properties": {
-          "prompt": {"type": "string", "description": "The coding task to send. Be specific about files, functions, or changes needed."}
+          "prompt": {
+            "type": "string",
+            "description": "The coding task to send. Be specific about files, functions, or changes needed."
+          }
         },
-        "required": ["prompt"]
+        "required": [
+          "prompt"
+        ]
       }
     }
   ]

@@ -16,6 +16,11 @@ from datetime import datetime, timezone, timedelta
 from zoneinfo import ZoneInfo
 from mcp_server.base_tool import BaseTool
 from mcp_server.config import LOG_TOOLS
+from assistant_framework.utils.briefing.briefing_manager import (
+    DISCORD_DELIVERY,
+    VOICE_DELIVERY,
+    _get_delivery_status,
+)
 
 # Import user config for dynamic user resolution
 try:
@@ -142,7 +147,7 @@ Examples:
     def execute(self, params: Dict[str, Any]) -> Dict[str, Any]:
         """Execute the briefing tool."""
         try:
-            action = params.get("action", "create")
+            action = params.get("action", "list")
             user = params.get("user", self._default_user)
             
             # Normalize user
@@ -392,8 +397,8 @@ Examples:
             
             briefings = []
             for row in response.data or []:
-                discord_status = row.get("discord_status") or "pending"
-                voice_status = row.get("voice_status") or "pending"
+                discord_status = _get_delivery_status(row, DISCORD_DELIVERY)
+                voice_status = _get_delivery_status(row, VOICE_DELIVERY)
                 if discord_status != "pending" and voice_status != "pending":
                     continue
 

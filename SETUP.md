@@ -1236,7 +1236,7 @@ TURNAROUND_CONFIG = {
 
 ## 📁 State Files
 
-- `state_management/app_state.json` — Runtime state
+- `state_management/app_state.json` — Deterministic device-local config and notification fallback
 - `state_management/conversation_summary.json` — Current session summary
 - `state_management/persistent_memory.json` — Long-term user memory
 
@@ -1436,13 +1436,18 @@ The Discord bot performs a catch-up query on startup, then listens for live `bri
 
 ```bash
 # Via the homeassist CLI
-homeassist discord
+homeassist discord start
+homeassist discord restart
+homeassist discord status
+homeassist discord logs
 
 # Or directly
 python -m discord_bot
 ```
 
 The bot runs as a fully independent process with its own MCP server. It can run alongside or without the voice assistant.
+
+> 💡 **Tip:** Use `homeassist discord restart` instead of launching `homeassist discord` in multiple terminals. The CLI now enforces a single Discord bot instance so the todo dashboard is not reposted repeatedly by duplicate processes.
 
 ### Features
 

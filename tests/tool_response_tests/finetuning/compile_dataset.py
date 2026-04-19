@@ -180,6 +180,196 @@ def validate_tool_call(tool_call: dict) -> list[str]:
     return errors
 
 
+def _has_value(value) -> bool:
+    if value is None:
+        return False
+    if isinstance(value, str):
+        return bool(value.strip())
+    if isinstance(value, list):
+        return len(value) > 0
+    return True
+
+
+def validate_tool_semantics(tool_call: dict) -> list[str]:
+    """Apply action-specific validation that JSON schema alone does not capture."""
+    errors: list[str] = []
+    name = tool_call.get("name")
+    arguments = tool_call.get("arguments", {})
+
+    if not isinstance(arguments, dict):
+        return errors
+
+    if name == "spotify_playback":
+        action = arguments.get("action")
+        if action in {"search_track", "search_artist"} and not _has_value(
+            arguments.get("query")
+        ):
+            errors.append(f"[{name}] action '{action}' requires a non-empty query")
+        if action == "volume" and "volume_level" not in arguments:
+            errors.append("[spotify_playback] action 'volume' requires volume_level")
+        if action == "play" and "search_type" in arguments and not _has_value(
+            arguments.get("query")
+        ):
+            errors.append(
+                "[spotify_playback] search_type should only be set when play includes a query"
+            )
+
+    elif name == "kasa_lighting":
+        interaction = arguments.get("interaction")
+        if interaction == "direct":
+            missing = [
+                field for field in ("action", "light_name") if not _has_value(arguments.get(field))
+            ]
+            if missing:
+                errors.append(
+                    "[kasa_lighting] direct interaction requires "
+                    + ", ".join(missing)
+                )
+        elif interaction == "scene":
+            if not _has_value(arguments.get("scene_name")):
+                errors.append("[kasa_lighting] scene interaction requires scene_name")
+            has_room = _has_value(arguments.get("room"))
+            has_light_names = _has_value(arguments.get("light_names"))
+            if not has_room and not has_light_names:
+                errors.append(
+                    "[kasa_lighting] scene interaction requires either room or light_names"
+                )
+
+    elif name == "calendar_data":
+        commands = arguments.get("commands", [])
+        if not isinstance(commands, list):
+            return errors
+        for command in commands:
+            if not isinstance(command, dict):
+                continue
+            read_or_write = command.get("read_or_write")
+            if not _has_value(read_or_write):
+                errors.append("[calendar_data] command requires read_or_write")
+                continue
+            if read_or_write == "read":
+                if not _has_value(command.get("calendar")):
+                    errors.append("[calendar_data] read commands require calendar")
+                if not _has_value(command.get("read_type")):
+                    errors.append("[calendar_data] read commands require read_type")
+                if command.get("read_type") == "specific_date" and not _has_value(
+                    command.get("date")
+                ):
+                    errors.append(
+                        "[calendar_data] specific_date reads require a non-empty date"
+                    )
+            elif read_or_write == "create_event":
+                has_calendar = _has_value(command.get("calendar"))
+                has_calendars = _has_value(command.get("calendars"))
+                if not has_calendar and not has_calendars:
+                    errors.append(
+                        "[calendar_data] create_event requires calendar or calendars"
+                    )
+                if has_calendar and has_calendars:
+                    errors.append(
+                        "[calendar_data] create_event should use either calendar or calendars, not both"
+                    )
+
+    elif name == "todos":
+        action = arguments.get("action")
+        if action == "create":
+            if not any(_has_value(arguments.get(field)) for field in ("title", "message")):
+                errors.append("[todos] create requires title or message")
+            has_event_time = _has_value(arguments.get("event_time"))
+            has_remind_before = arguments.get("remind_before_minutes") is not None
+            if has_event_time and not has_remind_before:
+                errors.append(
+                    "[todos] event_time reminders require remind_before_minutes"
+                )
+            if has_remind_before and not has_event_time:
+                errors.append(
+                    "[todos] remind_before_minutes requires event_time"
+                )
+        elif action in {"complete", "reopen", "update", "delete"}:
+            if not any(_has_value(arguments.get(field)) for field in ("todo_id", "match")):
+                errors.append(f"[todos] action '{action}' requires todo_id or match")
+            if action == "update":
+                has_field_change = any(
+                    _has_value(arguments.get(field))
+                    for field in ("title", "message", "details", "due_at")
+                ) or bool(arguments.get("clear_due_at"))
+                if not has_field_change:
+                    errors.append(
+                        "[todos] update requires at least one field change"
+                    )
+
+    elif name == "briefing":
+        if arguments.get("action") == "dismiss" and not _has_value(
+            arguments.get("briefing_id")
+        ):
+            errors.append("[briefing] dismiss requires briefing_id")
+
+    elif name == "read_clipboard":
+        max_length = arguments.get("max_length")
+        if max_length is not None and max_length <= 0:
+            errors.append("[read_clipboard] max_length must be positive")
+
+    elif name == "get_notifications":
+        limit = arguments.get("limit")
+        if limit is not None and limit <= 0:
+            errors.append("[get_notifications] limit must be positive")
+
+    return errors
+
+
+def validate_tool_sequence(tool_calls: list[dict]) -> list[str]:
+    """Apply runtime-aware validation across a full assistant tool payload."""
+    errors: list[str] = []
+    seen_signatures: set[str] = set()
+    google_search_calls = 0
+
+    for tool_call in tool_calls:
+        name = tool_call.get("name")
+        arguments = tool_call.get("arguments", {})
+        signature = json.dumps(tool_call, separators=(",", ":"), sort_keys=True)
+
+        if signature in seen_signatures:
+            errors.append(f"[{name}] duplicate tool call in same assistant turn")
+        else:
+            seen_signatures.add(signature)
+
+        if name == "google_search":
+            google_search_calls += 1
+            if google_search_calls > 1:
+                errors.append("[google_search] only one google_search call is allowed per assistant turn")
+
+        if name != "calendar_data":
+            continue
+
+        commands = arguments.get("commands", [])
+        if not isinstance(commands, list):
+            continue
+
+        if len(commands) > 1:
+            errors.append("[calendar_data] only one command is allowed per tool call")
+
+        for command in commands:
+            if not isinstance(command, dict):
+                continue
+            if command.get("read_or_write") != "create_event":
+                continue
+
+            missing_fields = [
+                field
+                for field in ("event_title", "date", "start_time", "end_time")
+                if not command.get(field)
+            ]
+            if missing_fields:
+                errors.append(
+                    "[calendar_data] create_event examples must include "
+                    + ", ".join(missing_fields)
+                )
+
+            if command.get("calendar") == "all":
+                errors.append("[calendar_data] create_event cannot use calendar='all'")
+
+    return errors
+
+
 def canonicalize_assistant_content(content: str) -> tuple[str | None, list[str]]:
     raw_payload = strip_thinking_trace(content)
 
@@ -194,6 +384,8 @@ def canonicalize_assistant_content(content: str) -> tuple[str | None, list[str]]
     errors: list[str] = []
     for tool_call in parsed:
         errors.extend(validate_tool_call(tool_call))
+        errors.extend(validate_tool_semantics(tool_call))
+    errors.extend(validate_tool_sequence(parsed))
 
     if errors:
         return None, errors

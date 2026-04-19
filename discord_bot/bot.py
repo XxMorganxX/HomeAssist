@@ -9,6 +9,7 @@ Features:
 """
 
 import asyncio
+import contextlib
 import json
 import os
 from datetime import datetime, timedelta
@@ -20,7 +21,7 @@ import discord
 from discord import app_commands
 
 from assistant_framework.utils.todo_manager import TodoManager
-from assistant_framework.utils.briefing.briefing_manager import BriefingManager
+from assistant_framework.utils.briefing.briefing_manager import BriefingManager, _substitute_time_placeholder
 from discord_bot.text_orchestrator import TextOrchestrator
 
 try:
@@ -51,6 +52,7 @@ DISCORD_TODO_CHANNEL_ID = int(os.getenv("DISCORD_TODO_CHANNEL_ID", "0"))
 DISCORD_BRIEFING_CHANNEL_ID = int(os.getenv("DISCORD_BRIEFING_CHANNEL_ID", "0"))
 BRIEFING_USER = get_default_notification_user()
 BRIEFING_BOOT_LIMIT = 25
+BRIEFING_POLL_INTERVAL_SECONDS = 5
 TODO_PAGE_SIZE = 15
 TODO_CALENDAR_WINDOW_DAYS = 7
 TODO_CALENDAR_SYNC_INTERVAL_SECONDS = 60
@@ -69,6 +71,31 @@ def _truncate(text: str, limit: int = MAX_MESSAGE_LENGTH) -> str:
     if len(text) <= limit:
         return text
     return text[: limit - 3] + "..."
+
+
+def _extract_briefing_text(briefing: Dict[str, object]) -> tuple[str, str]:
+    """Resolve the best available Discord text and source metadata for a briefing."""
+    opener = briefing.get("opener_text")
+    if isinstance(opener, str) and opener:
+        return opener, ""
+
+    content = briefing.get("content") or {}
+    if isinstance(content, str):
+        try:
+            content = json.loads(content)
+        except (json.JSONDecodeError, TypeError):
+            content = {"message": content}
+
+    if not isinstance(content, dict):
+        return "", ""
+
+    message = content.get("message") or content.get("fact", "")
+    source = (content.get("meta") or {}).get("source", "")
+    if not isinstance(message, str):
+        message = ""
+    if not isinstance(source, str):
+        source = ""
+    return message, source
 
 
 def _format_tool_calls(tool_calls: list) -> str:
@@ -745,6 +772,17 @@ class HomeAssistBot(discord.Client):
                 row.insert(1, self._clip_table_cell("[x]" if todo.get("completed") else "[ ]", 6))
             rows.append(" | ".join(row))
 
+        for slot_index in range(len(todos) + 1, TODO_PAGE_SIZE + 1):
+            row = [
+                self._clip_table_cell(slot_index, num_width),
+                self._clip_table_cell("-", title_width),
+                self._clip_table_cell("-", source_width),
+                self._clip_table_cell("-", due_width),
+            ]
+            if include_status:
+                row.insert(1, self._clip_table_cell("-", 6))
+            rows.append(" | ".join(row))
+
         return "```\n" + "\n".join(rows) + "\n```"
 
     def _render_dashboard_content(self, *, status_message: Optional[str] = None) -> str:
@@ -889,6 +927,7 @@ class HomeAssistBot(discord.Client):
             return "No configured calendars."
 
         total_synced = 0
+        total_removed = 0
         total_failed = 0
         processed_users = 0
 
@@ -908,15 +947,18 @@ class HomeAssistBot(discord.Client):
                 formatted_events = [calendar.format_event(event) for event in events]
                 result = self._todo_manager.sync_calendar_events(calendar_user=user, events=formatted_events)
                 total_synced += result.get("synced", 0)
+                total_removed += result.get("removed", 0)
                 total_failed += result.get("failed", 0)
                 processed_users += 1
             except Exception as exc:
                 total_failed += 1
                 print(f"⚠️  Calendar sync failed for {user}: {exc}")
 
-        sync_summary = f"Calendar sync: {total_synced} events from {processed_users} calendar(s)." + (
-            f" {total_failed} failure(s)." if total_failed else ""
-        )
+        sync_summary = f"Calendar sync: {total_synced} events from {processed_users} calendar(s)."
+        if total_removed:
+            sync_summary += f" Removed {total_removed} stale event(s)."
+        if total_failed:
+            sync_summary += f" {total_failed} failure(s)."
         cached_calendar_todos = [
             todo
             for todo in self._todo_manager.list_todos(
@@ -1094,7 +1136,7 @@ class HomeAssistBot(discord.Client):
 
         previous_message_id = self._todo_dashboard_message_id
         try:
-            message = await channel.send(content, view=view)
+            message = await channel.send(content, view=view, silent=True)
         except Exception as exc:
             _todo_log("post_surface_failed", replace_message_id=replace_message_id, previous_message_id=previous_message_id, error=str(exc))
             return None
@@ -1301,6 +1343,17 @@ class HomeAssistBot(discord.Client):
             self._schedule_calendar_sync(refresh_surface=True)
 
         existing = await self._find_todo_dashboard_message(channel)
+        if existing is not None:
+            try:
+                await existing.edit(
+                    content=self._render_dashboard_content(status_message=status_message),
+                    view=self._build_dashboard_view(),
+                )
+                self._todo_dashboard_message_id = existing.id
+                _todo_log("ensure_dashboard_edited_existing", message_id=existing.id, status_message=bool(status_message))
+                return existing
+            except Exception as exc:
+                _todo_log("ensure_dashboard_edit_existing_failed", message_id=existing.id, error=str(exc))
         return await self._post_todo_surface(
             channel=channel,
             content=self._render_dashboard_content(status_message=status_message),
@@ -1529,15 +1582,18 @@ class HomeAssistBot(discord.Client):
             return
 
         await self._send_pending_discord_briefings(channel, limit=BRIEFING_BOOT_LIMIT)
+        poll_task = asyncio.create_task(self._briefing_poll_loop(channel))
 
         if not ASYNC_SUPABASE_AVAILABLE:
-            print("⚠️  Async Supabase client unavailable -- realtime briefing subscription disabled")
+            print("⚠️  Async Supabase client unavailable -- realtime briefing subscription disabled; polling fallback active")
+            await poll_task
             return
 
         supabase_url = os.getenv("SUPABASE_URL")
         supabase_key = os.getenv("SUPABASE_KEY")
         if not supabase_url or not supabase_key:
-            print("⚠️  SUPABASE_URL or SUPABASE_KEY not set -- realtime briefing subscription disabled")
+            print("⚠️  SUPABASE_URL or SUPABASE_KEY not set -- realtime briefing subscription disabled; polling fallback active")
+            await poll_task
             return
 
         try:
@@ -1594,6 +1650,21 @@ class HomeAssistBot(discord.Client):
             await supabase.realtime.listen()
         except Exception as e:
             print(f"⚠️  Briefing realtime subscription error: {e}")
+            await poll_task
+        finally:
+            if not poll_task.done():
+                poll_task.cancel()
+                with contextlib.suppress(asyncio.CancelledError):
+                    await poll_task
+
+    async def _briefing_poll_loop(self, channel: discord.abc.Messageable) -> None:
+        """Periodic fallback so pending briefings still get delivered without realtime events."""
+        while True:
+            await asyncio.sleep(BRIEFING_POLL_INTERVAL_SECONDS)
+            try:
+                await self._send_pending_discord_briefings(channel, limit=BRIEFING_BOOT_LIMIT)
+            except Exception as e:
+                print(f"⚠️  Briefing polling error: {e}")
 
     async def _send_pending_discord_briefings(
         self,
@@ -1605,10 +1676,10 @@ class HomeAssistBot(discord.Client):
         """Fetch Discord-pending briefings and send them to the dedicated channel."""
         while True:
             try:
-                briefings = await self._briefing_manager.get_pending_briefings_with_opener(
+                briefings = await self._briefing_manager.get_pending_briefings_for_delivery(
                     user=BRIEFING_USER,
-                    limit=limit,
                     delivery_target="discord",
+                    limit=limit,
                     briefing_ids=briefing_ids,
                 )
             except Exception as e:
@@ -1623,20 +1694,21 @@ class HomeAssistBot(discord.Client):
                 if not bid or bid in self._briefings_in_flight:
                     continue
 
-                opener = briefing.get("opener_text")
-                content = briefing.get("content") or {}
-                if isinstance(content, str):
-                    try:
-                        content = json.loads(content)
-                    except (json.JSONDecodeError, TypeError):
-                        content = {"message": content}
-                if isinstance(content, dict) and not opener:
-                    opener = content.get("message", "")
+                opener, source = _extract_briefing_text(briefing)
                 if not opener:
+                    print(
+                        "⚠️  Skipping Discord briefing "
+                        f"{bid}: no opener_text or message content available"
+                        + (f" (source={source})" if source else "")
+                    )
                     continue
 
-                if self._briefing_manager and briefing.get("opener_text"):
-                    opener = self._briefing_manager.get_combined_opener([briefing]) or opener
+                if self._briefing_manager:
+                    resolved = self._briefing_manager.get_combined_opener([briefing])
+                    if resolved:
+                        opener = resolved
+                    else:
+                        opener = _substitute_time_placeholder(opener, briefing)
 
                 self._briefings_in_flight.add(bid)
                 try:

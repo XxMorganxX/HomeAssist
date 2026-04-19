@@ -303,7 +303,7 @@ def main():
         
         # Filter out already-processed events
         original_count = len(events)
-        events = event_cache.filter_unseen_events(events)
+        events = event_cache.filter_unseen_events(events, namespace=user)
         skipped = original_count - len(events)
         total_skipped += skipped
         
@@ -392,4 +392,3 @@ def main():
 
 if __name__ == "__main__":
     sys.exit(main())
-

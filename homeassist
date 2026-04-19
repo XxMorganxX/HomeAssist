@@ -9,6 +9,94 @@ TODO_OVERLAY_PORT=8421
 TODO_OVERLAY_PID_FILE="${PROJECT_DIR}/.todo_overlay.pid"
 TODO_OVERLAY_URL="http://127.0.0.1:${TODO_OVERLAY_PORT}"
 TODO_MENUBAR_PID_FILE="${PROJECT_DIR}/.todo_menubar.pid"
+DISCORD_BOT_PID_FILE="${PROJECT_DIR}/.discord_bot.pid"
+
+discord_bot_cleanup_pid_file() {
+    if [ -f "$DISCORD_BOT_PID_FILE" ]; then
+        OLD_PID=$(cat "$DISCORD_BOT_PID_FILE")
+        if ! kill -0 "$OLD_PID" 2>/dev/null; then
+            rm -f "$DISCORD_BOT_PID_FILE"
+        fi
+    fi
+}
+
+discord_bot_pid() {
+    discord_bot_cleanup_pid_file
+
+    if [ -f "$DISCORD_BOT_PID_FILE" ]; then
+        OLD_PID=$(cat "$DISCORD_BOT_PID_FILE")
+        if kill -0 "$OLD_PID" 2>/dev/null; then
+            echo "$OLD_PID"
+            return 0
+        fi
+    fi
+
+    pgrep -f "python.*-m discord_bot" | awk 'NR==1 {print $1}'
+}
+
+discord_bot_running() {
+    RUNNING_PID=$(discord_bot_pid)
+    [ -n "$RUNNING_PID" ]
+}
+
+run_discord_bot_foreground() {
+    cd "${PROJECT_DIR}"
+    source .env 2>/dev/null
+    source ./venv/bin/activate
+    echo "🤖 Starting Discord bot..."
+    python -u -m discord_bot &
+    DISCORD_FOREGROUND_PID=$!
+    echo $DISCORD_FOREGROUND_PID > "$DISCORD_BOT_PID_FILE"
+    wait $DISCORD_FOREGROUND_PID
+    EXIT_CODE=$?
+    rm -f "$DISCORD_BOT_PID_FILE"
+    return $EXIT_CODE
+}
+
+start_discord_bot_background() {
+    discord_bot_cleanup_pid_file
+    if discord_bot_running; then
+        RUNNING_PID=$(discord_bot_pid)
+        echo "🤖 Discord bot already running (PID: $RUNNING_PID)"
+        return 0
+    fi
+
+    cd "${PROJECT_DIR}"
+    source .env 2>/dev/null
+    source ./venv/bin/activate
+    python -u -m discord_bot > "${PROJECT_DIR}/logs/discord_bot.log" 2>&1 &
+    DISCORD_BOT_PID=$!
+    echo $DISCORD_BOT_PID > "$DISCORD_BOT_PID_FILE"
+    echo "🤖 Discord bot started (PID: $DISCORD_BOT_PID)"
+    return 0
+}
+
+stop_discord_bot() {
+    discord_bot_cleanup_pid_file
+
+    if [ -f "$DISCORD_BOT_PID_FILE" ]; then
+        DISCORD_PID=$(cat "$DISCORD_BOT_PID_FILE")
+        if kill -0 "$DISCORD_PID" 2>/dev/null; then
+            echo "🛑 Stopping Discord bot (PID: $DISCORD_PID)..."
+            kill "$DISCORD_PID" 2>/dev/null
+            sleep 1
+            kill -9 "$DISCORD_PID" 2>/dev/null
+        fi
+    fi
+
+    EXTRA_PIDS=$(pgrep -f "python.*-m discord_bot" 2>/dev/null || true)
+    if [ -n "$EXTRA_PIDS" ]; then
+        echo "$EXTRA_PIDS" | while read -r PID; do
+            [ -z "$PID" ] && continue
+            kill "$PID" 2>/dev/null
+            sleep 1
+            kill -9 "$PID" 2>/dev/null
+        done
+    fi
+
+    rm -f "$DISCORD_BOT_PID_FILE"
+    echo "✅ Discord bot stopped"
+}
 
 todo_overlay_cleanup_pid_file() {
     if [ -f "$TODO_OVERLAY_PID_FILE" ]; then
@@ -364,11 +452,40 @@ case "$1" in
         ;;
     
     discord)
-        cd "${PROJECT_DIR}"
-        source .env 2>/dev/null
-        source ./venv/bin/activate
-        echo "🤖 Starting Discord bot..."
-        python -u -m discord_bot
+        case "$2" in
+            ""|start)
+                if discord_bot_running; then
+                    RUNNING_PID=$(discord_bot_pid)
+                    echo "🤖 Discord bot already running (PID: $RUNNING_PID)"
+                    echo "   Use './homeassist discord restart' to replace it"
+                    exit 0
+                fi
+                run_discord_bot_foreground
+                ;;
+            stop)
+                stop_discord_bot
+                ;;
+            restart)
+                stop_discord_bot
+                sleep 1
+                run_discord_bot_foreground
+                ;;
+            status)
+                if discord_bot_running; then
+                    RUNNING_PID=$(discord_bot_pid)
+                    echo "✅ Discord bot running (PID: $RUNNING_PID)"
+                else
+                    echo "❌ Discord bot not running"
+                fi
+                ;;
+            logs)
+                tail -f "${PROJECT_DIR}/logs/discord_bot.log"
+                ;;
+            *)
+                echo "Usage: homeassist discord [start|stop|restart|status|logs]"
+                exit 1
+                ;;
+        esac
         ;;
     
     todo-ui)
@@ -502,10 +619,11 @@ case "$1" in
         # Start Discord bot in background (runs independently of voice pipeline)
         DISCORD_BOT_PID=""
         if [ -n "$DISCORD_BOT_TOKEN" ]; then
-            source ./venv/bin/activate
-            python -u -m discord_bot > "${PROJECT_DIR}/logs/discord_bot.log" 2>&1 &
-            DISCORD_BOT_PID=$!
-            echo "🤖 Discord bot started (PID: $DISCORD_BOT_PID)"
+            if discord_bot_running; then
+                echo "🤖 Discord bot already running (PID: $(discord_bot_pid))"
+            else
+                start_discord_bot_background
+            fi
         fi
 
         if start_todo_overlay; then

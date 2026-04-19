@@ -49,7 +49,6 @@ You can interrupt it mid-sentence (barge-in), ask multi-step questions, and have
 | **SMS** | Send text messages via macOS Messages |
 | **Notifications** | Email summaries, news digests, custom alerts |
 | **System Info** | Explain the assistant’s architecture and capabilities |
-| **State** | Inspect/update runtime state (debug + automation) |
 | **Cursor** | Local editor automation helpers |
 
 ### Memory & Context

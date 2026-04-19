@@ -4,7 +4,7 @@ User Configuration Module.
 Provides centralized access to user-specific configuration.
 All tools and components should use this module instead of hardcoding user names.
 
-This module reads from state_management/app_state.json and provides:
+This module reads deterministic device-local configuration from state_management/app_state.json and provides:
 - Primary user name
 - Available users list
 - Integration-specific user defaults (Spotify, Calendar, etc.)
@@ -27,8 +27,8 @@ class UserConfig:
     """
     Centralized user configuration manager.
     
-    Reads user configuration from app_state.json and provides
-    consistent access across all tools and components.
+    Reads deterministic device-local configuration from app_state.json and
+    provides consistent access across tools and scheduled jobs.
     """
     
     _instance: Optional['UserConfig'] = None

@@ -21,6 +21,7 @@ from AppKit import (
     NSMenu,
     NSMenuItem,
     NSPanel,
+    NSScreen,
     NSStatusBar,
     NSVariableStatusItemLength,
     NSView,
@@ -179,11 +180,18 @@ class TodoMenubarApp(NSObject):
     def showWindow_(self, sender):  # noqa: N802
         if self.window is None:
             return
-        if self.last_window_frame is None:
+
+        is_visible_elsewhere = self.window.isVisible() and not self._is_window_on_active_space()
+        if is_visible_elsewhere:
+            self._remember_window_frame()
+            self.window.orderOut_(None)
+            self._position_window()
+        elif self.last_window_frame is None:
             self._position_window()
         else:
             self.window.setFrame_display_animate_(self.last_window_frame, True, False)
         self.window.makeKeyAndOrderFront_(None)
+        self.window.orderFrontRegardless()
         NSApp.activateIgnoringOtherApps_(True)
 
     def hideWindow_(self, sender):  # noqa: N802
@@ -228,6 +236,23 @@ class TodoMenubarApp(NSObject):
         app_menu.addItem_(quit_item)
 
         app_menu_item.setSubmenu_(app_menu)
+
+        edit_menu_item = NSMenuItem.alloc().init()
+        main_menu.addItem_(edit_menu_item)
+
+        edit_menu = NSMenu.alloc().initWithTitle_("Edit")
+        for title, action, key in (
+            ("Undo", "undo:", "z"),
+            ("Redo", "redo:", "Z"),
+            ("Cut", "cut:", "x"),
+            ("Copy", "copy:", "c"),
+            ("Paste", "paste:", "v"),
+            ("Select All", "selectAll:", "a"),
+        ):
+            item = NSMenuItem.alloc().initWithTitle_action_keyEquivalent_(title, action, key)
+            edit_menu.addItem_(item)
+
+        edit_menu_item.setSubmenu_(edit_menu)
         NSApp.setMainMenu_(main_menu)
 
     def _build_status_item(self) -> None:
@@ -248,9 +273,12 @@ class TodoMenubarApp(NSObject):
         )
         self.window.setReleasedWhenClosed_(False)
         self.window.setLevel_(NSFloatingWindowLevel)
-        self.window.setCollectionBehavior_(NSWindowCollectionBehaviorMoveToActiveSpace)
         self.window.setMovableByWindowBackground_(True)
+        self.window.setHidesOnDeactivate_(False)
         self.window.setDelegate_(self)
+        self.window.setCollectionBehavior_(
+            self.window.collectionBehavior() | NSWindowCollectionBehaviorMoveToActiveSpace
+        )
 
         self.window.setOpaque_(False)
         self.window.setBackgroundColor_(NSColor.clearColor())
@@ -286,6 +314,12 @@ class TodoMenubarApp(NSObject):
 
     def _is_window_visible_here(self) -> bool:
         if self.window is None or not self.window.isVisible():
+            return False
+
+        return self._is_window_on_active_space()
+
+    def _is_window_on_active_space(self) -> bool:
+        if self.window is None:
             return False
 
         try:
@@ -329,22 +363,19 @@ class TodoMenubarApp(NSObject):
             logger.error("Unable to load todo overlay: %s", exc)
 
     def _position_window(self) -> None:
-        if self.window is None or self.status_item is None:
+        if self.window is None:
             return
 
-        button = self.status_item.button()
-        if button is None or button.window() is None:
+        screen = NSScreen.mainScreen()
+        if screen is None:
             return
 
-        button_frame = button.window().convertRectToScreen_(button.frame())
+        visible = screen.visibleFrame()
         width = self.window.frame().size.width
         height = self.window.frame().size.height
-        x = button_frame.origin.x + button_frame.size.width - width
-        y = button_frame.origin.y - height - 8
-        if x < 12:
-            x = 12
-        if y < 24:
-            y = 24
+        margin = 12
+        x = visible.origin.x + visible.size.width - width - margin
+        y = visible.origin.y + visible.size.height - height
         target_frame = NSMakeRect(x, y, width, height)
         self.window.setFrame_display_animate_(target_frame, True, True)
         self.last_window_frame = target_frame

@@ -16,11 +16,9 @@ import platform
 # NOTE: Imports are intentionally lazy to avoid forcing all dependencies
 # to be installed. The tool registry imports each tool file directly as needed.
 # 
-# If you need to import a specific tool, do:
-#   from mcp_server.tools.state_tool import StateTool
+# If you need to import a specific tool, import the concrete tool module directly.
 
 __all__ = [
-    'StateTool',
     'GetNotificationsTool',
     'KasaLightingTool',
     'SpotifyPlaybackTool',

@@ -9,7 +9,7 @@ The device's location is automatically detected via IP geolocation and cached
 for future use. Only the device's current location is used for weather briefings.
 
 Usage:
-    python main.py [--days DAYS_TO_CHECK] [--dry-run]
+    python main.py [--days DAYS_TO_CHECK] [--zip ZIP_CODE] [--dry-run]
 
 Environment Variables:
     SUPABASE_URL: Supabase project URL
@@ -48,7 +48,9 @@ def _normalize_delivery_status(briefing: Dict[str, Any], status_field: str, lega
     if isinstance(current, str) and current:
         return current
     if briefing.get("status") == "delivered" or briefing.get("delivered_at"):
-        return legacy_terminal_status
+        if status_field == "voice_status":
+            return legacy_terminal_status
+        return "pending"
     return "pending"
 
 
@@ -194,6 +196,7 @@ def create_briefing_from_alerts(
                 "generated_at": datetime.now(timezone.utc).isoformat(),
             }
         },
+        "opener_text": message,
         "priority": priority,
         "status": "pending",
     }
@@ -264,6 +267,7 @@ def create_location_briefing(
                 "generated_at": datetime.now(timezone.utc).isoformat(),
             }
         },
+        "opener_text": message,
         "priority": priority,
         "status": "pending",
     }
@@ -374,6 +378,7 @@ def store_briefing_to_supabase(briefing: Dict[str, Any]) -> bool:
             "id": briefing["id"],
             "user_id": briefing["user_id"],
             "content": json.dumps(briefing["content"]),  # JSONB as string
+            "opener_text": briefing.get("opener_text"),
             "priority": briefing["priority"],
             "status": briefing["status"],
         }
@@ -422,6 +427,7 @@ def main():
     """Main entry point."""
     parser = argparse.ArgumentParser(description="Weather Briefing Generator")
     parser.add_argument("--days", type=int, default=1, help="Days ahead to alert on (default: 1 = today only)")
+    parser.add_argument("--zip", type=str, help="Optional US ZIP code override (skips auto-detected location)")
     parser.add_argument("--user", type=str, default="Morgan", help="User ID for briefing")
     parser.add_argument("--dry-run", action="store_true", help="Don't store to Supabase")
     parser.add_argument("--refresh-location", action="store_true", help="Force refresh of cached location")
@@ -431,43 +437,66 @@ def main():
     
     days_to_check = args.days
     user_id = args.user
-    
-    # Auto-detect device location (uses cache unless --refresh-location)
-    print("\n📍 Detecting device location...")
-    location = auto_detect_location(use_cache=not args.refresh_location)
-    
-    if not location:
-        print("❌ Failed to detect device location. Cannot generate weather briefing.")
-        print("   Try running with --refresh-location to retry IP geolocation.")
-        return 1
-    
-    location_name = location.display_name()
-    
-    print(f"\nConfiguration:")
-    print(f"   Location: {location_name}")
-    print(f"   Coordinates: ({location.lat:.4f}, {location.lon:.4f})")
-    if location.zip_code:
-        print(f"   ZIP Code: {location.zip_code}")
-    print(f"   Days to check: {days_to_check}")
-    print(f"   User: {user_id}")
-    print(f"   Dry run: {args.dry_run}")
-    print()
-    
-    # Initialize analyzer (season-based thresholds)
-    analyzer = WeatherAnalyzer(zip_code=location.zip_code or "00000")
-    print(f"🌡️  Current season: {analyzer._current_season}")
-    print(f"   Temperature thresholds: {analyzer._get_temp_thresholds()}")
-    print()
-    
-    # Fetch weather using coordinates (more accurate than ZIP code)
-    print(f"\n{'='*60}")
-    print(f"📍 {location_name}")
-    print("="*60)
-    
-    forecast = fetch_weather_by_coords(location.lat, location.lon, days=7)
-    
+
+    zip_override = (args.zip or "").strip()
+    location_name = ""
+    forecast = None
+
+    if zip_override:
+        # Explicit ZIP from caller (for CI/workflow compatibility).
+        location_name = f"ZIP {zip_override}"
+        print(f"\nConfiguration:")
+        print(f"   Location: {location_name} (override)")
+        print(f"   ZIP Code: {zip_override}")
+        print(f"   Days to check: {days_to_check}")
+        print(f"   User: {user_id}")
+        print(f"   Dry run: {args.dry_run}")
+        print()
+
+        analyzer = WeatherAnalyzer(zip_code=zip_override)
+        print(f"🌡️  Current season: {analyzer._current_season}")
+        print(f"   Temperature thresholds: {analyzer._get_temp_thresholds()}")
+        print()
+
+        print(f"\n{'='*60}")
+        print(f"📍 {location_name}")
+        print("="*60)
+        forecast = fetch_weather_data(zip_override, days=7)
+    else:
+        # Auto-detect device location (uses cache unless --refresh-location)
+        print("\n📍 Detecting device location...")
+        location = auto_detect_location(use_cache=not args.refresh_location)
+        
+        if not location:
+            print("❌ Failed to detect device location. Cannot generate weather briefing.")
+            print("   Try running with --refresh-location to retry IP geolocation.")
+            return 1
+        
+        location_name = location.display_name()
+        
+        print(f"\nConfiguration:")
+        print(f"   Location: {location_name}")
+        print(f"   Coordinates: ({location.lat:.4f}, {location.lon:.4f})")
+        if location.zip_code:
+            print(f"   ZIP Code: {location.zip_code}")
+        print(f"   Days to check: {days_to_check}")
+        print(f"   User: {user_id}")
+        print(f"   Dry run: {args.dry_run}")
+        print()
+        
+        analyzer = WeatherAnalyzer(zip_code=location.zip_code or "00000")
+        print(f"🌡️  Current season: {analyzer._current_season}")
+        print(f"   Temperature thresholds: {analyzer._get_temp_thresholds()}")
+        print()
+        
+        # Fetch weather using coordinates (more accurate than ZIP code)
+        print(f"\n{'='*60}")
+        print(f"📍 {location_name}")
+        print("="*60)
+        forecast = fetch_weather_by_coords(location.lat, location.lon, days=7)
+
     if not forecast:
-        print(f"   ❌ Failed to fetch weather data for {location_name}")
+        print(f"   ❌ Failed to fetch weather data for {location_name or 'requested location'}")
         return 1
     
     # Display forecast
@@ -544,4 +573,3 @@ def main():
 
 if __name__ == "__main__":
     sys.exit(main())
-

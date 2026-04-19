@@ -34,7 +34,9 @@ def _normalize_delivery_status(briefing: Dict[str, Any], status_field: str, lega
     if isinstance(current, str) and current:
         return current
     if briefing.get("status") == "delivered" or briefing.get("delivered_at"):
-        return legacy_terminal_status
+        if status_field == "voice_status":
+            return legacy_terminal_status
+        return "pending"
     return "pending"
 
 
@@ -607,7 +609,7 @@ Output ONLY the reminder text (1-2 complete sentences that end properly), nothin
             response = (
                 self._client.table(self.TABLE_NAME)
                 .select("id, status, delivered_at, discord_status, voice_status, voice_read_at")
-                .eq("status", "pending")
+                .in_("status", ["pending", "delivered"])
                 .like("id", "cal_reminder_%")
                 .execute()
             )
@@ -686,4 +688,3 @@ Output ONLY the reminder text (1-2 complete sentences that end properly), nothin
             lines.append(f"\n... and {len(briefings) - 10} more")
         
         return "\n".join(lines)
-

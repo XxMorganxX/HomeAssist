@@ -48,9 +48,10 @@ Workflow:
 import json
 import os
 import re
-from datetime import datetime, timezone, timedelta
+from datetime import datetime, timezone, timedelta, time as dt_time
 from pathlib import Path
 from typing import List, Dict, Any, Optional
+from zoneinfo import ZoneInfo
 
 try:
     from supabase import create_client, Client
@@ -67,6 +68,10 @@ load_dotenv()
 
 DISCORD_DELIVERY = "discord"
 VOICE_DELIVERY = "voice"
+DEFAULT_BRIEFING_WINDOWS_LOCAL = "08:30,12:30,17:30"
+DEFAULT_BRIEFING_QUIET_HOURS_START = "21:00"
+DEFAULT_BRIEFING_QUIET_HOURS_END = "07:30"
+DEFAULT_TIMEZONE = os.getenv("DEFAULT_TIME_ZONE", "America/New_York")
 DELIVERY_FIELD_MAP = {
     DISCORD_DELIVERY: ("discord_status", "discord_sent_at", "sent"),
     VOICE_DELIVERY: ("voice_status", "voice_read_at", "read"),
@@ -88,10 +93,12 @@ def _get_delivery_status(briefing: Dict[str, Any], delivery_target: str) -> str:
         return current
 
     # Backward compatibility for rows created before the split delivery schema.
-    if briefing.get("status") == "delivered":
-        return terminal_status
-    if briefing.get("delivered_at"):
-        return terminal_status
+    # Legacy delivery implied the assistant already spoke the item, but it says
+    # nothing about whether Discord has posted it under the split delivery model.
+    if briefing.get("status") == "delivered" or briefing.get("delivered_at"):
+        if target == VOICE_DELIVERY:
+            return terminal_status
+        return "pending"
     return "pending"
 
 
@@ -175,43 +182,158 @@ def _format_time_until(event_datetime: datetime) -> str:
 
 def _substitute_time_placeholder(opener: str, briefing: Dict[str, Any]) -> str:
     """
-    Replace {{TIME_UNTIL_EVENT}} placeholder with actual calculated time.
-    
-    Args:
-        opener: The opener text with potential placeholder
-        briefing: The briefing dict containing event metadata
-        
-    Returns:
-        Opener with placeholder substituted
+    Replace {{TIME_UNTIL_EVENT}} and {{TIME_UNTIL_DUE}} placeholders with
+    real-time calculated durations.
     """
-    if "{{TIME_UNTIL_EVENT}}" not in opener:
+    if "{{TIME_UNTIL_EVENT}}" not in opener and "{{TIME_UNTIL_DUE}}" not in opener:
         return opener
-    
-    # Get event datetime from briefing metadata
+
     content = briefing.get("content", {})
     if isinstance(content, str):
         try:
             content = json.loads(content)
         except (json.JSONDecodeError, TypeError):
-            return opener.replace("{{TIME_UNTIL_EVENT}}", "soon")
-    
+            content = {}
+    if not isinstance(content, dict):
+        content = {}
     meta = content.get("meta", {})
-    event_datetime_iso = meta.get("event_datetime_iso")
-    
-    if not event_datetime_iso:
-        # Try alternative fields
-        event_datetime_iso = content.get("event_datetime_iso") or meta.get("reminder_at_iso")
-    
-    if not event_datetime_iso:
-        return opener.replace("{{TIME_UNTIL_EVENT}}", "soon")
-    
+    if not isinstance(meta, dict):
+        meta = {}
+
+    def replace_placeholder(text: str, placeholder: str, candidates: List[Any]) -> str:
+        if placeholder not in text:
+            return text
+        target_iso = next((str(value) for value in candidates if isinstance(value, str) and value), "")
+        if not target_iso:
+            return text.replace(placeholder, "soon")
+        try:
+            target_dt = datetime.fromisoformat(target_iso.replace("Z", "+00:00"))
+            return text.replace(placeholder, _format_time_until(target_dt))
+        except (ValueError, TypeError):
+            return text.replace(placeholder, "soon")
+
+    opener = replace_placeholder(
+        opener,
+        "{{TIME_UNTIL_EVENT}}",
+        [
+            meta.get("event_datetime_iso"),
+            content.get("event_datetime_iso"),
+            meta.get("reminder_at_iso"),
+        ],
+    )
+    opener = replace_placeholder(
+        opener,
+        "{{TIME_UNTIL_DUE}}",
+        [
+            meta.get("due_at_iso"),
+            content.get("due_at_iso"),
+            meta.get("event_datetime_iso"),
+        ],
+    )
+    return opener
+
+
+def _parse_clock_time(raw: Any, fallback: dt_time) -> dt_time:
+    value = str(raw or "").strip()
+    match = re.fullmatch(r"(\d{1,2}):(\d{2})", value)
+    if not match:
+        return fallback
+    hour = int(match.group(1))
+    minute = int(match.group(2))
+    if hour < 0 or hour > 23 or minute < 0 or minute > 59:
+        return fallback
+    return dt_time(hour=hour, minute=minute)
+
+
+def _parse_window_times(raw: Any) -> List[dt_time]:
+    fallback = [
+        dt_time(hour=8, minute=30),
+        dt_time(hour=12, minute=30),
+        dt_time(hour=17, minute=30),
+    ]
+    if not raw:
+        return fallback
+    parsed: List[dt_time] = []
+    for part in str(raw).split(","):
+        match = re.fullmatch(r"(\d{1,2}):(\d{2})", part.strip())
+        if not match:
+            continue
+        hour = int(match.group(1))
+        minute = int(match.group(2))
+        if hour < 0 or hour > 23 or minute < 0 or minute > 59:
+            continue
+        parsed.append(dt_time(hour=hour, minute=minute))
+    if not parsed:
+        return fallback
+    deduped = sorted({(item.hour, item.minute) for item in parsed})
+    return [dt_time(hour=hour, minute=minute) for hour, minute in deduped]
+
+
+def _is_within_quiet_hours(local_dt: datetime, *, start: dt_time, end: dt_time) -> bool:
+    local_time = local_dt.time().replace(tzinfo=None)
+    if start == end:
+        return False
+    if start < end:
+        return start <= local_time < end
+    return local_time >= start or local_time < end
+
+
+def _first_window_at_or_after(
+    base_local: datetime,
+    *,
+    windows: List[dt_time],
+    quiet_start: dt_time,
+    quiet_end: dt_time,
+    tz: ZoneInfo,
+) -> datetime:
+    start_date = base_local.date()
+    for day_offset in range(0, 35):
+        current_date = start_date + timedelta(days=day_offset)
+        for window in windows:
+            candidate = datetime.combine(current_date, window).replace(tzinfo=tz)
+            if candidate < base_local:
+                continue
+            if _is_within_quiet_hours(candidate, start=quiet_start, end=quiet_end):
+                continue
+            return candidate
+    return base_local
+
+
+def _compute_digest_active_from(briefing: Dict[str, Any], meta: Dict[str, Any]) -> Optional[datetime]:
+    source = str(meta.get("source") or "")
+    if source not in {"todo_digest", "weather_digest"}:
+        return None
+
+    base_ref = briefing.get("created_at") or meta.get("generated_at") or meta.get("generated_on")
     try:
-        # Parse the event datetime
-        event_dt = datetime.fromisoformat(event_datetime_iso.replace("Z", "+00:00"))
-        time_until = _format_time_until(event_dt)
-        return opener.replace("{{TIME_UNTIL_EVENT}}", time_until)
-    except (ValueError, TypeError):
-        return opener.replace("{{TIME_UNTIL_EVENT}}", "soon")
+        base_dt = datetime.fromisoformat(str(base_ref).replace("Z", "+00:00"))
+    except (TypeError, ValueError):
+        base_dt = datetime.now(timezone.utc)
+
+    if base_dt.tzinfo is None:
+        base_dt = base_dt.replace(tzinfo=timezone.utc)
+    else:
+        base_dt = base_dt.astimezone(timezone.utc)
+
+    local_tz = ZoneInfo(DEFAULT_TIMEZONE)
+    base_local = base_dt.astimezone(local_tz)
+    windows = _parse_window_times(os.getenv("BRIEFING_WINDOWS_LOCAL", DEFAULT_BRIEFING_WINDOWS_LOCAL))
+    quiet_start = _parse_clock_time(
+        os.getenv("BRIEFING_QUIET_HOURS_START", DEFAULT_BRIEFING_QUIET_HOURS_START),
+        fallback=dt_time(hour=21, minute=0),
+    )
+    quiet_end = _parse_clock_time(
+        os.getenv("BRIEFING_QUIET_HOURS_END", DEFAULT_BRIEFING_QUIET_HOURS_END),
+        fallback=dt_time(hour=7, minute=30),
+    )
+    planned_local = _first_window_at_or_after(
+        base_local,
+        windows=windows,
+        quiet_start=quiet_start,
+        quiet_end=quiet_end,
+        tz=local_tz,
+    )
+    return planned_local.astimezone(timezone.utc)
 
 
 def _is_briefing_active(briefing: Dict[str, Any]) -> bool:
@@ -233,11 +355,19 @@ def _is_briefing_active(briefing: Dict[str, Any]) -> bool:
             content = json.loads(content)
         except (json.JSONDecodeError, TypeError):
             return True  # No active_from, so it's active
-    
+    if not isinstance(content, dict):
+        return True
+
     active_from = content.get("active_from")
+    meta = content.get("meta", {})
+    if not isinstance(meta, dict):
+        meta = {}
     if not active_from:
-        return True  # No active_from means it's always active
-    
+        digest_active_from = _compute_digest_active_from(briefing, meta)
+        if digest_active_from is None:
+            return True  # No active_from means it's always active
+        return datetime.now(timezone.utc) >= digest_active_from
+
     now = datetime.now(timezone.utc)
     
     try:
@@ -254,19 +384,23 @@ def _is_briefing_active(briefing: Dict[str, Any]) -> bool:
         return True
 
 
+MAX_BRIEFING_AGE_HOURS = 24
+
+
 def _is_briefing_expired(briefing: Dict[str, Any]) -> bool:
     """
-    Check if a briefing's event has already happened (expired).
+    Check if a briefing has expired.
     
-    Looks for event_datetime_iso in content.meta to determine if the
-    event the briefing refers to has already passed.
+    A briefing is expired if:
+    1. It has an event_datetime_iso and that event has already passed, OR
+    2. It has no event datetime and is older than MAX_BRIEFING_AGE_HOURS
+       (prevents stale weather/general briefings from lingering forever)
     
     Args:
-        briefing: The briefing record (with 'content' field)
+        briefing: The briefing record (with 'content' and 'created_at' fields)
         
     Returns:
-        True if the event has already happened (briefing should be skipped),
-        False if the event is still in the future or no datetime found
+        True if the briefing should be skipped, False otherwise
     """
     content = briefing.get("content", {})
     
@@ -275,27 +409,34 @@ def _is_briefing_expired(briefing: Dict[str, Any]) -> bool:
         try:
             content = json.loads(content)
         except (json.JSONDecodeError, TypeError):
-            return False  # Can't determine, don't skip
+            content = {}
     
     meta = content.get("meta", {})
-    
-    # Look for event datetime - check multiple possible field names
-    event_datetime_iso = meta.get("event_datetime_iso")
-    if not event_datetime_iso:
-        # Try alternative fields
-        event_datetime_iso = content.get("event_datetime_iso") or meta.get("reminder_at_iso")
-    
-    if not event_datetime_iso:
-        return False  # No datetime found, don't skip
-    
     now = datetime.now(timezone.utc)
     
-    try:
-        event_dt = datetime.fromisoformat(event_datetime_iso.replace("Z", "+00:00"))
-        # Event has expired if it's in the past
-        return event_dt < now
-    except (ValueError, TypeError):
-        return False  # If parsing fails, don't skip
+    # Check explicit event datetime first
+    event_datetime_iso = meta.get("event_datetime_iso")
+    if not event_datetime_iso:
+        event_datetime_iso = content.get("event_datetime_iso") or meta.get("reminder_at_iso")
+    
+    if event_datetime_iso:
+        try:
+            event_dt = datetime.fromisoformat(event_datetime_iso.replace("Z", "+00:00"))
+            return event_dt < now
+        except (ValueError, TypeError):
+            pass
+    
+    # No event datetime — fall back to age-based expiry using created_at or
+    # meta.generated_at (whichever is available).
+    age_ref = briefing.get("created_at") or meta.get("generated_at")
+    if age_ref:
+        try:
+            created_dt = datetime.fromisoformat(str(age_ref).replace("Z", "+00:00"))
+            return (now - created_dt) > timedelta(hours=MAX_BRIEFING_AGE_HOURS)
+        except (ValueError, TypeError):
+            pass
+    
+    return False
 
 
 class BriefingManager:
@@ -313,7 +454,8 @@ class BriefingManager:
     """
     
     TABLE_NAME = "briefing_announcements"
-    LOCAL_FALLBACK_PATH = Path(__file__).parent.parent.parent / "state_management" / "briefing_announcements.json"
+    # Repo-level fallback path: <project_root>/state_management/briefing_announcements.json
+    LOCAL_FALLBACK_PATH = Path(__file__).resolve().parents[3] / "state_management" / "briefing_announcements.json"
     
     def __init__(self):
         """Initialize the BriefingManager with Supabase client."""
@@ -362,6 +504,7 @@ class BriefingManager:
         user: str,
         delivery_target: str,
         limit: int = 10,
+        briefing_ids: Optional[List[str]] = None,
     ) -> List[Dict[str, Any]]:
         """Get pending briefings for a specific delivery target."""
         target = _normalize_delivery_target(delivery_target)
@@ -370,11 +513,13 @@ class BriefingManager:
                 user=user,
                 limit=limit,
                 delivery_target=target,
+                briefing_ids=briefing_ids,
             )
         return self._get_pending_from_local(
             user=user,
             limit=limit,
             delivery_target=target,
+            briefing_ids=briefing_ids,
         )
     
     async def _get_pending_from_supabase(
@@ -382,19 +527,23 @@ class BriefingManager:
         user: str,
         limit: int,
         delivery_target: str,
+        briefing_ids: Optional[List[str]] = None,
     ) -> List[Dict[str, Any]]:
         """Fetch pending briefings from Supabase for a specific delivery target."""
         try:
-            response = (
+            query = (
                 self._client.table(self.TABLE_NAME)
                 .select("*")
                 .eq("user_id", user)
                 .eq("status", "pending")
                 .order("priority", desc=False)
                 .order("created_at", desc=False)
-                .limit(limit * 3)  # Fetch extra to account for filtered/skipped ones
-                .execute()
             )
+            if briefing_ids:
+                query = query.in_("id", briefing_ids)
+            else:
+                query = query.limit(limit * 3)
+            response = query.execute()
             
             if not response.data:
                 return []
@@ -434,6 +583,7 @@ class BriefingManager:
         user: str,
         limit: int,
         delivery_target: str,
+        briefing_ids: Optional[List[str]] = None,
     ) -> List[Dict[str, Any]]:
         """Fetch pending briefings from local fallback file."""
         try:
@@ -443,12 +593,16 @@ class BriefingManager:
             with open(self.LOCAL_FALLBACK_PATH, 'r') as f:
                 data = json.load(f)
             
+            id_set = set(briefing_ids) if briefing_ids else None
+            
             # Separate expired from valid briefings
             expired_ids = []
             valid_briefings = []
             
             for b in data.get("briefings", []):
                 if b.get("user_id") != user or b.get("status") != "pending":
+                    continue
+                if id_set and b.get("id") not in id_set:
                     continue
                 if not _is_delivery_pending(b, delivery_target):
                     continue
@@ -514,6 +668,7 @@ class BriefingManager:
             status_field, timestamp_field, terminal_status = DELIVERY_FIELD_MAP[_normalize_delivery_target(delivery_target)]
             now = datetime.now(timezone.utc).isoformat()
             marked = 0
+            finalized = 0
             
             for briefing_id in briefing_ids:
                 try:
@@ -522,11 +677,29 @@ class BriefingManager:
                         timestamp_field: now,
                     }).eq("id", briefing_id).eq("status", "pending").execute()
                     marked += 1
+
+                    # Finalize lifecycle when both delivery channels are complete.
+                    finalize_response = (
+                        self._client.table(self.TABLE_NAME)
+                        .update({
+                            "status": "delivered",
+                            "delivered_at": now,
+                        })
+                        .eq("id", briefing_id)
+                        .eq("status", "pending")
+                        .eq("discord_status", DELIVERY_FIELD_MAP[DISCORD_DELIVERY][2])  # sent
+                        .eq("voice_status", DELIVERY_FIELD_MAP[VOICE_DELIVERY][2])      # read
+                        .execute()
+                    )
+                    if finalize_response.data:
+                        finalized += len(finalize_response.data)
                 except Exception as e:
                     print(f"⚠️  BriefingManager: Failed to mark {briefing_id} as {terminal_status} for {delivery_target} - {e}")
             
             if marked:
                 print(f"✅ BriefingManager: Marked {marked} briefing(s) as {terminal_status} for {delivery_target}")
+            if finalized:
+                print(f"✅ BriefingManager: Finalized {finalized} briefing(s) as delivered")
             return marked
             
         except Exception as e:
@@ -545,18 +718,31 @@ class BriefingManager:
             status_field, timestamp_field, terminal_status = DELIVERY_FIELD_MAP[_normalize_delivery_target(delivery_target)]
             now = datetime.now(timezone.utc).isoformat()
             marked = 0
+            finalized = 0
             
             for briefing in data.get("briefings", []):
                 if briefing.get("id") in briefing_ids and briefing.get("status") == "pending":
                     briefing[status_field] = terminal_status
                     briefing[timestamp_field] = now
                     marked += 1
+
+                # Finalize lifecycle when both delivery channels are complete.
+                if (
+                    briefing.get("status") == "pending"
+                    and briefing.get("discord_status") == DELIVERY_FIELD_MAP[DISCORD_DELIVERY][2]  # sent
+                    and briefing.get("voice_status") == DELIVERY_FIELD_MAP[VOICE_DELIVERY][2]      # read
+                ):
+                    briefing["status"] = "delivered"
+                    briefing["delivered_at"] = now
+                    finalized += 1
             
             with open(self.LOCAL_FALLBACK_PATH, 'w') as f:
                 json.dump(data, f, indent=2)
             
             if marked:
                 print(f"✅ BriefingManager (local): Marked {marked} briefing(s) as {terminal_status} for {delivery_target}")
+            if finalized:
+                print(f"✅ BriefingManager (local): Finalized {finalized} briefing(s) as delivered")
             return marked
             
         except Exception as e:
@@ -915,8 +1101,8 @@ class BriefingManager:
         """
         Get a combined opener from multiple briefings.
         
-        Automatically substitutes {{TIME_UNTIL_EVENT}} placeholders with
-        the actual calculated time remaining until each event.
+        Automatically substitutes {{TIME_UNTIL_EVENT}} / {{TIME_UNTIL_DUE}}
+        placeholders with the actual calculated time remaining.
         
         Args:
             briefings: List of briefings with opener_text

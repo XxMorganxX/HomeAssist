@@ -21,6 +21,8 @@ Use this tool when the user wants to:
 - Mark a task done or reopen it
 - Edit or delete a task
 - Ask what is due today or overdue
+- Replace a task with its next step (advance a chain)
+- View the history of a chained task
 
 IMPORTANT:
 - Use `todos` for persistent action items and user-driven reminders.
@@ -30,6 +32,10 @@ IMPORTANT:
 Timing:
 - For a direct reminder-style request like "remind me tomorrow at 5pm to call mom", use action='create' with `title` and `due_at`.
 - For an event-relative reminder like "remind me 30 minutes before my 3pm meeting", use action='create' with `title`, `event_time`, and `remind_before_minutes`.
+
+Chains:
+- Use action='advance' when the user wants to replace a todo with its next step. This completes the current todo and creates a new one linked in a chain. Requires `title` for the next step, plus `todo_id` or `match` to identify the current todo.
+- Use action='chain' with `todo_id` to view the full history of a chained todo.
 """
     version = "1.0.0"
 
@@ -43,8 +49,8 @@ Timing:
             "properties": {
                 "action": {
                     "type": "string",
-                    "enum": ["create", "list", "complete", "reopen", "update", "delete"],
-                    "description": "Todo action to perform.",
+                    "enum": ["create", "list", "complete", "reopen", "update", "delete", "advance", "chain"],
+                    "description": "Todo action to perform. 'advance' completes a todo and creates its next step in a chain. 'chain' returns the full history of a chained todo.",
                     "default": "create",
                 },
                 "user": {
@@ -62,6 +68,10 @@ Timing:
                 "details": {
                     "type": "string",
                     "description": "Optional longer details or context for the todo.",
+                },
+                "group": {
+                    "type": "string",
+                    "description": "Optional user-defined group/folder name for organizing todos.",
                 },
                 "due_at": {
                     "type": "string",
@@ -112,6 +122,11 @@ Timing:
                     "description": "For update: clear any due time on the todo.",
                     "default": False,
                 },
+                "clear_group": {
+                    "type": "boolean",
+                    "description": "For update: remove the todo from any custom group.",
+                    "default": False,
+                },
                 "source_type": {
                     "type": "string",
                     "enum": ["voice", "discord", "calendar", "manual"],
@@ -150,6 +165,10 @@ Timing:
                 return self._update(params)
             if action == "delete":
                 return self._delete(params)
+            if action == "advance":
+                return self._advance(params)
+            if action == "chain":
+                return self._chain(params)
             return {"success": False, "error": f"Unknown action: {action}"}
         except Exception as exc:
             self.logger.error("Todos tool error: %s", exc)
@@ -172,6 +191,7 @@ Timing:
             remind_before_minutes=params.get("remind_before_minutes"),
             source_type=params.get("source_type", "voice"),
             source_id=params.get("source_id"),
+            group=params.get("group"),
             source_metadata={
                 "created_via": "todos_tool",
                 "event_time": params.get("event_time"),
@@ -216,10 +236,10 @@ Timing:
         return {"success": True, "action": "reopen", "todo": todo}
 
     def _update(self, params: Dict[str, Any]) -> Dict[str, Any]:
-        if not any(key in params for key in ("title", "details", "due_at", "clear_due_at")):
+        if not any(key in params for key in ("title", "details", "due_at", "clear_due_at", "group", "clear_group")):
             return {
                 "success": False,
-                "error": "Update requires at least one field change: title, details, due_at, or clear_due_at.",
+                "error": "Update requires at least one field change: title, details, due_at, clear_due_at, group, or clear_group.",
             }
 
         todo = self._todos.update_todo(
@@ -230,6 +250,8 @@ Timing:
             details=params.get("details"),
             due_at=params.get("due_at"),
             clear_due_at=params.get("clear_due_at", False),
+            group=params.get("group"),
+            clear_group=params.get("clear_group", False),
         )
         return {"success": True, "action": "update", "todo": todo}
 
@@ -240,3 +262,47 @@ Timing:
             match=params.get("match"),
         )
         return {"success": True, "action": "delete", "todo": todo}
+
+    def _advance(self, params: Dict[str, Any]) -> Dict[str, Any]:
+        title = (params.get("title") or params.get("message") or "").strip()
+        if not title:
+            return {
+                "success": False,
+                "error": "Title is required for the next step.",
+            }
+
+        result = self._todos.advance_todo(
+            user=params.get("user"),
+            todo_id=params.get("todo_id"),
+            match=params.get("match"),
+            title=title,
+            details=params.get("details"),
+            due_at=params.get("due_at"),
+        )
+        return {
+            "success": True,
+            "action": "advance",
+            "previous_todo": result["previous"],
+            "todo": result["current"],
+            "chain_id": result["chain_id"],
+            "chain_position": result["chain_position"],
+        }
+
+    def _chain(self, params: Dict[str, Any]) -> Dict[str, Any]:
+        todo_id = params.get("todo_id")
+        if not todo_id:
+            return {
+                "success": False,
+                "error": "todo_id is required to view a chain.",
+            }
+
+        chain = self._todos.get_chain(
+            user=params.get("user"),
+            todo_id=todo_id,
+        )
+        return {
+            "success": True,
+            "action": "chain",
+            "count": len(chain),
+            "chain": chain,
+        }

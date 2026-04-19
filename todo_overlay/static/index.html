@@ -15,6 +15,7 @@
           <span id="userLabel" class="header-user">Loading…</span>
         </div>
         <div class="header-actions">
+          <button id="addGroupToggleButton" class="header-icon-button" type="button" title="Add group" aria-label="Add group">▤</button>
           <button id="addToggleButton" class="header-icon-button" type="button" title="Add todo" aria-label="Add todo">+</button>
           <button id="refreshButton" class="header-icon-button" type="button" title="Refresh" aria-label="Refresh">↻</button>
         </div>
@@ -49,6 +50,10 @@
             <span>Due</span>
             <input id="createDueAt" name="due_at" type="text" maxlength="100" placeholder="Optional: tomorrow 5pm">
           </label>
+          <label>
+            <span>Group</span>
+            <input id="createGroup" name="group" type="text" maxlength="80" list="groupSuggestions" placeholder="Optional: Work">
+          </label>
           <label class="full-width">
             <span>Details</span>
             <textarea id="createDetails" name="details" rows="2" maxlength="500" placeholder="Optional extra context"></textarea>
@@ -56,6 +61,23 @@
           <div class="form-actions full-width">
             <button class="ghost-button" type="button" id="addCancelButton">Cancel</button>
             <button class="primary-button" type="submit">Add</button>
+          </div>
+        </form>
+      </section>
+
+      <section id="addGroupPanel" class="panel hidden">
+        <div class="panel-header">
+          <h2>New Group</h2>
+          <p class="subtle">Create a folder to organize todos.</p>
+        </div>
+        <form id="createGroupForm" class="todo-form">
+          <label class="full-width">
+            <span>Group Name</span>
+            <input id="createGroupName" name="group_name" type="text" maxlength="80" placeholder="Example: Work">
+          </label>
+          <div class="form-actions full-width">
+            <button class="ghost-button" type="button" id="addGroupCancelButton">Cancel</button>
+            <button class="primary-button" type="submit">Create Group</button>
           </div>
         </form>
       </section>
@@ -91,6 +113,10 @@
           <span>Due</span>
           <input id="editDueAt" name="due_at" type="text" maxlength="100" placeholder="Optional: tomorrow 5pm">
         </label>
+        <label>
+          <span>Group</span>
+          <input id="editGroup" name="group" type="text" maxlength="80" list="groupSuggestions" placeholder="Optional: Work">
+        </label>
         <label class="full-width">
           <span>Details</span>
           <textarea id="editDetails" name="details" rows="4" maxlength="500"></textarea>
@@ -102,6 +128,130 @@
       </form>
     </section>
   </div>
+
+  <div id="shareModalBackdrop" class="modal-backdrop hidden">
+    <section class="modal-card" role="dialog" aria-modal="true" aria-labelledby="shareModalTitle">
+      <div class="panel-header">
+        <div>
+          <h2 id="shareModalTitle">Share Todo</h2>
+          <p id="shareHelpText" class="subtle">Send or schedule from this todo.</p>
+        </div>
+        <button id="closeShareModalButton" class="ghost-button" type="button">Close</button>
+      </div>
+      <form id="shareForm" class="todo-form">
+        <input id="shareTodoId" type="hidden">
+        <input id="shareMode" type="hidden">
+        <label class="full-width">
+          <span id="shareRecipientsLabel">Recipients</span>
+          <input id="shareRecipients" name="share_recipients" type="text" maxlength="500" placeholder="name@example.com, other@example.com">
+        </label>
+        <label id="shareSubjectRow" class="full-width">
+          <span>Subject</span>
+          <input id="shareSubject" name="share_subject" type="text" maxlength="200">
+        </label>
+        <label id="shareBodyRow" class="full-width">
+          <span>Message</span>
+          <textarea id="shareBody" name="share_body" rows="6" maxlength="4000"></textarea>
+        </label>
+        <div class="form-actions full-width modal-actions">
+          <button id="shareCancelButton" class="ghost-button" type="button">Cancel</button>
+          <button id="shareSubmitButton" class="primary-button" type="submit">Continue</button>
+        </div>
+      </form>
+    </section>
+  </div>
+
+  <div id="calendarModalBackdrop" class="modal-backdrop hidden">
+    <section class="modal-card" role="dialog" aria-modal="true" aria-labelledby="calendarModalTitle">
+      <div class="panel-header">
+        <div>
+          <h2 id="calendarModalTitle">Add To Calendar</h2>
+          <p class="subtle">Choose one or more Google Calendars for this todo.</p>
+        </div>
+        <button id="closeCalendarModalButton" class="ghost-button" type="button">Close</button>
+      </div>
+      <form id="calendarForm" class="todo-form">
+        <input id="calendarTodoId" type="hidden">
+        <div class="full-width">
+          <div id="calendarOptions" class="calendar-options" role="group" aria-labelledby="calendarModalTitle"></div>
+        </div>
+        <div class="form-actions full-width modal-actions">
+          <button id="calendarCancelButton" class="ghost-button" type="button">Cancel</button>
+          <button id="calendarSubmitButton" class="primary-button" type="submit">Add To Selected Calendars</button>
+        </div>
+      </form>
+    </section>
+  </div>
+
+  <div id="moveModalBackdrop" class="modal-backdrop hidden">
+    <section class="modal-card" role="dialog" aria-modal="true" aria-labelledby="moveModalTitle">
+      <div class="panel-header">
+        <div>
+          <h2 id="moveModalTitle">Move Todo</h2>
+          <p class="subtle">Select which folder this todo belongs to.</p>
+        </div>
+        <button id="closeMoveModalButton" class="ghost-button" type="button">Close</button>
+      </div>
+      <form id="moveForm" class="todo-form">
+        <input id="moveTodoId" type="hidden">
+        <label class="full-width">
+          <span>Group</span>
+          <select id="moveGroupSelect" name="group" required></select>
+        </label>
+        <div class="form-actions full-width modal-actions">
+          <button id="moveCancelButton" class="ghost-button" type="button">Cancel</button>
+          <button id="moveSubmitButton" class="primary-button" type="submit">Move</button>
+        </div>
+      </form>
+    </section>
+  </div>
+
+  <div id="advanceModalBackdrop" class="modal-backdrop hidden">
+    <section class="modal-card" role="dialog" aria-modal="true" aria-labelledby="advanceModalTitle">
+      <div class="panel-header">
+        <div>
+          <h2 id="advanceModalTitle">Next Step</h2>
+          <p class="subtle">Complete this todo and replace it with the next step.</p>
+        </div>
+        <button id="closeAdvanceModalButton" class="ghost-button" type="button">Close</button>
+      </div>
+      <div id="advancePreviousTitle" class="advance-previous-title"></div>
+      <form id="advanceForm" class="todo-form">
+        <input id="advanceTodoId" type="hidden">
+        <label class="full-width">
+          <span>Next Step</span>
+          <input id="advanceTitle" name="title" type="text" maxlength="200" placeholder="What's the next step?" required>
+        </label>
+        <label>
+          <span>Due</span>
+          <input id="advanceDueAt" name="due_at" type="text" maxlength="100" placeholder="Optional: tomorrow 5pm">
+        </label>
+        <label>
+          <span>Details</span>
+          <textarea id="advanceDetails" name="details" rows="2" maxlength="500" placeholder="Optional extra context"></textarea>
+        </label>
+        <div class="form-actions full-width modal-actions">
+          <button id="advanceCancelButton" class="ghost-button" type="button">Cancel</button>
+          <button id="advanceSubmitButton" class="primary-button" type="submit">Advance</button>
+        </div>
+      </form>
+    </section>
+  </div>
+
+  <div id="chainModalBackdrop" class="modal-backdrop hidden">
+    <section class="modal-card modal-card-wide" role="dialog" aria-modal="true" aria-labelledby="chainModalTitle">
+      <div class="panel-header">
+        <div>
+          <h2 id="chainModalTitle">Chain History</h2>
+          <p id="chainModalSubtitle" class="subtle">All steps in this chain.</p>
+        </div>
+        <button id="closeChainModalButton" class="ghost-button" type="button">Close</button>
+      </div>
+      <div id="chainTimeline" class="chain-timeline"></div>
+    </section>
+  </div>
+
+  <datalist id="groupSuggestions"></datalist>
 
   <script src="/app.js"></script>
 </body>

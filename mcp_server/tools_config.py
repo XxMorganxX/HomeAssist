@@ -16,10 +16,9 @@ ENABLED_TOOLS = {
     "lighting_scene": False,
     
     # Active MCP tools
-    "state_tool": True,
     "get_notifications": True,
     "todos": True,
-    "briefing": True,  # Create and manage briefing announcements
+    "briefing": True,  # Inspect and dismiss autonomous briefing announcements
     "spotify_playback": True,
     "calendar_data": True,
     "weather": True,

@@ -78,7 +78,7 @@ HomeAssistV3/
 │       ├── briefing/             # Scheduled briefings
 │       │   ├── briefing_manager.py   # Supabase briefing CRUD
 │       │   └── briefing_processor.py # LLM opener generation
-│       └── todo_manager.py       # Shared Supabase todo CRUD + briefing digest
+│       └── todo_manager.py       # Shared Supabase todo CRUD + cache writers + todo digest briefings
 │
 ├── mcp_server/                   # Model Context Protocol server
 │   ├── server.py                 # FastMCP entry point
@@ -97,7 +97,6 @@ HomeAssistV3/
 │   │   ├── sms.py                # macOS Messages
 │   │   ├── notifications.py      # Email/news retrieval
 │   │   ├── google_search.py      # Web search
-│   │   ├── state_tool.py         # App state access
 │   │   ├── system_info.py        # Self-documentation
 │   │   └── cursor.py             # IDE integration
 │   └── clients/                  # External service clients
@@ -130,7 +129,7 @@ HomeAssistV3/
 │   └── todos_supabase_migration.sql # Todos table setup
 │
 ├── state_management/             # Runtime state files
-│   ├── app_state.json            # User prefs, notifications
+│   ├── app_state.json            # Deterministic device config + notification fallback
 │   ├── persistent_memory.json    # Long-term facts
 │   └── conversation_summary.json # Current session
 │
@@ -815,7 +814,7 @@ The assistant now separates persistent task state from autonomous announcement d
 |---|---|---|
 | User-driven tasks and reminder intent | `todos` tool + `todos` table | Persistent items created from voice, Discord, manual commands, and calendar-linked sync |
 | Autonomous wake-word announcements | `briefing` tool + `briefing_announcements` table | Read-only queue of spoken briefings created by scheduled/autonomous systems |
-`assistant_framework/utils/todo_manager.py` is the shared integration point used by the `todos` tool, calendar ingestion, and the daily todo digest briefing.
+`assistant_framework/utils/todo_manager.py` is the shared integration point used by the `todos` tool, calendar ingestion, local cache generation, and time-aware todo briefing creation.
 
 ### Composed Tool Calling
 
@@ -1025,7 +1024,7 @@ The configuration file (~1185 lines) is organized into numbered sections:
 | Section | Purpose |
 |---------|---------|
 | 0 | Logging verbosity |
-| 0B | Dynamic user config (from app_state.json) |
+| 0B | Deterministic device config (from app_state.json) |
 | 1 | Environment & credentials |
 | 2 | Provider selection |
 | 3 | Transcription config |
@@ -1444,7 +1443,7 @@ discord_bot/
 ├── bot.py                 # HomeAssistBot (discord.Client subclass)
 │   ├── on_message()       # Routes general assistant channel → TextOrchestrator.run_response()
 │   ├── /todo commands     # Direct Discord app commands backed by TodoManager
-│   └── _briefing_delivery_loop()  # Startup catch-up + Supabase Realtime subscription
+│   └── _briefing_delivery_loop()  # Startup catch-up + Realtime with polling fallback
 └── text_orchestrator.py   # TextOrchestrator
     ├── initialize()       # Boots response provider (+ MCP), context, vector memory
     ├── run_response()     # Returns (response_text, tool_names_used)
@@ -1470,7 +1469,7 @@ discord_bot/
 
 ### Concurrency
 
-A `asyncio.Lock` serializes calls to `run_response()` so concurrent Discord messages don't interleave context. Proactive briefings run as a separate `asyncio.Task` that performs a startup catch-up query, then hands off to a Supabase Realtime listener for live inserts and updates.
+A `asyncio.Lock` serializes calls to `run_response()` so concurrent Discord messages don't interleave context. Proactive briefings run as a separate `asyncio.Task` that performs a startup catch-up query, subscribes to Supabase Realtime for inserts/updates, and also polls pending briefings periodically as a delivery fallback when Realtime misses an event.
 
 Todo slash commands do not go through `TextOrchestrator`; they call `TodoManager` directly so the dedicated todo workflow stays isolated from the assistant conversation context.
 
@@ -1550,7 +1549,12 @@ todo_overlay/
 - Uses the localhost server on `127.0.0.1:8421` as the shared data/UI surface
 - Clicking the menu bar icon toggles a floating todo window
 - Polls every 30 seconds so the page can keep showing current todos even if only the overlay process is running
-- Refreshes the daily todo briefing digest after create, update, complete, reopen, and delete
+- Schedules a background refresh of todo cache files and todo briefings after create, update, complete, reopen, and delete so UI actions stay fast while the briefing queue updates immediately
+- Writes derived cache files under `discord_bot/state/todos/<user>/`, including `all_todos_cache.json` plus one file per `source_type`
+- Keeps `calendar_todo_cache.json` for the existing Discord calendar surface, but broader todo inspection now lives in the per-source cache directory
+- Creates multiple versioned `todo_digest` briefing rows instead of a single flat digest, with `active_from` scheduled by time relevance
+- Builds timed briefings for non-calendar todos with due dates, grouped immediate briefings for overdue/undated tasks, and marks stale pending digests as `skipped` when a todo mutation invalidates them
+- Excludes `source_type="calendar"` rows from todo briefings so the dedicated calendar reminder system remains the proactive source for calendar events
 - Treats `source_type="calendar"` rows as visible but read-only so calendar sync does not overwrite manual UI edits
 
 ### Running
@@ -1772,5 +1776,5 @@ else:
 
 ---
 
-*Last updated: March 18, 2026*
+*Last updated: March 22, 2026*
 

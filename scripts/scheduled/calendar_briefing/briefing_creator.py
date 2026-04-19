@@ -7,7 +7,7 @@ and stores them in Supabase for the assistant to deliver.
 
 import os
 import json
-import uuid
+import hashlib
 from datetime import datetime, timezone, timedelta
 from typing import List, Dict, Any, Optional, Set
 from pathlib import Path
@@ -41,7 +41,9 @@ def _normalize_delivery_status(briefing: Dict[str, Any], status_field: str, lega
     if isinstance(current, str) and current:
         return current
     if briefing.get("status") == "delivered" or briefing.get("delivered_at"):
-        return legacy_terminal_status
+        if status_field == "voice_status":
+            return legacy_terminal_status
+        return "pending"
     return "pending"
 
 
@@ -73,8 +75,10 @@ def _parse_iso_datetime(value: Any) -> Optional[datetime]:
 class EventCache:
     """
     Tracks processed calendar events to avoid duplicate analysis and briefings.
-    
-    Caches raw calendar event IDs (from Google Calendar API) with timestamps.
+
+    Caches event fingerprints (normalized event snapshots) with timestamps.
+    This allows re-processing when event details change while still skipping
+    unchanged events.
     Auto-prunes entries older than 30 days.
     
     Storage backends (in order of preference):
@@ -93,7 +97,7 @@ class EventCache:
         """
         self.cache_file = cache_file
         self.retention_days = retention_days
-        self._cache: Dict[str, str] = {}  # event_id -> ISO timestamp when first seen
+        self._cache: Dict[str, str] = {}  # fingerprint -> ISO timestamp when first seen
         self._supabase_client = None
         self._use_supabase = False
         
@@ -191,37 +195,37 @@ class EventCache:
         except IOError as e:
             print(f"❌ EventCache: Error saving cache file - {e}")
     
-    def is_seen(self, event_id: str) -> bool:
-        """Check if a calendar event has already been processed."""
-        return event_id in self._cache
-    
-    def mark_seen(self, event_id: str) -> None:
-        """Mark a calendar event as processed."""
-        if event_id not in self._cache:
+    def is_seen(self, cache_key: str) -> bool:
+        """Check whether a cache key has already been processed."""
+        return cache_key in self._cache
+
+    def mark_seen(self, cache_key: str) -> None:
+        """Mark a cache key as processed."""
+        if cache_key not in self._cache:
             now = datetime.now(timezone.utc).isoformat()
-            self._cache[event_id] = now
+            self._cache[cache_key] = now
             
             # Write to Supabase immediately if available
             if self._use_supabase:
                 try:
                     self._supabase_client.table(self.TABLE_NAME).upsert({
-                        "event_id": event_id,
+                        "event_id": cache_key,
                         "first_seen": now,
                     }).execute()
                 except Exception as e:
                     print(f"⚠️  EventCache: Failed to write to Supabase - {e}")
     
-    def mark_seen_batch(self, event_ids: List[str]) -> None:
-        """Mark multiple calendar events as processed."""
+    def mark_seen_batch(self, cache_keys: List[str]) -> None:
+        """Mark multiple cache keys as processed."""
         now = datetime.now(timezone.utc).isoformat()
-        new_ids = [eid for eid in event_ids if eid not in self._cache]
+        new_ids = [cache_key for cache_key in cache_keys if cache_key and cache_key not in self._cache]
         
         if not new_ids:
             return
         
         # Update local cache
-        for event_id in new_ids:
-            self._cache[event_id] = now
+        for cache_key in new_ids:
+            self._cache[cache_key] = now
         
         # Batch write to Supabase if available
         if self._use_supabase:
@@ -231,21 +235,52 @@ class EventCache:
                 print(f"📝 EventCache: Saved {len(new_ids)} events to Supabase")
             except Exception as e:
                 print(f"⚠️  EventCache: Failed to batch write to Supabase - {e}")
+
+    def _build_event_fingerprint(self, event: Dict[str, Any], namespace: Optional[str] = None) -> str:
+        """Create a stable fingerprint from normalized event data."""
+        reminders = event.get("reminders_minutes_before", [])
+        normalized_reminders = []
+        for value in reminders if isinstance(reminders, list) else []:
+            try:
+                normalized_reminders.append(int(value))
+            except (TypeError, ValueError):
+                continue
+        normalized_payload = {
+            "namespace": str(namespace or "").strip().lower(),
+            "event_id": str(event.get("id") or event.get("event_id") or "").strip(),
+            "title": str(event.get("summary") or event.get("event_title") or "").strip(),
+            "date": str(event.get("start_date") or event.get("event_date") or "").strip(),
+            "time": str(event.get("start_time") or event.get("event_time") or "").strip(),
+            "end_date": str(event.get("end_date") or "").strip(),
+            "end_time": str(event.get("end_time") or "").strip(),
+            "location": str(event.get("location") or "").strip(),
+            "description": str(event.get("description") or "").strip(),
+            "all_day": bool(event.get("all_day", False)),
+            "priority": str(event.get("priority") or "").strip(),
+            "reminders_minutes_before": sorted(set(normalized_reminders)),
+        }
+        serialized = json.dumps(normalized_payload, sort_keys=True, separators=(",", ":"))
+        return hashlib.sha1(serialized.encode("utf-8")).hexdigest()
     
-    def filter_unseen_events(self, events: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
+    def filter_unseen_events(self, events: List[Dict[str, Any]], namespace: Optional[str] = None) -> List[Dict[str, Any]]:
         """Filter a list of calendar events to only those not yet seen.
         
         Args:
             events: List of formatted calendar events (must have 'id' field)
+            namespace: Optional user/context namespace for dedupe partitioning
             
         Returns:
             List of events that haven't been processed yet
         """
         unseen = []
         for event in events:
-            event_id = event.get("id", "")
-            if event_id and event_id not in self._cache:
-                unseen.append(event)
+            fingerprint = self._build_event_fingerprint(event, namespace=namespace)
+            if fingerprint in self._cache:
+                continue
+
+            enriched_event = dict(event)
+            enriched_event["__event_fingerprint"] = fingerprint
+            unseen.append(enriched_event)
         return unseen
     
     def prune_old_entries(self) -> int:
@@ -443,6 +478,7 @@ Examples:
         self._generate_openers = generate_openers
         self._ai_model = None
         self._event_cache = EventCache()
+        self._last_processed_event_briefing_ids: Dict[str, Set[str]] = {}
         self._init_supabase()
         if generate_openers:
             self._init_ai()
@@ -619,12 +655,14 @@ Output ONLY the reminder text (1-2 complete sentences that end properly), nothin
         """
         briefings = []
         now = datetime.now(timezone.utc)
+        self._last_processed_event_briefing_ids = {}
         
         for calendar_user, events in suggestions.items():
             # Map calendar user to assistant user
             assistant_user = self._map_to_assistant_user(calendar_user)
             
             for event in events:
+                event_id = str(event.get("event_id") or event.get("id") or "").strip()
                 event_briefings = self._create_event_briefings(
                     event=event,
                     calendar_user=calendar_user,
@@ -632,11 +670,33 @@ Output ONLY the reminder text (1-2 complete sentences that end properly), nothin
                     now=now,
                 )
                 briefings.extend(event_briefings)
+                if event_id:
+                    event_key = self._processed_event_key(assistant_user, calendar_user, event_id)
+                    self._last_processed_event_briefing_ids[event_key] = {
+                        str(briefing.get("id") or "")
+                        for briefing in event_briefings
+                        if briefing.get("id")
+                    }
         
-        # Sort by reminder time
-        briefings.sort(key=lambda b: b.get("deliver_at", ""))
+        # Sort by activation datetime (when reminders become eligible for delivery)
+        briefings.sort(
+            key=lambda b: (
+                ((b.get("content") or {}).get("active_from") if isinstance(b.get("content"), dict) else "") or "",
+                str(b.get("id") or ""),
+            )
+        )
         
         return briefings
+
+    def _processed_event_key(self, assistant_user: str, calendar_user: str, event_id: str) -> str:
+        """Build a deterministic key representing one calendar event stream."""
+        return "|".join(
+            [
+                str(assistant_user or "").strip(),
+                str(calendar_user or "").strip(),
+                str(event_id or "").strip(),
+            ]
+        )
     
     def _map_to_assistant_user(self, calendar_user: str) -> str:
         """Map calendar user identifier to assistant user name."""
@@ -664,6 +724,9 @@ Output ONLY the reminder text (1-2 complete sentences that end properly), nothin
         event_time = event.get("event_time", "")
         priority = event.get("priority", "medium")
         reminders_minutes = event.get("reminders_minutes_before", [])
+        event_fingerprint = str(event.get("__event_fingerprint") or "")
+        if not event_fingerprint:
+            event_fingerprint = self._event_cache._build_event_fingerprint(event, namespace=calendar_user)
         
         # Calculate reminder datetimes
         reminder_times = self.calculator.calculate_all_reminder_times(
@@ -678,10 +741,17 @@ Output ONLY the reminder text (1-2 complete sentences that end properly), nothin
             if reminder_at.astimezone(timezone.utc) < now:
                 continue
             
-            # Generate unique ID with standard format: {source}_{date}_{uuid}
-            # Include event context for deduplication
-            event_date_str = event_date.replace("/", "-").replace(" ", "")
-            reminder_id = f"calendar_{event_date_str}_{event_id[:8]}_{reminder['minutes_before']}m_{uuid.uuid4()}"
+            # Deterministic idempotency key and reminder id.
+            # Using a stable key ensures the same reminder maps to the same row.
+            idempotency_key = "|".join(
+                [
+                    str(assistant_user or "").strip(),
+                    str(calendar_user or "").strip(),
+                    str(event_id or "").strip(),
+                    str(reminder["minutes_before"]),
+                ]
+            )
+            reminder_id = f"calendar_{hashlib.sha1(idempotency_key.encode('utf-8')).hexdigest()}"
             
             # Format the briefing message with placeholder for real-time calculation
             # {{TIME_UNTIL_EVENT}} will be replaced at delivery time with actual time remaining
@@ -718,6 +788,8 @@ Output ONLY the reminder text (1-2 complete sentences that end properly), nothin
                     "reminder_at_iso": reminder["reminder_at_iso"],
                     "minutes_before": reminder["minutes_before"],
                     "calendar_user": calendar_user,
+                    "idempotency_key": idempotency_key,
+                    "event_fingerprint": event_fingerprint,
                 },
             }
             
@@ -781,18 +853,24 @@ Output ONLY the reminder text (1-2 complete sentences that end properly), nothin
             
             # Upsert to Supabase (will update existing reminders with same ID)
             self._client.table(self.TABLE_NAME).upsert(records).execute()
+
+            # For processed events, skip stale pending reminders no longer in the
+            # computed reminder set (for example when reminder offsets change).
+            stale_skipped = self._mark_stale_pending_event_reminders(self._last_processed_event_briefing_ids)
+            if stale_skipped > 0:
+                print(f"   🧹 Marked {stale_skipped} stale pending reminder(s) as skipped")
             
-            # Mark all source event IDs as seen in cache
-            event_ids_seen = set()
+            # Mark all source event fingerprints as seen in cache
+            fingerprints_seen = set()
             for record in records:
                 content = record.get("content", {})
                 meta = content.get("meta", {}) if isinstance(content, dict) else {}
-                event_id = meta.get("event_id")
-                if event_id:
-                    event_ids_seen.add(event_id)
+                event_fingerprint = meta.get("event_fingerprint")
+                if event_fingerprint:
+                    fingerprints_seen.add(event_fingerprint)
             
-            if event_ids_seen:
-                self._event_cache.mark_seen_batch(list(event_ids_seen))
+            if fingerprints_seen:
+                self._event_cache.mark_seen_batch(list(fingerprints_seen))
                 # Save cache (with pruning of old entries)
                 self._event_cache.save_and_prune()
             
@@ -811,7 +889,7 @@ Output ONLY the reminder text (1-2 complete sentences that end properly), nothin
     
     def _mark_expired_reminders(self) -> int:
         """
-        Mark pending calendar reminders as 'expired' if their active_from time has passed.
+        Mark pending calendar reminders as 'expired' if their underlying event has passed.
         
         This prevents stale reminders from accumulating when they were never delivered.
         
@@ -829,7 +907,7 @@ Output ONLY the reminder text (1-2 complete sentences that end properly), nothin
                 self._client.table(self.TABLE_NAME)
                 .select("id, content, status, delivered_at, discord_status, voice_status")
                 .eq("status", "pending")
-                .like("id", "calendar_%")  # Match new format: calendar_{date}_{...}_{uuid}
+                .like("id", "calendar_%")  # Deterministic format: calendar_{sha1}
                 .execute()
             )
             
@@ -862,24 +940,19 @@ Output ONLY the reminder text (1-2 complete sentences that end properly), nothin
                     except (json.JSONDecodeError, TypeError):
                         continue
                 
-                active_from = content.get("active_from")
-                if not active_from:
+                meta = content.get("meta", {}) if isinstance(content, dict) else {}
+                event_time = (
+                    meta.get("event_datetime_iso")
+                    or content.get("event_datetime_iso")
+                )
+                if not event_time:
                     continue
                 
-                try:
-                    # Parse active_from datetime
-                    if "T" in active_from:
-                        active_dt = datetime.fromisoformat(active_from.replace("Z", "+00:00"))
-                    else:
-                        # Date-only format - treat as start of day
-                        active_dt = datetime.strptime(active_from, "%Y-%m-%d").replace(tzinfo=timezone.utc)
-                    
-                    # If active_from is in the past, mark as expired
-                    if active_dt < now:
-                        expired_ids.append(reminder["id"])
-                        
-                except (ValueError, TypeError):
+                event_dt = _parse_iso_datetime(event_time)
+                if event_dt is None:
                     continue
+                if event_dt < now:
+                    expired_ids.append(reminder["id"])
             
             # Batch update expired reminders
             if expired_ids:
@@ -896,6 +969,87 @@ Output ONLY the reminder text (1-2 complete sentences that end properly), nothin
         except Exception as e:
             print(f"⚠️  Error checking for expired reminders: {e}")
             return 0
+
+    def _mark_stale_pending_event_reminders(self, desired_ids_by_event_key: Dict[str, Set[str]]) -> int:
+        """
+        Mark stale pending reminders as skipped for events processed in this run.
+
+        For each processed event stream (assistant_user + calendar_user + event_id),
+        any pending calendar reminder row not present in the current desired ID set
+        is marked as skipped.
+        """
+        if not self.is_available() or not desired_ids_by_event_key:
+            return 0
+
+        keys_by_user: Dict[str, Dict[tuple, Set[str]]] = {}
+        for event_key, desired_ids in desired_ids_by_event_key.items():
+            assistant_user, calendar_user, event_id = (event_key.split("|", 2) + ["", "", ""])[:3]
+            if not assistant_user or not calendar_user or not event_id:
+                continue
+            per_user = keys_by_user.setdefault(assistant_user, {})
+            per_user[(calendar_user, event_id)] = {briefing_id for briefing_id in desired_ids if briefing_id}
+
+        if not keys_by_user:
+            return 0
+
+        now_iso = datetime.now(timezone.utc).isoformat()
+        stale_ids: Set[str] = set()
+
+        for assistant_user, desired_map in keys_by_user.items():
+            try:
+                response = (
+                    self._client.table(self.TABLE_NAME)
+                    .select("id, content, status, delivered_at, discord_status, voice_status")
+                    .eq("user_id", assistant_user)
+                    .eq("status", "pending")
+                    .like("id", "calendar_%")
+                    .execute()
+                )
+            except Exception as e:
+                print(f"⚠️  Failed fetching pending reminders for stale check ({assistant_user}): {e}")
+                continue
+
+            for row in response.data or []:
+                if not _has_pending_delivery(row):
+                    continue
+
+                content = row.get("content", {})
+                if isinstance(content, str):
+                    try:
+                        content = json.loads(content)
+                    except (json.JSONDecodeError, TypeError):
+                        continue
+                if not isinstance(content, dict):
+                    continue
+
+                meta = content.get("meta", {})
+                if not isinstance(meta, dict):
+                    continue
+                if str(meta.get("source") or "") != "calendar_briefing":
+                    continue
+
+                key = (str(meta.get("calendar_user") or ""), str(meta.get("event_id") or ""))
+                if key not in desired_map:
+                    continue
+
+                row_id = str(row.get("id") or "")
+                if row_id and row_id not in desired_map[key]:
+                    stale_ids.add(row_id)
+
+        skipped = 0
+        for reminder_id in sorted(stale_ids):
+            try:
+                self._client.table(self.TABLE_NAME).update(
+                    {
+                        "status": "skipped",
+                        "dismissed_at": now_iso,
+                    }
+                ).eq("id", reminder_id).eq("status", "pending").execute()
+                skipped += 1
+            except Exception as e:
+                print(f"   ⚠️  Failed to mark stale reminder {reminder_id} as skipped: {e}")
+
+        return skipped
     
     def get_pending_reminders(
         self,
@@ -966,14 +1120,14 @@ Output ONLY the reminder text (1-2 complete sentences that end properly), nothin
             response = (
                 self._client.table(self.TABLE_NAME)
                 .select("id, status, delivered_at, discord_status, voice_status, voice_read_at")
-                .eq("status", "pending")
+                .in_("status", ["pending", "delivered"])
                 .like("id", "calendar_%")
                 .execute()
             )
             response_old = (
                 self._client.table(self.TABLE_NAME)
                 .select("id, status, delivered_at, discord_status, voice_status, voice_read_at")
-                .eq("status", "pending")
+                .in_("status", ["pending", "delivered"])
                 .like("id", "cal_reminder_%")
                 .execute()
             )
@@ -1053,4 +1207,3 @@ Output ONLY the reminder text (1-2 complete sentences that end properly), nothin
             lines.append(f"\n... and {len(briefings) - 10} more")
         
         return "\n".join(lines)
-

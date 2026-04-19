@@ -41,7 +41,7 @@ TOOL_SIGNAL_MODE = os.getenv("TOOL_SIGNAL_MODE", "true").lower() in ("true", "1"
 
 
 # =============================================================================
-# SECTION 0C: DYNAMIC USER CONFIG
+# SECTION 0C: DEVICE USER CONFIG
 # =============================================================================
 
 # Module-level cache for app_state.json to avoid redundant file reads
@@ -50,7 +50,7 @@ _APP_STATE_CACHE: Optional[dict] = None
 
 def _load_app_state() -> dict:
     """
-    Load app_state.json once and cache it.
+    Load deterministic device-local app_state.json once and cache it.
     Returns the full user_state dict, or empty dict if not available.
     """
     global _APP_STATE_CACHE
@@ -929,6 +929,27 @@ Instructions: mention casually
 
 Example output:
 Hey! Quick heads up - your Amazon package arrived this afternoon. Anything else I can help with?"""
+}
+
+
+# =============================================================================
+# SECTION 6C: BRIEFING SEND-TIME POLICY
+# =============================================================================
+# Shared defaults for digest-style briefing scheduling (todo/weather style).
+# Explicit event reminders (calendar_briefing, assistant_created) should still
+# honor their exact reminder times and bypass this window snapping policy.
+
+def _parse_int_env(var_name: str, default: int) -> int:
+    try:
+        return int(os.getenv(var_name, str(default)))
+    except (TypeError, ValueError):
+        return default
+
+BRIEFING_SEND_TIME_POLICY = {
+    "briefing_windows_local": os.getenv("BRIEFING_WINDOWS_LOCAL", "08:30,12:30,17:30"),
+    "briefing_quiet_hours_start": os.getenv("BRIEFING_QUIET_HOURS_START", "21:00"),
+    "briefing_quiet_hours_end": os.getenv("BRIEFING_QUIET_HOURS_END", "07:30"),
+    "briefing_urgent_override_minutes": _parse_int_env("BRIEFING_URGENT_OVERRIDE_MINUTES", 120),
 }
 
 

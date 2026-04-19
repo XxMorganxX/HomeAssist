@@ -1,0 +1,130 @@
+{
+  "generated_at": "2026-04-19T00:18:01.093559+00:00",
+  "user_id": "Morgan",
+  "source_type": "discord",
+  "counts": {
+    "total": 6,
+    "open": 0,
+    "completed": 6
+  },
+  "todos": [
+    {
+      "id": "todo_20260318_200632_9cd805ad",
+      "user_id": "Morgan",
+      "title": "Lets chat",
+      "details": null,
+      "due_at": "2026-03-19T21:00:00+00:00",
+      "completed": true,
+      "completed_at": "2026-03-18T20:09:44.863358+00:00",
+      "source_type": "discord",
+      "source_id": "1483919555339485415",
+      "source_metadata": {
+        "guild_id": 1476082241489866762,
+        "channel_id": 1483860035154215063,
+        "created_via": "discord_modal"
+      },
+      "created_at": "2026-03-18T20:06:32.036527+00:00",
+      "updated_at": "2026-03-18T20:09:44.86338+00:00",
+      "due_display": "2026-03-19 05:00 PM EDT",
+      "group": null
+    },
+    {
+      "id": "todo_20260318_202013_70fdf93a",
+      "user_id": "Morgan",
+      "title": "talk to me",
+      "details": null,
+      "due_at": "2026-03-23T21:00:00+00:00",
+      "completed": true,
+      "completed_at": "2026-03-18T20:22:07.277268+00:00",
+      "source_type": "discord",
+      "source_id": "1483922998485581985",
+      "source_metadata": {
+        "guild_id": 1476082241489866762,
+        "channel_id": 1483860035154215063,
+        "created_via": "discord_modal"
+      },
+      "created_at": "2026-03-18T20:20:13.512279+00:00",
+      "updated_at": "2026-03-18T20:22:07.277273+00:00",
+      "due_display": "2026-03-23 05:00 PM EDT",
+      "group": null
+    },
+    {
+      "id": "todo_20260318_192900_7a110f43",
+      "user_id": "Morgan",
+      "title": "text my boy tolis",
+      "details": null,
+      "due_at": null,
+      "completed": true,
+      "completed_at": "2026-03-18T19:48:18.46516+00:00",
+      "source_type": "discord",
+      "source_id": "1483910113763918014",
+      "source_metadata": {
+        "guild_id": 1476082241489866762,
+        "channel_id": 1483860035154215063
+      },
+      "created_at": "2026-03-18T19:29:00.839804+00:00",
+      "updated_at": "2026-03-18T19:48:18.465176+00:00",
+      "due_display": null,
+      "group": null
+    },
+    {
+      "id": "todo_20260318_192924_75a301ca",
+      "user_id": "Morgan",
+      "title": "text tolis tomorrow",
+      "details": null,
+      "due_at": null,
+      "completed": true,
+      "completed_at": "2026-03-18T19:48:20.897839+00:00",
+      "source_type": "discord",
+      "source_id": "1483910214519623750",
+      "source_metadata": {
+        "guild_id": 1476082241489866762,
+        "channel_id": 1483860035154215063
+      },
+      "created_at": "2026-03-18T19:29:24.850606+00:00",
+      "updated_at": "2026-03-18T19:48:20.897861+00:00",
+      "due_display": null,
+      "group": null
+    },
+    {
+      "id": "todo_20260318_202117_0a458714",
+      "user_id": "Morgan",
+      "title": "talk to her",
+      "details": null,
+      "due_at": null,
+      "completed": true,
+      "completed_at": "2026-03-19T05:35:37.916764+00:00",
+      "source_type": "discord",
+      "source_id": "1483923266270658560",
+      "source_metadata": {
+        "guild_id": 1476082241489866762,
+        "channel_id": 1483860035154215063,
+        "created_via": "discord_modal"
+      },
+      "created_at": "2026-03-18T20:21:17.16788+00:00",
+      "updated_at": "2026-03-19T05:35:37.916769+00:00",
+      "due_display": null,
+      "group": null
+    },
+    {
+      "id": "todo_20260318_202244_8c772ee3",
+      "user_id": "Morgan",
+      "title": "DL homework",
+      "details": null,
+      "due_at": null,
+      "completed": true,
+      "completed_at": "2026-03-19T05:35:39.350097+00:00",
+      "source_type": "discord",
+      "source_id": "1483923632668282891",
+      "source_metadata": {
+        "guild_id": 1476082241489866762,
+        "channel_id": 1483860035154215063,
+        "created_via": "discord_modal"
+      },
+      "created_at": "2026-03-18T20:22:44.100329+00:00",
+      "updated_at": "2026-03-19T05:35:39.350104+00:00",
+      "due_display": null,
+      "group": null
+    }
+  ]
+}

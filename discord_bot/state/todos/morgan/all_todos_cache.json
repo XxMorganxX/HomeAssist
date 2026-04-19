@@ -1,0 +1,933 @@
+{
+  "generated_at": "2026-04-19T00:18:01.093559+00:00",
+  "user_id": "Morgan",
+  "source_type": "all",
+  "counts": {
+    "total": 35,
+    "open": 13,
+    "completed": 22
+  },
+  "todos": [
+    {
+      "id": "todo_20260417_122714_cc33ae69",
+      "user_id": "Morgan",
+      "title": "Mann.",
+      "details": null,
+      "due_at": "2026-04-20T16:30:00+00:00",
+      "completed": false,
+      "completed_at": null,
+      "source_type": "calendar",
+      "source_id": "0518hv88pgdpgcul497mahusvi_20260420T163000Z",
+      "source_metadata": {
+        "all_day": false,
+        "end_date": "2026-04-20",
+        "end_time": "14:30:00",
+        "event_id": "0518hv88pgdpgcul497mahusvi_20260420T163000Z",
+        "location": "",
+        "start_date": "2026-04-20",
+        "start_time": "12:30:00",
+        "description": "",
+        "calendar_name": "mns66@cornell.edu",
+        "calendar_user": "morgan_school"
+      },
+      "created_at": "2026-04-17T12:27:14.855038+00:00",
+      "updated_at": "2026-04-19T00:17:57.908639+00:00",
+      "due_display": "2026-04-20 12:30 PM EDT",
+      "group": null
+    },
+    {
+      "id": "todo_20260417_122715_3bd64c69",
+      "user_id": "Morgan",
+      "title": "Data Viz AE",
+      "details": null,
+      "due_at": "2026-04-22T02:30:00+00:00",
+      "completed": false,
+      "completed_at": null,
+      "source_type": "calendar",
+      "source_id": "11s0tj1jctd2r0qtck4bqq50a1_20260422T023000Z",
+      "source_metadata": {
+        "all_day": false,
+        "end_date": "2026-04-21",
+        "end_time": "23:30:00",
+        "event_id": "11s0tj1jctd2r0qtck4bqq50a1_20260422T023000Z",
+        "location": "",
+        "start_date": "2026-04-21",
+        "start_time": "22:30:00",
+        "description": "",
+        "calendar_name": "mns66@cornell.edu",
+        "calendar_user": "morgan_school"
+      },
+      "created_at": "2026-04-17T12:27:15.1091+00:00",
+      "updated_at": "2026-04-19T00:17:58.114952+00:00",
+      "due_display": "2026-04-21 10:30 PM EDT",
+      "group": null
+    },
+    {
+      "id": "todo_20260418_035147_f6bd075c",
+      "user_id": "Morgan",
+      "title": "DL - Coding Assignment 4",
+      "details": null,
+      "due_at": "2026-04-22T02:30:00+00:00",
+      "completed": false,
+      "completed_at": null,
+      "source_type": "calendar",
+      "source_id": "2ff95u3l78pgn5tfqf7cmlvt34",
+      "source_metadata": {
+        "all_day": false,
+        "end_date": "2026-04-21",
+        "end_time": "23:30:00",
+        "event_id": "2ff95u3l78pgn5tfqf7cmlvt34",
+        "location": "",
+        "start_date": "2026-04-21",
+        "start_time": "22:30:00",
+        "description": "",
+        "calendar_name": "mns66@cornell.edu",
+        "calendar_user": "morgan_school"
+      },
+      "created_at": "2026-04-18T03:51:47.199677+00:00",
+      "updated_at": "2026-04-19T00:17:58.333319+00:00",
+      "due_display": "2026-04-21 10:30 PM EDT",
+      "group": null
+    },
+    {
+      "id": "todo_20260417_122715_491609b7",
+      "user_id": "Morgan",
+      "title": "Mann.",
+      "details": null,
+      "due_at": "2026-04-22T16:30:00+00:00",
+      "completed": false,
+      "completed_at": null,
+      "source_type": "calendar",
+      "source_id": "3aq1jrm3oning4k5u140sdoa4p_20260422T163000Z",
+      "source_metadata": {
+        "all_day": false,
+        "end_date": "2026-04-22",
+        "end_time": "14:30:00",
+        "event_id": "3aq1jrm3oning4k5u140sdoa4p_20260422T163000Z",
+        "location": "",
+        "start_date": "2026-04-22",
+        "start_time": "12:30:00",
+        "description": "",
+        "calendar_name": "mns66@cornell.edu",
+        "calendar_user": "morgan_school"
+      },
+      "created_at": "2026-04-17T12:27:15.35254+00:00",
+      "updated_at": "2026-04-19T00:17:58.537244+00:00",
+      "due_display": "2026-04-22 12:30 PM EDT",
+      "group": null
+    },
+    {
+      "id": "todo_20260417_122715_a924409b",
+      "user_id": "Morgan",
+      "title": "INFO posters",
+      "details": null,
+      "due_at": "2026-04-22T19:00:00+00:00",
+      "completed": false,
+      "completed_at": null,
+      "source_type": "calendar",
+      "source_id": "g5hndm0qb4pdb45sp2en56h660",
+      "source_metadata": {
+        "all_day": false,
+        "end_date": "2026-04-22",
+        "end_time": "16:00:00",
+        "event_id": "g5hndm0qb4pdb45sp2en56h660",
+        "location": "",
+        "start_date": "2026-04-22",
+        "start_time": "15:00:00",
+        "description": "",
+        "calendar_name": "mns66@cornell.edu",
+        "calendar_user": "morgan_school"
+      },
+      "created_at": "2026-04-17T12:27:15.604819+00:00",
+      "updated_at": "2026-04-19T00:17:58.72837+00:00",
+      "due_display": "2026-04-22 03:00 PM EDT",
+      "group": null
+    },
+    {
+      "id": "todo_20260417_122715_988fc01f",
+      "user_id": "Morgan",
+      "title": "Data Viz AE",
+      "details": null,
+      "due_at": "2026-04-24T02:30:00+00:00",
+      "completed": false,
+      "completed_at": null,
+      "source_type": "calendar",
+      "source_id": "67t01tpb55i613rmctfb4i82oo_20260424T023000Z",
+      "source_metadata": {
+        "all_day": false,
+        "end_date": "2026-04-23",
+        "end_time": "23:30:00",
+        "event_id": "67t01tpb55i613rmctfb4i82oo_20260424T023000Z",
+        "location": "",
+        "start_date": "2026-04-23",
+        "start_time": "22:30:00",
+        "description": "",
+        "calendar_name": "mns66@cornell.edu",
+        "calendar_user": "morgan_school"
+      },
+      "created_at": "2026-04-17T12:27:15.861097+00:00",
+      "updated_at": "2026-04-19T00:17:58.929377+00:00",
+      "due_display": "2026-04-23 10:30 PM EDT",
+      "group": null
+    },
+    {
+      "id": "todo_20260418_035248_cf60f4a9",
+      "user_id": "Morgan",
+      "title": "HW #5",
+      "details": null,
+      "due_at": "2026-04-24T02:30:00+00:00",
+      "completed": false,
+      "completed_at": null,
+      "source_type": "calendar",
+      "source_id": "7v4sr32q1ukmb3c8mgafahpvpi",
+      "source_metadata": {
+        "all_day": false,
+        "end_date": "2026-04-23",
+        "end_time": "23:30:00",
+        "event_id": "7v4sr32q1ukmb3c8mgafahpvpi",
+        "location": "",
+        "start_date": "2026-04-23",
+        "start_time": "22:30:00",
+        "description": "",
+        "calendar_name": "mns66@cornell.edu",
+        "calendar_user": "morgan_school"
+      },
+      "created_at": "2026-04-18T03:52:48.915232+00:00",
+      "updated_at": "2026-04-19T00:17:59.128649+00:00",
+      "due_display": "2026-04-23 10:30 PM EDT",
+      "group": null
+    },
+    {
+      "id": "todo_20260417_133442_4ebb9f24",
+      "user_id": "Morgan",
+      "title": "Allergy md",
+      "details": null,
+      "due_at": "2026-04-24T12:40:00+00:00",
+      "completed": false,
+      "completed_at": null,
+      "source_type": "calendar",
+      "source_id": "10ht350ont7q51oqmdfgk109lc",
+      "source_metadata": {
+        "all_day": false,
+        "end_date": "2026-04-24",
+        "end_time": "09:40:00",
+        "event_id": "10ht350ont7q51oqmdfgk109lc",
+        "location": "",
+        "start_date": "2026-04-24",
+        "start_time": "08:40:00",
+        "description": "",
+        "calendar_name": "mns66@cornell.edu",
+        "calendar_user": "morgan_school"
+      },
+      "created_at": "2026-04-17T13:34:42.001084+00:00",
+      "updated_at": "2026-04-19T00:17:59.359132+00:00",
+      "due_display": "2026-04-24 08:40 AM EDT",
+      "group": null
+    },
+    {
+      "id": "todo_20260418_170212_22c74b9c",
+      "user_id": "Morgan",
+      "title": "Check discover debt",
+      "details": null,
+      "due_at": "2026-04-25T17:00:00+00:00",
+      "completed": false,
+      "completed_at": null,
+      "source_type": "calendar",
+      "source_id": "o1oer4o8n4eip9hdrrnn7943jo_20260425T170000Z",
+      "source_metadata": {
+        "all_day": false,
+        "end_date": "2026-04-25",
+        "end_time": "14:00:00",
+        "event_id": "o1oer4o8n4eip9hdrrnn7943jo_20260425T170000Z",
+        "location": "",
+        "start_date": "2026-04-25",
+        "start_time": "13:00:00",
+        "description": "",
+        "calendar_name": "morgannstuart@gmail.com",
+        "calendar_user": "morgan_personal"
+      },
+      "created_at": "2026-04-18T17:02:12.250822+00:00",
+      "updated_at": "2026-04-19T00:17:55.230641+00:00",
+      "due_display": "2026-04-25 01:00 PM EDT",
+      "group": null
+    },
+    {
+      "id": "todo_20260418_192745_71d28196",
+      "user_id": "Morgan",
+      "title": "Implementation Phase Deadline",
+      "details": null,
+      "due_at": "2026-04-25T19:00:00+00:00",
+      "completed": false,
+      "completed_at": null,
+      "source_type": "calendar",
+      "source_id": "0310f22m64qij6kju3giil6mfq",
+      "source_metadata": {
+        "all_day": false,
+        "end_date": "2026-04-25",
+        "end_time": "16:00:00",
+        "event_id": "0310f22m64qij6kju3giil6mfq",
+        "location": "",
+        "start_date": "2026-04-25",
+        "start_time": "15:00:00",
+        "description": "",
+        "calendar_name": "c_a9971ca39f405c3c8c855332f1d5bc8721378fef7845b1e3fc7b62601e0911bc@group.calendar.google.com",
+        "calendar_user": "Gen_AI"
+      },
+      "created_at": "2026-04-18T19:27:45.365552+00:00",
+      "updated_at": "2026-04-19T00:18:00.289185+00:00",
+      "due_display": "2026-04-25 03:00 PM EDT",
+      "group": null
+    },
+    {
+      "id": "todo_20260417_164323_a637a538",
+      "user_id": "Morgan",
+      "title": "Ayham - Close out Haym + Expectation writeup",
+      "details": null,
+      "due_at": null,
+      "completed": false,
+      "completed_at": null,
+      "source_type": "manual",
+      "source_id": "manual_61345de991",
+      "source_metadata": {
+        "todo_group": "Cornell Generative AI",
+        "created_via": "todo_overlay"
+      },
+      "created_at": "2026-04-17T16:43:23.732938+00:00",
+      "updated_at": "2026-04-18T23:39:06.893753+00:00",
+      "due_display": null,
+      "group": "Cornell Generative AI"
+    },
+    {
+      "id": "todo_20260417_164352_eaa9002b",
+      "user_id": "Morgan",
+      "title": "Budget Guidelines + Review all notes requested",
+      "details": null,
+      "due_at": null,
+      "completed": false,
+      "completed_at": null,
+      "source_type": "manual",
+      "source_id": "manual_7464806ed3",
+      "source_metadata": {
+        "chain_id": "todo_20260324_141841_fba1f539",
+        "todo_group": "Cornell Generative AI",
+        "created_via": "todo_overlay",
+        "chain_position": 6,
+        "chain_parent_id": "todo_20260409_134535_e006ead3"
+      },
+      "created_at": "2026-04-17T16:43:52.05356+00:00",
+      "updated_at": "2026-04-18T23:39:27.251371+00:00",
+      "due_display": null,
+      "group": "Cornell Generative AI"
+    },
+    {
+      "id": "todo_20260418_230249_710fa241",
+      "user_id": "Morgan",
+      "title": "Website update - Bios",
+      "details": null,
+      "due_at": null,
+      "completed": false,
+      "completed_at": null,
+      "source_type": "manual",
+      "source_id": "manual_10ba73a57d",
+      "source_metadata": {
+        "todo_group": "Cornell Generative AI",
+        "created_via": "todo_overlay"
+      },
+      "created_at": "2026-04-18T23:02:49.360175+00:00",
+      "updated_at": "2026-04-18T23:39:18.185884+00:00",
+      "due_display": null,
+      "group": "Cornell Generative AI"
+    },
+    {
+      "id": "todo_20260319_054715_1a70c7f9",
+      "user_id": "Morgan",
+      "title": "Andrew Call",
+      "details": null,
+      "due_at": "2026-03-19T20:30:00+00:00",
+      "completed": true,
+      "completed_at": "2026-03-19T23:47:38.802822+00:00",
+      "source_type": "manual",
+      "source_id": "manual_c41e11df1d",
+      "source_metadata": {
+        "created_via": "todo_overlay"
+      },
+      "created_at": "2026-03-19T05:47:15.870126+00:00",
+      "updated_at": "2026-03-19T23:47:38.802828+00:00",
+      "due_display": "2026-03-19 04:30 PM EDT",
+      "group": null
+    },
+    {
+      "id": "todo_20260318_200632_9cd805ad",
+      "user_id": "Morgan",
+      "title": "Lets chat",
+      "details": null,
+      "due_at": "2026-03-19T21:00:00+00:00",
+      "completed": true,
+      "completed_at": "2026-03-18T20:09:44.863358+00:00",
+      "source_type": "discord",
+      "source_id": "1483919555339485415",
+      "source_metadata": {
+        "guild_id": 1476082241489866762,
+        "channel_id": 1483860035154215063,
+        "created_via": "discord_modal"
+      },
+      "created_at": "2026-03-18T20:06:32.036527+00:00",
+      "updated_at": "2026-03-18T20:09:44.86338+00:00",
+      "due_display": "2026-03-19 05:00 PM EDT",
+      "group": null
+    },
+    {
+      "id": "todo_20260320_171644_b5e5ff0b",
+      "user_id": "Morgan",
+      "title": "renew parking",
+      "details": null,
+      "due_at": "2026-03-20T19:16:44.435665+00:00",
+      "completed": true,
+      "completed_at": "2026-03-22T15:37:03.147611+00:00",
+      "source_type": "manual",
+      "source_id": "manual_7f3e956426",
+      "source_metadata": {
+        "created_via": "todo_overlay"
+      },
+      "created_at": "2026-03-20T17:16:44.470564+00:00",
+      "updated_at": "2026-03-22T15:37:03.14762+00:00",
+      "due_display": "2026-03-20 03:16 PM EDT",
+      "group": null
+    },
+    {
+      "id": "todo_20260323_170546_aa1a121a",
+      "user_id": "Morgan",
+      "title": "IT Call",
+      "details": null,
+      "due_at": "2026-03-23T18:00:00+00:00",
+      "completed": true,
+      "completed_at": "2026-03-23T18:08:11.639905+00:00",
+      "source_type": "manual",
+      "source_id": "manual_09c3e86808",
+      "source_metadata": {
+        "created_via": "todo_overlay"
+      },
+      "created_at": "2026-03-23T17:05:46.538868+00:00",
+      "updated_at": "2026-03-23T18:08:11.639917+00:00",
+      "due_display": "2026-03-23 02:00 PM EDT",
+      "group": null
+    },
+    {
+      "id": "todo_20260323_182901_7d00c14f",
+      "user_id": "Morgan",
+      "title": "call bio",
+      "details": null,
+      "due_at": "2026-03-23T19:00:00+00:00",
+      "completed": true,
+      "completed_at": "2026-03-24T01:26:34.028849+00:00",
+      "source_type": "manual",
+      "source_id": "manual_c0bd3c210a",
+      "source_metadata": {
+        "created_via": "todo_overlay"
+      },
+      "created_at": "2026-03-23T18:29:01.066774+00:00",
+      "updated_at": "2026-03-24T01:26:34.028857+00:00",
+      "due_display": "2026-03-23 03:00 PM EDT",
+      "group": null
+    },
+    {
+      "id": "todo_20260318_202013_70fdf93a",
+      "user_id": "Morgan",
+      "title": "talk to me",
+      "details": null,
+      "due_at": "2026-03-23T21:00:00+00:00",
+      "completed": true,
+      "completed_at": "2026-03-18T20:22:07.277268+00:00",
+      "source_type": "discord",
+      "source_id": "1483922998485581985",
+      "source_metadata": {
+        "guild_id": 1476082241489866762,
+        "channel_id": 1483860035154215063,
+        "created_via": "discord_modal"
+      },
+      "created_at": "2026-03-18T20:20:13.512279+00:00",
+      "updated_at": "2026-03-18T20:22:07.277273+00:00",
+      "due_display": "2026-03-23 05:00 PM EDT",
+      "group": null
+    },
+    {
+      "id": "todo_20260324_141901_c005fa93",
+      "user_id": "Morgan",
+      "title": "ESG Subteam call",
+      "details": null,
+      "due_at": "2026-03-25T13:30:00+00:00",
+      "completed": true,
+      "completed_at": "2026-03-25T14:35:47.969747+00:00",
+      "source_type": "manual",
+      "source_id": "manual_1b3e9e1d4e",
+      "source_metadata": {
+        "created_via": "todo_overlay",
+        "linked_calendar_url": "https://www.google.com/calendar/event?eid=dXNobmVranA1dGJmajRqZmtxYzVlcDhkYWsgbW9yZ2FubnN0dWFydEBt",
+        "linked_calendar_name": "morgannstuart@gmail.com",
+        "linked_calendar_user": "morgan_personal",
+        "linked_calendar_added_at": "2026-03-24T18:00:43.375692+00:00",
+        "linked_calendar_event_id": "ushnekjp5tbfj4jfkqc5ep8dak",
+        "linked_calendar_attendees": [],
+        "linked_calendar_last_synced_at": "2026-03-25T14:21:05.844898+00:00"
+      },
+      "created_at": "2026-03-24T14:19:01.718936+00:00",
+      "updated_at": "2026-03-25T14:35:47.969754+00:00",
+      "due_display": "2026-03-25 09:30 AM EDT",
+      "group": null
+    },
+    {
+      "id": "todo_20260325_185410_e2cb1489",
+      "user_id": "Morgan",
+      "title": "ESG Team Meeting Olin",
+      "details": null,
+      "due_at": "2026-03-25T21:00:00+00:00",
+      "completed": true,
+      "completed_at": "2026-03-28T22:18:32.971374+00:00",
+      "source_type": "manual",
+      "source_id": "manual_e51fb02833",
+      "source_metadata": {
+        "created_via": "todo_overlay",
+        "linked_calendar_url": "https://www.google.com/calendar/event?eid=dGVjcGpndTg4M2tyZWdjdHRjN2xuYW11dGsgbW9yZ2FubnN0dWFydEBt",
+        "linked_calendar_name": "mns66@cornell.edu",
+        "linked_calendar_user": "morgan_personal",
+        "linked_calendar_events": [
+          {
+            "id": "tecpjgu883kregcttc7lnamutk",
+            "end": {
+              "dateTime": "2026-03-25T18:00:00-04:00",
+              "timeZone": "America/New_York"
+            },
+            "start": {
+              "dateTime": "2026-03-25T17:00:00-04:00",
+              "timeZone": "America/New_York"
+            },
+            "htmlLink": "https://www.google.com/calendar/event?eid=dGVjcGpndTg4M2tyZWdjdHRjN2xuYW11dGsgbW9yZ2FubnN0dWFydEBt",
+            "attendees": [],
+            "calendar_user": "morgan_personal"
+          },
+          {
+            "id": "h9u4gkav8aj1gr14onge068iak",
+            "end": {
+              "dateTime": "2026-03-25T18:00:00-04:00",
+              "timeZone": "America/New_York"
+            },
+            "start": {
+              "dateTime": "2026-03-25T17:00:00-04:00",
+              "timeZone": "America/New_York"
+            },
+            "htmlLink": "https://www.google.com/calendar/event?eid=aDl1NGdrYXY4YWoxZ3IxNG9uZ2UwNjhpYWsgbW5zNjZAY29ybmVsbC5lZHU",
+            "attendees": [],
+            "calendar_user": "morgan_school",
+            "linked_calendar_name": "mns66@cornell.edu",
+            "linked_calendar_last_synced_at": "2026-03-25T21:57:28.036439+00:00"
+          }
+        ],
+        "linked_calendar_added_at": "2026-03-25T18:54:24.101269+00:00",
+        "linked_calendar_event_id": "tecpjgu883kregcttc7lnamutk",
+        "linked_calendar_attendees": [],
+        "linked_calendar_last_synced_at": "2026-03-25T21:57:28.036464+00:00"
+      },
+      "created_at": "2026-03-25T18:54:10.896424+00:00",
+      "updated_at": "2026-03-28T22:18:32.971388+00:00",
+      "due_display": "2026-03-25 05:00 PM EDT",
+      "group": null
+    },
+    {
+      "id": "todo_20260324_141841_fba1f539",
+      "user_id": "Morgan",
+      "title": "Databricks Call",
+      "details": null,
+      "due_at": "2026-03-26T13:30:00+00:00",
+      "completed": true,
+      "completed_at": "2026-03-28T23:41:23.638823+00:00",
+      "source_type": "manual",
+      "source_id": "manual_7464806ed3",
+      "source_metadata": {
+        "chain_id": "todo_20260324_141841_fba1f539",
+        "advanced_to": "todo_20260328_234123_0ecdbaba",
+        "created_via": "todo_overlay",
+        "chain_position": 1,
+        "linked_calendar_url": "https://www.google.com/calendar/event?eid=cXVnZGRqamxhZ3MzanJoYmI4ZmpxMnUxYXMgbW9yZ2FubnN0dWFydEBt",
+        "linked_calendar_name": "morgannstuart@gmail.com",
+        "linked_calendar_user": "morgan_personal",
+        "linked_calendar_events": [
+          {
+            "id": "qugddjjlags3jrhbb8fjq2u1as",
+            "end": null,
+            "start": null,
+            "htmlLink": "https://www.google.com/calendar/event?eid=cXVnZGRqamxhZ3MzanJoYmI4ZmpxMnUxYXMgbW9yZ2FubnN0dWFydEBt",
+            "attendees": [
+              "abt67@cornell.edu"
+            ],
+            "calendar_user": "morgan_personal",
+            "linked_calendar_name": "morgannstuart@gmail.com",
+            "linked_calendar_last_synced_at": "2026-03-26T14:29:03.368584+00:00"
+          }
+        ],
+        "linked_calendar_added_at": "2026-03-24T18:22:02.136856+00:00",
+        "linked_calendar_event_id": "qugddjjlags3jrhbb8fjq2u1as",
+        "linked_calendar_attendees": [
+          "abt67@cornell.edu"
+        ],
+        "linked_calendar_last_synced_at": "2026-03-26T14:29:03.368605+00:00"
+      },
+      "created_at": "2026-03-24T14:18:41.224985+00:00",
+      "updated_at": "2026-03-28T23:41:23.638832+00:00",
+      "due_display": "2026-03-26 09:30 AM EDT",
+      "group": null
+    },
+    {
+      "id": "todo_20260325_145924_7e426ac0",
+      "user_id": "Morgan",
+      "title": "Haircut Mrytle",
+      "details": null,
+      "due_at": "2026-03-28T17:35:00+00:00",
+      "completed": true,
+      "completed_at": "2026-03-29T19:08:06.430839+00:00",
+      "source_type": "manual",
+      "source_id": "manual_c0b24fa4de",
+      "source_metadata": {
+        "created_via": "todo_overlay",
+        "linked_calendar_url": "https://www.google.com/calendar/event?eid=bnR0djN0cTgybm8wdTJwY3JsYjY1ZjNrY3MgbW9yZ2FubnN0dWFydEBt",
+        "linked_calendar_name": "morgannstuart@gmail.com",
+        "linked_calendar_user": "morgan_personal",
+        "linked_calendar_events": [
+          {
+            "id": "nttv3tq82no0u2pcrlb65f3kcs",
+            "end": null,
+            "start": null,
+            "htmlLink": "https://www.google.com/calendar/event?eid=bnR0djN0cTgybm8wdTJwY3JsYjY1ZjNrY3MgbW9yZ2FubnN0dWFydEBt",
+            "attendees": [],
+            "calendar_user": "morgan_personal",
+            "linked_calendar_name": "morgannstuart@gmail.com",
+            "linked_calendar_last_synced_at": "2026-03-28T17:28:16.245519+00:00"
+          }
+        ],
+        "linked_calendar_added_at": "2026-03-25T14:59:32.486935+00:00",
+        "linked_calendar_event_id": "nttv3tq82no0u2pcrlb65f3kcs",
+        "linked_calendar_attendees": [],
+        "linked_calendar_last_synced_at": "2026-03-28T17:28:16.245544+00:00"
+      },
+      "created_at": "2026-03-25T14:59:24.700753+00:00",
+      "updated_at": "2026-03-29T19:08:06.430847+00:00",
+      "due_display": "2026-03-28 01:35 PM EDT",
+      "group": null
+    },
+    {
+      "id": "todo_20260329_190801_098a5c49",
+      "user_id": "Morgan",
+      "title": "Grab Keto Granola for Dad",
+      "details": null,
+      "due_at": "2026-03-29T21:30:00+00:00",
+      "completed": true,
+      "completed_at": "2026-03-30T23:50:45.336027+00:00",
+      "source_type": "manual",
+      "source_id": "manual_ccb2dd1835",
+      "source_metadata": {
+        "created_via": "todo_overlay",
+        "linked_calendar_url": "https://www.google.com/calendar/event?eid=ZTFscWhtYjdjaGs5M3EzZ2dtMDRzcTVqb2cgbW9yZ2FubnN0dWFydEBt",
+        "linked_calendar_name": "mns66@cornell.edu",
+        "linked_calendar_user": "morgan_personal",
+        "linked_calendar_events": [
+          {
+            "id": "e1lqhmb7chk93q3ggm04sq5jog",
+            "end": {
+              "dateTime": "2026-03-29T18:30:00-04:00",
+              "timeZone": "America/New_York"
+            },
+            "start": {
+              "dateTime": "2026-03-29T17:30:00-04:00",
+              "timeZone": "America/New_York"
+            },
+            "htmlLink": "https://www.google.com/calendar/event?eid=ZTFscWhtYjdjaGs5M3EzZ2dtMDRzcTVqb2cgbW9yZ2FubnN0dWFydEBt",
+            "attendees": [],
+            "calendar_user": "morgan_personal"
+          },
+          {
+            "id": "93cdkop4052alh8691rlepfhg4",
+            "end": {
+              "dateTime": "2026-03-29T18:30:00-04:00",
+              "timeZone": "America/New_York"
+            },
+            "start": {
+              "dateTime": "2026-03-29T17:30:00-04:00",
+              "timeZone": "America/New_York"
+            },
+            "htmlLink": "https://www.google.com/calendar/event?eid=OTNjZGtvcDQwNTJhbGg4NjkxcmxlcGZoZzQgbW5zNjZAY29ybmVsbC5lZHU",
+            "attendees": [],
+            "calendar_user": "morgan_school",
+            "linked_calendar_name": "mns66@cornell.edu",
+            "linked_calendar_last_synced_at": "2026-03-29T21:28:39.365985+00:00"
+          }
+        ],
+        "linked_calendar_added_at": "2026-03-29T19:08:13.682342+00:00",
+        "linked_calendar_event_id": "e1lqhmb7chk93q3ggm04sq5jog",
+        "linked_calendar_attendees": [],
+        "linked_calendar_last_synced_at": "2026-03-29T21:28:39.366010+00:00"
+      },
+      "created_at": "2026-03-29T19:08:01.511067+00:00",
+      "updated_at": "2026-03-30T23:50:45.336047+00:00",
+      "due_display": "2026-03-29 05:30 PM EDT",
+      "group": null
+    },
+    {
+      "id": "todo_20260329_190851_38b9be97",
+      "user_id": "Morgan",
+      "title": "Databricks call",
+      "details": null,
+      "due_at": "2026-03-31T14:00:00+00:00",
+      "completed": true,
+      "completed_at": "2026-04-03T16:06:08.40167+00:00",
+      "source_type": "manual",
+      "source_id": "manual_7464806ed3",
+      "source_metadata": {
+        "chain_id": "todo_20260324_141841_fba1f539",
+        "advanced_to": "todo_20260403_160608_454283f7",
+        "created_via": "todo_overlay",
+        "chain_position": 3,
+        "chain_parent_id": "todo_20260328_234123_0ecdbaba",
+        "linked_calendar_url": "https://www.google.com/calendar/event?eid=cnVpZHRncmNicG5nOGc0ajQ3cmU3MW8zNXMgbW9yZ2FubnN0dWFydEBt",
+        "linked_calendar_name": "mns66@cornell.edu",
+        "linked_calendar_user": "morgan_personal",
+        "linked_calendar_events": [
+          {
+            "id": "ruidtgrcbpng8g4j47re71o35s",
+            "end": {
+              "dateTime": "2026-03-31T11:00:00-04:00",
+              "timeZone": "America/New_York"
+            },
+            "start": {
+              "dateTime": "2026-03-31T10:00:00-04:00",
+              "timeZone": "America/New_York"
+            },
+            "htmlLink": "https://www.google.com/calendar/event?eid=cnVpZHRncmNicG5nOGc0ajQ3cmU3MW8zNXMgbW9yZ2FubnN0dWFydEBt",
+            "attendees": [],
+            "calendar_user": "morgan_personal"
+          },
+          {
+            "id": "v1jrhklh0hie7hfd8nf4cu1jc0",
+            "end": {
+              "dateTime": "2026-03-31T11:00:00-04:00",
+              "timeZone": "America/New_York"
+            },
+            "start": {
+              "dateTime": "2026-03-31T10:00:00-04:00",
+              "timeZone": "America/New_York"
+            },
+            "htmlLink": "https://www.google.com/calendar/event?eid=djFqcmhrbGgwaGllN2hmZDhuZjRjdTFqYzAgbW5zNjZAY29ybmVsbC5lZHU",
+            "attendees": [],
+            "calendar_user": "morgan_school",
+            "linked_calendar_name": "mns66@cornell.edu",
+            "linked_calendar_last_synced_at": "2026-03-31T14:46:01.724366+00:00"
+          }
+        ],
+        "linked_calendar_added_at": "2026-03-29T19:09:01.637934+00:00",
+        "linked_calendar_event_id": "ruidtgrcbpng8g4j47re71o35s",
+        "linked_calendar_attendees": [],
+        "linked_calendar_last_synced_at": "2026-03-31T14:46:01.724392+00:00"
+      },
+      "created_at": "2026-03-29T19:08:51.918674+00:00",
+      "updated_at": "2026-04-03T16:06:08.401678+00:00",
+      "due_display": "2026-03-31 10:00 AM EDT",
+      "group": null
+    },
+    {
+      "id": "todo_20260403_160608_454283f7",
+      "user_id": "Morgan",
+      "title": "Talk with team and find core values",
+      "details": null,
+      "due_at": "2026-04-06T21:00:00+00:00",
+      "completed": true,
+      "completed_at": "2026-04-09T13:45:34.94256+00:00",
+      "source_type": "manual",
+      "source_id": "manual_7464806ed3",
+      "source_metadata": {
+        "chain_id": "todo_20260324_141841_fba1f539",
+        "advanced_to": "todo_20260409_134535_e006ead3",
+        "created_via": "todo_overlay",
+        "chain_position": 4,
+        "chain_parent_id": "todo_20260329_190851_38b9be97"
+      },
+      "created_at": "2026-04-03T16:06:08.562233+00:00",
+      "updated_at": "2026-04-09T13:45:34.942577+00:00",
+      "due_display": "2026-04-06 05:00 PM EDT",
+      "group": null
+    },
+    {
+      "id": "todo_20260408_181017_1a7e2fbc",
+      "user_id": "Morgan",
+      "title": "Data Viz Project proposal",
+      "details": null,
+      "due_at": "2026-04-09T01:00:00+00:00",
+      "completed": true,
+      "completed_at": "2026-04-09T13:45:13.199025+00:00",
+      "source_type": "manual",
+      "source_id": "manual_f5fac3861f",
+      "source_metadata": {
+        "created_via": "todo_overlay"
+      },
+      "created_at": "2026-04-08T18:10:17.323746+00:00",
+      "updated_at": "2026-04-09T13:45:13.199068+00:00",
+      "due_display": "2026-04-08 09:00 PM EDT",
+      "group": null
+    },
+    {
+      "id": "todo_20260409_134535_e006ead3",
+      "user_id": "Morgan",
+      "title": "Email jonathan with update",
+      "details": null,
+      "due_at": "2026-04-09T21:00:00+00:00",
+      "completed": true,
+      "completed_at": "2026-04-17T16:43:51.962116+00:00",
+      "source_type": "manual",
+      "source_id": "manual_7464806ed3",
+      "source_metadata": {
+        "chain_id": "todo_20260324_141841_fba1f539",
+        "advanced_to": "todo_20260417_164352_eaa9002b",
+        "created_via": "todo_overlay",
+        "chain_position": 5,
+        "chain_parent_id": "todo_20260403_160608_454283f7"
+      },
+      "created_at": "2026-04-09T13:45:35.013949+00:00",
+      "updated_at": "2026-04-17T16:43:51.962129+00:00",
+      "due_display": "2026-04-09 05:00 PM EDT",
+      "group": null
+    },
+    {
+      "id": "todo_20260318_192900_7a110f43",
+      "user_id": "Morgan",
+      "title": "text my boy tolis",
+      "details": null,
+      "due_at": null,
+      "completed": true,
+      "completed_at": "2026-03-18T19:48:18.46516+00:00",
+      "source_type": "discord",
+      "source_id": "1483910113763918014",
+      "source_metadata": {
+        "guild_id": 1476082241489866762,
+        "channel_id": 1483860035154215063
+      },
+      "created_at": "2026-03-18T19:29:00.839804+00:00",
+      "updated_at": "2026-03-18T19:48:18.465176+00:00",
+      "due_display": null,
+      "group": null
+    },
+    {
+      "id": "todo_20260318_192924_75a301ca",
+      "user_id": "Morgan",
+      "title": "text tolis tomorrow",
+      "details": null,
+      "due_at": null,
+      "completed": true,
+      "completed_at": "2026-03-18T19:48:20.897839+00:00",
+      "source_type": "discord",
+      "source_id": "1483910214519623750",
+      "source_metadata": {
+        "guild_id": 1476082241489866762,
+        "channel_id": 1483860035154215063
+      },
+      "created_at": "2026-03-18T19:29:24.850606+00:00",
+      "updated_at": "2026-03-18T19:48:20.897861+00:00",
+      "due_display": null,
+      "group": null
+    },
+    {
+      "id": "todo_20260318_202117_0a458714",
+      "user_id": "Morgan",
+      "title": "talk to her",
+      "details": null,
+      "due_at": null,
+      "completed": true,
+      "completed_at": "2026-03-19T05:35:37.916764+00:00",
+      "source_type": "discord",
+      "source_id": "1483923266270658560",
+      "source_metadata": {
+        "guild_id": 1476082241489866762,
+        "channel_id": 1483860035154215063,
+        "created_via": "discord_modal"
+      },
+      "created_at": "2026-03-18T20:21:17.16788+00:00",
+      "updated_at": "2026-03-19T05:35:37.916769+00:00",
+      "due_display": null,
+      "group": null
+    },
+    {
+      "id": "todo_20260318_202244_8c772ee3",
+      "user_id": "Morgan",
+      "title": "DL homework",
+      "details": null,
+      "due_at": null,
+      "completed": true,
+      "completed_at": "2026-03-19T05:35:39.350097+00:00",
+      "source_type": "discord",
+      "source_id": "1483923632668282891",
+      "source_metadata": {
+        "guild_id": 1476082241489866762,
+        "channel_id": 1483860035154215063,
+        "created_via": "discord_modal"
+      },
+      "created_at": "2026-03-18T20:22:44.100329+00:00",
+      "updated_at": "2026-03-19T05:35:39.350104+00:00",
+      "due_display": null,
+      "group": null
+    },
+    {
+      "id": "todo_20260319_054031_c280a47b",
+      "user_id": "Morgan",
+      "title": "hey buddy",
+      "details": null,
+      "due_at": null,
+      "completed": true,
+      "completed_at": "2026-03-19T05:47:12.511058+00:00",
+      "source_type": "manual",
+      "source_id": "manual_e33763fb16",
+      "source_metadata": {
+        "created_via": "todo_overlay"
+      },
+      "created_at": "2026-03-19T05:40:31.187862+00:00",
+      "updated_at": "2026-03-19T05:47:12.511069+00:00",
+      "due_display": null,
+      "group": null
+    },
+    {
+      "id": "todo_20260328_234123_0ecdbaba",
+      "user_id": "Morgan",
+      "title": "reschedule",
+      "details": null,
+      "due_at": null,
+      "completed": true,
+      "completed_at": "2026-03-29T19:08:51.816723+00:00",
+      "source_type": "manual",
+      "source_id": "manual_7464806ed3",
+      "source_metadata": {
+        "chain_id": "todo_20260324_141841_fba1f539",
+        "advanced_to": "todo_20260329_190851_38b9be97",
+        "created_via": "todo_overlay",
+        "chain_position": 2,
+        "chain_parent_id": "todo_20260324_141841_fba1f539"
+      },
+      "created_at": "2026-03-28T23:41:23.765217+00:00",
+      "updated_at": "2026-03-29T19:08:51.816731+00:00",
+      "due_display": null,
+      "group": null
+    },
+    {
+      "id": "todo_20260409_162636_744a0464",
+      "user_id": "Morgan",
+      "title": "Update Linkedin",
+      "details": null,
+      "due_at": null,
+      "completed": true,
+      "completed_at": "2026-04-18T23:25:43.670537+00:00",
+      "source_type": "manual",
+      "source_id": "manual_c3c441d686",
+      "source_metadata": {
+        "created_via": "todo_overlay"
+      },
+      "created_at": "2026-04-09T16:26:36.77963+00:00",
+      "updated_at": "2026-04-18T23:25:43.670543+00:00",
+      "due_display": null,
+      "group": null
+    }
+  ]
+}
