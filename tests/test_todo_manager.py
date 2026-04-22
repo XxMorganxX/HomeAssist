@@ -100,8 +100,8 @@ def test_refresh_daily_briefing_after_todo_change_uses_background_thread(mock_us
         cache_invoked.append((user, limit))
         return {"success": True}
 
-    def fake_upsert_daily_briefing(*, user, max_items=5, invalidated_todo_id=None):
-        briefing_invoked.append((user, max_items, invalidated_todo_id))
+    def fake_upsert_daily_briefing(*, user, max_items=5, invalidated_todo_id=None, invalidated_todo_groups=None):
+        briefing_invoked.append((user, max_items, invalidated_todo_id, invalidated_todo_groups))
         return {"success": True}
 
     monkeypatch.setattr(module.threading, "Thread", FakeThread)
@@ -112,13 +112,13 @@ def test_refresh_daily_briefing_after_todo_change_uses_background_thread(mock_us
 
     assert calls == [
         {
-            "args": ("Morgan", None),
+            "args": ("Morgan", None, []),
             "daemon": True,
             "name": "todo-briefing-morgan",
         }
     ]
     assert cache_invoked == [("Morgan", 500)]
-    assert briefing_invoked == [("Morgan", 5, None)]
+    assert briefing_invoked == [("Morgan", 5, None, [])]
 
 
 def test_refresh_todo_cache_files_writes_all_and_per_source_files(mock_user_config_testuser, monkeypatch, tmp_path):
@@ -167,6 +167,115 @@ def test_refresh_todo_cache_files_writes_all_and_per_source_files(mock_user_conf
     manual_payload = module.json.loads((user_dir / "manual_todos.json").read_text(encoding="utf-8"))
     assert all_payload["counts"] == {"total": 3, "open": 2, "completed": 1}
     assert manual_payload["counts"] == {"total": 2, "open": 1, "completed": 1}
+
+
+def test_create_todo_with_group_invalidates_group_briefings_for_non_calendar(mock_user_config_testuser, monkeypatch):
+    module = _load_todo_manager_module()
+    manager = module.TodoManager()
+    manager._initialized = True
+
+    class FakeResponse:
+        def __init__(self, data):
+            self.data = data
+
+    class FakeQuery:
+        def __init__(self, client):
+            self.client = client
+            self.payload = None
+            self.action = "insert"
+
+        def insert(self, payload):
+            self.payload = payload
+            self.action = "insert"
+            return self
+
+        def execute(self):
+            if self.action == "insert":
+                self.client.inserted.append(self.payload)
+                return FakeResponse([self.payload])
+            raise AssertionError(f"Unsupported action: {self.action}")
+
+    class FakeClient:
+        def __init__(self):
+            self.inserted = []
+
+        def table(self, _name):
+            return FakeQuery(self)
+
+    manager._client = FakeClient()
+    refresh_calls = []
+    monkeypatch.setattr(
+        manager,
+        "_refresh_daily_briefing_after_todo_change",
+        lambda user, **kwargs: refresh_calls.append((user, kwargs)),
+    )
+
+    created = manager.create_todo(
+        user="TestUser",
+        title="Outline launch email",
+        source_type="manual",
+        group="Work Ops",
+    )
+
+    assert created["group"] == "Work Ops"
+    assert manager._client.inserted
+    assert manager._client.inserted[-1]["source_metadata"]["todo_group"] == "Work Ops"
+    assert refresh_calls
+    _user, kwargs = refresh_calls[-1]
+    assert kwargs.get("invalidated_todo_groups") == ["Work Ops"]
+
+
+def test_create_todo_group_does_not_invalidate_for_calendar_source(mock_user_config_testuser, monkeypatch):
+    module = _load_todo_manager_module()
+    manager = module.TodoManager()
+    manager._initialized = True
+
+    class FakeResponse:
+        def __init__(self, data):
+            self.data = data
+
+    class FakeQuery:
+        def __init__(self, client):
+            self.client = client
+            self.payload = None
+            self.action = "insert"
+
+        def insert(self, payload):
+            self.payload = payload
+            self.action = "insert"
+            return self
+
+        def execute(self):
+            if self.action == "insert":
+                self.client.inserted.append(self.payload)
+                return FakeResponse([self.payload])
+            raise AssertionError(f"Unsupported action: {self.action}")
+
+    class FakeClient:
+        def __init__(self):
+            self.inserted = []
+
+        def table(self, _name):
+            return FakeQuery(self)
+
+    manager._client = FakeClient()
+    refresh_calls = []
+    monkeypatch.setattr(
+        manager,
+        "_refresh_daily_briefing_after_todo_change",
+        lambda user, **kwargs: refresh_calls.append((user, kwargs)),
+    )
+
+    manager.create_todo(
+        user="TestUser",
+        title="Calendar imported event",
+        source_type="calendar",
+        group="School",
+    )
+
+    assert refresh_calls
+    _user, kwargs = refresh_calls[-1]
+    assert kwargs.get("invalidated_todo_groups") is None
 
 
 def test_build_todo_briefing_summaries_schedules_timed_items_and_excludes_calendar(mock_user_config_testuser, monkeypatch):
@@ -242,6 +351,7 @@ def test_build_todo_briefing_timed_due_includes_placeholder_and_structured_meta(
     summary = summaries[0]
     assert summary["kind"] == "timed_due"
     assert "{{TIME_UNTIL_DUE}}" in summary["message"]
+    assert summary["todo_groups"] == []
     assert summary["urgency_bucket"] == "urgent"
     assert summary["due_at_iso"]
     assert summary["suggested_action"]
@@ -445,6 +555,7 @@ def test_upsert_daily_briefing_skips_stale_digest_and_inserts_new_rows(mock_user
             "priority": "high",
             "kind": "timed_due",
             "source_types": ["manual"],
+            "todo_groups": ["Work Ops"],
             "urgency_bucket": "urgent",
             "due_at_iso": "2026-03-19T13:00:00+00:00",
             "suggested_action": "Want to start it now or move the due time?",
@@ -475,11 +586,200 @@ def test_upsert_daily_briefing_skips_stale_digest_and_inserts_new_rows(mock_user
     assert payload["voice_read_at"] is None
     assert payload["dismissed_at"] is None
     assert payload["content"]["meta"]["briefing_key"] == "todo_due_todo_new"
+    assert payload["content"]["meta"]["todo_groups"] == ["Work Ops"]
     assert payload["content"]["meta"]["urgency_bucket"] == "urgent"
     assert payload["content"]["meta"]["due_at_iso"] == "2026-03-19T13:00:00+00:00"
     assert payload["content"]["meta"]["suggested_action"] == "Want to start it now or move the due time?"
     assert payload["content"]["meta"]["send_reason"] == "urgent_due_soon"
     assert payload["content"]["meta"]["urgent_override_applied"] is True
+
+
+def test_upsert_daily_briefing_invalidated_group_forces_refresh_only_for_that_group(mock_user_config_testuser):
+    module = _load_todo_manager_module()
+    manager = module.TodoManager()
+    manager._initialized = True
+
+    class FakeResponse:
+        def __init__(self, data):
+            self.data = data
+
+    class FakeQuery:
+        def __init__(self, client):
+            self.client = client
+            self.action = "select"
+            self.payload = None
+            self.filters = []
+
+        def select(self, *_args, **_kwargs):
+            self.action = "select"
+            return self
+
+        def limit(self, *_args, **_kwargs):
+            return self
+
+        def insert(self, payload):
+            self.payload = payload
+            self.action = "insert"
+            return self
+
+        def update(self, payload):
+            self.payload = payload
+            self.action = "update"
+            return self
+
+        def eq(self, field, value):
+            self.filters.append((field, value))
+            return self
+
+        def execute(self):
+            if self.action == "select":
+                rows = list(self.client.briefings)
+                for field, value in self.filters:
+                    rows = [row for row in rows if row.get(field) == value]
+                return FakeResponse(rows)
+            if self.action == "update":
+                self.client.updated.append((self.payload, list(self.filters)))
+                for row in self.client.briefings:
+                    if all(row.get(field) == value for field, value in self.filters):
+                        row.update(self.payload)
+                return FakeResponse([])
+            if self.action == "insert":
+                self.client.inserted.append(self.payload)
+                self.client.briefings.append(dict(self.payload))
+                return FakeResponse([self.payload])
+            raise AssertionError(f"Unsupported action: {self.action}")
+
+    class FakeClient:
+        def __init__(self):
+            self.briefings = [
+                {
+                    "id": "todo_digest_work_existing",
+                    "user_id": "Morgan",
+                    "status": "pending",
+                    "opener_text": "Work digest opener",
+                    "priority": "normal",
+                    "content": {
+                        "message": "Work digest opener",
+                        "active_from": "2026-03-19T12:00:00+00:00",
+                        "meta": {
+                            "source": "todo_digest",
+                            "briefing_key": "todo_due_todo_work",
+                            "briefing_kind": "timed_due",
+                            "source_types": ["manual"],
+                            "todo_groups": ["Work Ops"],
+                            "todo_ids": ["todo_work"],
+                            "urgency_bucket": "soon",
+                            "due_at_iso": "2026-03-19T13:00:00+00:00",
+                            "suggested_action": "Start it now?",
+                            "base_time": "2026-03-19T11:15:00+00:00",
+                            "planned_send_time": "2026-03-19T12:00:00+00:00",
+                            "send_reason": "timed_due_window_snap",
+                            "urgent_override_applied": False,
+                        },
+                    },
+                },
+                {
+                    "id": "todo_digest_home_existing",
+                    "user_id": "Morgan",
+                    "status": "pending",
+                    "opener_text": "Home digest opener",
+                    "priority": "low",
+                    "content": {
+                        "message": "Home digest opener",
+                        "active_from": "2026-03-19T12:30:00+00:00",
+                        "meta": {
+                            "source": "todo_digest",
+                            "briefing_key": "undated:todo_home",
+                            "briefing_kind": "undated",
+                            "source_types": ["manual"],
+                            "todo_groups": ["Home"],
+                            "todo_ids": ["todo_home"],
+                            "urgency_bucket": "normal",
+                            "due_at_iso": None,
+                            "suggested_action": "Pick one to schedule.",
+                            "base_time": "2026-03-19T12:00:00+00:00",
+                            "planned_send_time": "2026-03-19T12:30:00+00:00",
+                            "send_reason": "undated_morning_window",
+                            "urgent_override_applied": False,
+                        },
+                    },
+                },
+            ]
+            self.inserted = []
+            self.updated = []
+
+        def table(self, _name):
+            return FakeQuery(self)
+
+    manager._client = FakeClient()
+    manager.build_todo_briefing_summaries = lambda **_kwargs: [
+        {
+            "briefing_key": "todo_due_todo_work",
+            "message": "Work digest opener",
+            "todo_ids": ["todo_work"],
+            "active_from": "2026-03-19T12:00:00+00:00",
+            "priority": "normal",
+            "kind": "timed_due",
+            "source_types": ["manual"],
+            "todo_groups": ["Work Ops"],
+            "urgency_bucket": "soon",
+            "due_at_iso": "2026-03-19T13:00:00+00:00",
+            "suggested_action": "Start it now?",
+            "planner": {
+                "base_time": "2026-03-19T11:15:00+00:00",
+                "planned_send_time": "2026-03-19T12:00:00+00:00",
+                "send_reason": "timed_due_window_snap",
+                "urgent_override_applied": False,
+            },
+        },
+        {
+            "briefing_key": "undated:todo_home",
+            "message": "Home digest opener",
+            "todo_ids": ["todo_home"],
+            "active_from": "2026-03-19T12:30:00+00:00",
+            "priority": "low",
+            "kind": "undated",
+            "source_types": ["manual"],
+            "todo_groups": ["Home"],
+            "urgency_bucket": "normal",
+            "due_at_iso": None,
+            "suggested_action": "Pick one to schedule.",
+            "planner": {
+                "base_time": "2026-03-19T12:00:00+00:00",
+                "planned_send_time": "2026-03-19T12:30:00+00:00",
+                "send_reason": "undated_morning_window",
+                "urgent_override_applied": False,
+            },
+        },
+    ]
+    manager.list_todos = lambda **_kwargs: [
+        {
+            "id": "todo_work",
+            "title": "Work todo",
+            "source_type": "manual",
+            "source_metadata": {"todo_group": "Work Ops"},
+            "completed": False,
+        },
+        {
+            "id": "todo_home",
+            "title": "Home todo",
+            "source_type": "manual",
+            "source_metadata": {"todo_group": "Home"},
+            "completed": False,
+        },
+    ]
+
+    result = manager.upsert_daily_briefing(
+        user="Morgan",
+        invalidated_todo_groups=["Work Ops"],
+    )
+
+    assert result["briefings_skipped"] == 1
+    assert result["briefing_created"] is True
+    assert len(manager._client.inserted) == 1
+    update_payload, filters = manager._client.updated[-1]
+    assert update_payload["status"] == "skipped"
+    assert ("id", "todo_digest_work_existing") in filters
 
 
 def test_add_todo_to_calendar_links_manual_todo_without_creating_duplicate(mock_user_config_testuser, monkeypatch):

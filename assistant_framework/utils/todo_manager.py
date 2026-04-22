@@ -9,10 +9,11 @@ import logging
 import os
 import re
 import threading
+import time as time_module
 import uuid
 from datetime import datetime, timezone, timedelta, time as dt_time
 from pathlib import Path
-from typing import Any, Dict, List, Optional, Tuple
+from typing import Any, Callable, Dict, List, Optional, Tuple
 from zoneinfo import ZoneInfo
 
 try:
@@ -52,6 +53,8 @@ DEFAULT_BRIEFING_WINDOWS_LOCAL = "08:30,12:30,17:30"
 DEFAULT_BRIEFING_QUIET_HOURS_START = "21:00"
 DEFAULT_BRIEFING_QUIET_HOURS_END = "07:30"
 DEFAULT_BRIEFING_URGENT_OVERRIDE_MINUTES = 120
+DEFAULT_TODO_SUPABASE_RETRY_ATTEMPTS = 3
+DEFAULT_TODO_SUPABASE_RETRY_BACKOFF_SECONDS = 0.35
 _DATETIME_ALIASES = (
     (r"\btdy\b", "today"),
     (r"\b2day\b", "today"),
@@ -95,6 +98,14 @@ class TodoManager:
         self._briefing_urgent_override_minutes = self._parse_positive_int(
             os.getenv("BRIEFING_URGENT_OVERRIDE_MINUTES", str(DEFAULT_BRIEFING_URGENT_OVERRIDE_MINUTES)),
             fallback=DEFAULT_BRIEFING_URGENT_OVERRIDE_MINUTES,
+        )
+        self._supabase_retry_attempts = self._parse_positive_int(
+            os.getenv("TODO_SUPABASE_RETRY_ATTEMPTS", str(DEFAULT_TODO_SUPABASE_RETRY_ATTEMPTS)),
+            fallback=DEFAULT_TODO_SUPABASE_RETRY_ATTEMPTS,
+        )
+        self._supabase_retry_backoff_seconds = self._parse_positive_float(
+            os.getenv("TODO_SUPABASE_RETRY_BACKOFF_SECONDS", str(DEFAULT_TODO_SUPABASE_RETRY_BACKOFF_SECONDS)),
+            fallback=DEFAULT_TODO_SUPABASE_RETRY_BACKOFF_SECONDS,
         )
         self._calendar_users = get_calendar_users()
         self._default_calendar_user = get_default_calendar_user()
@@ -185,6 +196,84 @@ class TodoManager:
         except (TypeError, ValueError):
             pass
         return fallback
+
+    def _parse_positive_float(self, value: Any, *, fallback: float) -> float:
+        try:
+            parsed = float(str(value).strip())
+            if parsed > 0:
+                return parsed
+        except (TypeError, ValueError):
+            pass
+        return fallback
+
+    def _exception_details(self, exc: Exception) -> str:
+        parts: List[str] = []
+        current: Optional[BaseException] = exc
+        seen: set[int] = set()
+
+        while current is not None and id(current) not in seen:
+            seen.add(id(current))
+            parts.append(f"{type(current).__name__}: {current}")
+            current = current.__cause__ or current.__context__
+
+        return " | ".join(parts).lower()
+
+    def _is_retryable_supabase_error(self, exc: Exception) -> bool:
+        status_code = getattr(exc, "status_code", None)
+        if isinstance(status_code, int) and status_code in {408, 429, 500, 502, 503, 504}:
+            return True
+
+        details = self._exception_details(exc)
+        retry_tokens = (
+            "timeout",
+            "temporarily unavailable",
+            "connection reset",
+            "connection aborted",
+            "connection refused",
+            "network is unreachable",
+            "nodename nor servname",
+            "server disconnected",
+            "handshake operation timed out",
+            "name or service not known",
+            "eof occurred in violation of protocol",
+        )
+        return any(token in details for token in retry_tokens)
+
+    def _execute_query(self, query_factory: Callable[[], Any], *, operation: str) -> Any:
+        attempts = max(1, self._supabase_retry_attempts)
+        last_error: Optional[Exception] = None
+
+        for attempt in range(1, attempts + 1):
+            try:
+                return query_factory().execute()
+            except Exception as exc:  # pragma: no cover - relies on network behavior
+                last_error = exc
+                retryable = self._is_retryable_supabase_error(exc)
+                is_last_attempt = attempt >= attempts
+                if not retryable or is_last_attempt:
+                    logger.warning(
+                        "Supabase %s failed (attempt %s/%s): %s",
+                        operation,
+                        attempt,
+                        attempts,
+                        exc,
+                    )
+                    raise
+
+                sleep_seconds = self._supabase_retry_backoff_seconds * attempt
+                logger.warning(
+                    "Supabase %s transient failure (attempt %s/%s): %s. Retrying in %.2fs.",
+                    operation,
+                    attempt,
+                    attempts,
+                    exc,
+                    sleep_seconds,
+                )
+                time_module.sleep(sleep_seconds)
+
+        if last_error:
+            raise last_error
+        raise RuntimeError(f"Supabase operation '{operation}' failed unexpectedly.")
 
     def parse_due_datetime(
         self,
@@ -522,24 +611,43 @@ class TodoManager:
         user: Optional[str],
         *,
         invalidated_todo_id: Optional[str] = None,
+        invalidated_todo_groups: Optional[List[str]] = None,
     ) -> None:
         """Kick off a non-blocking cache + briefing refresh after todo mutations."""
         if not self.is_available():
             return
 
         normalized_user = self.normalize_user(user)
+        normalized_groups = [
+            group
+            for group in {
+                self._normalize_todo_group(value)
+                for value in (invalidated_todo_groups or [])
+                if value is not None
+            }
+            if group
+        ]
         threading.Thread(
             target=self._refresh_daily_briefing_worker,
-            args=(normalized_user, invalidated_todo_id),
+            args=(normalized_user, invalidated_todo_id, normalized_groups),
             daemon=True,
             name=f"todo-briefing-{normalized_user.lower()}",
         ).start()
 
-    def _refresh_daily_briefing_worker(self, user: str, invalidated_todo_id: Optional[str]) -> None:
+    def _refresh_daily_briefing_worker(
+        self,
+        user: str,
+        invalidated_todo_id: Optional[str],
+        invalidated_todo_groups: Optional[List[str]],
+    ) -> None:
         """Worker used by background refresh threads."""
         try:
             self.refresh_todo_cache_files(user=user)
-            self.upsert_daily_briefing(user=user, invalidated_todo_id=invalidated_todo_id)
+            self.upsert_daily_briefing(
+                user=user,
+                invalidated_todo_id=invalidated_todo_id,
+                invalidated_todo_groups=invalidated_todo_groups,
+            )
         except Exception as exc:
             logger.warning("Failed to refresh todo post-change sync for %s: %s", user, exc)
 
@@ -585,9 +693,16 @@ class TodoManager:
             "updated_at": now,
         }
 
-        client.table(self.TABLE_NAME).insert(todo).execute()
+        self._execute_query(
+            lambda: client.table(self.TABLE_NAME).insert(todo),
+            operation="create_todo_insert",
+        )
         formatted = self._format_todo(todo)
-        self._refresh_daily_briefing_after_todo_change(normalized_user)
+        invalidate_groups = [normalized_group] if normalized_group and str(source_type or "").lower() != "calendar" else None
+        self._refresh_daily_briefing_after_todo_change(
+            normalized_user,
+            invalidated_todo_groups=invalidate_groups,
+        )
         return formatted
 
     def list_todos(
@@ -603,13 +718,18 @@ class TodoManager:
         client = self._require_client()
         normalized_user = self.normalize_user(user)
 
-        query = client.table(self.TABLE_NAME).select("*").eq("user_id", normalized_user)
-        if not include_completed:
-            query = query.eq("completed", False)
-        if source_type:
-            query = query.eq("source_type", source_type)
+        def _list_query():
+            query = client.table(self.TABLE_NAME).select("*").eq("user_id", normalized_user)
+            if not include_completed:
+                query = query.eq("completed", False)
+            if source_type:
+                query = query.eq("source_type", source_type)
+            return query.limit(max(limit * 3, 50))
 
-        response = query.limit(max(limit * 3, 50)).execute()
+        response = self._execute_query(
+            _list_query,
+            operation="list_todos_select",
+        )
         todos = [self._format_todo(row) for row in (response.data or [])]
         todos = self._filter_todos_for_time(todos, only_due_today=only_due_today, only_overdue=only_overdue)
         todos.sort(key=self._todo_sort_key)
@@ -636,7 +756,10 @@ class TodoManager:
             "completed_at": self._now_iso() if completed else None,
             "updated_at": self._now_iso(),
         }
-        client.table(self.TABLE_NAME).update(update).eq("id", todo["id"]).execute()
+        self._execute_query(
+            lambda: client.table(self.TABLE_NAME).update(update).eq("id", todo["id"]),
+            operation="set_completed_state_update",
+        )
         todo.update(update)
         formatted = self._format_todo(todo)
         self._refresh_daily_briefing_after_todo_change(
@@ -660,6 +783,7 @@ class TodoManager:
     ) -> Dict[str, Any]:
         client = self._require_client()
         todo = self.resolve_todo(user=user, todo_id=todo_id, match=match, include_completed=True)
+        previous_group = self._todo_group_from_row(todo)
 
         update: Dict[str, Any] = {"updated_at": self._now_iso()}
         if title is not None:
@@ -683,10 +807,23 @@ class TodoManager:
                     metadata.pop(self.TODO_GROUP_METADATA_KEY, None)
             update["source_metadata"] = metadata
 
-        client.table(self.TABLE_NAME).update(update).eq("id", todo["id"]).execute()
+        self._execute_query(
+            lambda: client.table(self.TABLE_NAME).update(update).eq("id", todo["id"]),
+            operation="update_todo_update",
+        )
         todo.update(update)
         formatted = self._format_todo(todo)
-        self._refresh_daily_briefing_after_todo_change(todo.get("user_id") or user)
+        invalidate_groups: List[str] = []
+        if str(todo.get("source_type") or "").lower() != "calendar" and (group is not None or clear_group):
+            current_group = self._todo_group_from_row(formatted)
+            if previous_group:
+                invalidate_groups.append(previous_group)
+            if current_group:
+                invalidate_groups.append(current_group)
+        self._refresh_daily_briefing_after_todo_change(
+            todo.get("user_id") or user,
+            invalidated_todo_groups=invalidate_groups or None,
+        )
         return formatted
 
     def delete_todo(
@@ -698,7 +835,10 @@ class TodoManager:
     ) -> Dict[str, Any]:
         client = self._require_client()
         todo = self.resolve_todo(user=user, todo_id=todo_id, match=match, include_completed=True)
-        client.table(self.TABLE_NAME).delete().eq("id", todo["id"]).execute()
+        self._execute_query(
+            lambda: client.table(self.TABLE_NAME).delete().eq("id", todo["id"]),
+            operation="delete_todo_delete",
+        )
         formatted = self._format_todo(todo)
         self._refresh_daily_briefing_after_todo_change(
             todo.get("user_id") or user,
@@ -810,7 +950,10 @@ class TodoManager:
             ),
             "updated_at": self._now_iso(),
         }
-        client.table(self.TABLE_NAME).update(update).eq("id", todo["id"]).execute()
+        self._execute_query(
+            lambda: client.table(self.TABLE_NAME).update(update).eq("id", todo["id"]),
+            operation="add_todo_to_calendar_update",
+        )
         todo.update(update)
 
         return {
@@ -886,12 +1029,14 @@ class TodoManager:
             "all_day": event.get("all_day", False),
         }
 
-        linked_manual_response = (
-            client.table(self.TABLE_NAME)
-            .select("*")
-            .eq("user_id", assistant_user)
-            .limit(300)
-            .execute()
+        linked_manual_response = self._execute_query(
+            lambda: (
+                client.table(self.TABLE_NAME)
+                .select("*")
+                .eq("user_id", assistant_user)
+                .limit(300)
+            ),
+            operation="upsert_calendar_todo_select_linked_manual",
         )
         for row in linked_manual_response.data or []:
             if str(row.get("source_type") or "").lower() == "calendar":
@@ -925,18 +1070,23 @@ class TodoManager:
                 ),
                 "updated_at": self._now_iso(),
             }
-            client.table(self.TABLE_NAME).update(update).eq("id", row["id"]).execute()
+            self._execute_query(
+                lambda: client.table(self.TABLE_NAME).update(update).eq("id", row["id"]),
+                operation="upsert_calendar_todo_update_linked_manual",
+            )
             row.update(update)
             return self._format_todo(row)
 
-        existing_resp = (
-            client.table(self.TABLE_NAME)
-            .select("*")
-            .eq("user_id", assistant_user)
-            .eq("source_type", "calendar")
-            .eq("source_id", source_id)
-            .limit(1)
-            .execute()
+        existing_resp = self._execute_query(
+            lambda: (
+                client.table(self.TABLE_NAME)
+                .select("*")
+                .eq("user_id", assistant_user)
+                .eq("source_type", "calendar")
+                .eq("source_id", source_id)
+                .limit(1)
+            ),
+            operation="upsert_calendar_todo_select_existing",
         )
         existing = (existing_resp.data or [None])[0]
         now = self._now_iso()
@@ -953,7 +1103,10 @@ class TodoManager:
         }
 
         if existing:
-            client.table(self.TABLE_NAME).update(update).eq("id", existing["id"]).execute()
+            self._execute_query(
+                lambda: client.table(self.TABLE_NAME).update(update).eq("id", existing["id"]),
+                operation="upsert_calendar_todo_update_existing",
+            )
             existing.update(update)
             return self._format_todo(existing)
 
@@ -964,7 +1117,10 @@ class TodoManager:
             "created_at": now,
             **update,
         }
-        client.table(self.TABLE_NAME).insert(record).execute()
+        self._execute_query(
+            lambda: client.table(self.TABLE_NAME).insert(record),
+            operation="upsert_calendar_todo_insert",
+        )
         return self._format_todo(record)
 
     def sync_calendar_events(self, *, calendar_user: str, events: List[Dict[str, Any]]) -> Dict[str, Any]:
@@ -986,12 +1142,14 @@ class TodoManager:
                 failures.append(str(exc))
 
         try:
-            existing_resp = (
-                client.table(self.TABLE_NAME)
-                .select("id, source_id, source_metadata")
-                .eq("user_id", assistant_user)
-                .eq("source_type", "calendar")
-                .execute()
+            existing_resp = self._execute_query(
+                lambda: (
+                    client.table(self.TABLE_NAME)
+                    .select("id, source_id, source_metadata")
+                    .eq("user_id", assistant_user)
+                    .eq("source_type", "calendar")
+                ),
+                operation="sync_calendar_events_select_existing",
             )
             existing_rows = existing_resp.data or []
             stale_ids = [
@@ -1002,7 +1160,10 @@ class TodoManager:
                 and row.get("id")
             ]
             for stale_id in stale_ids:
-                client.table(self.TABLE_NAME).delete().eq("id", stale_id).execute()
+                self._execute_query(
+                    lambda stale_id=stale_id: client.table(self.TABLE_NAME).delete().eq("id", stale_id),
+                    operation="sync_calendar_events_delete_stale",
+                )
                 removed += 1
         except Exception as exc:
             failures.append(f"Failed to prune stale calendar events for {calendar_user}: {exc}")
@@ -1046,15 +1207,55 @@ class TodoManager:
             return []
         return [str(todo_id) for todo_id in todo_ids]
 
+    def _todo_groups_from_todos(self, todos: List[Dict[str, Any]]) -> List[str]:
+        groups = {
+            self._normalize_todo_group(self._todo_group_from_row(todo))
+            for todo in todos
+        }
+        return sorted(group for group in groups if group)
+
+    def _briefing_todo_groups(
+        self,
+        briefing: Dict[str, Any],
+        *,
+        todo_group_by_id: Optional[Dict[str, str]] = None,
+    ) -> List[str]:
+        content = self._briefing_content_dict(briefing)
+        meta = content.get("meta") or {}
+        raw_groups = meta.get("todo_groups") or []
+        groups: List[str] = []
+        if isinstance(raw_groups, list):
+            groups.extend(
+                normalized
+                for normalized in (
+                    self._normalize_todo_group(value)
+                    for value in raw_groups
+                )
+                if normalized
+            )
+        if groups:
+            return sorted(set(groups))
+
+        if not todo_group_by_id:
+            return []
+        fallback_groups = {
+            todo_group_by_id.get(todo_id)
+            for todo_id in self._briefing_todo_ids(briefing)
+            if todo_group_by_id.get(todo_id)
+        }
+        return sorted(group for group in fallback_groups if group)
+
     def _get_pending_todo_digest_briefings(self, *, user: str) -> List[Dict[str, Any]]:
         client = self._require_client()
-        response = (
-            client.table(self.BRIEFING_TABLE_NAME)
-            .select("*")
-            .eq("user_id", user)
-            .eq("status", "pending")
-            .limit(50)
-            .execute()
+        response = self._execute_query(
+            lambda: (
+                client.table(self.BRIEFING_TABLE_NAME)
+                .select("*")
+                .eq("user_id", user)
+                .eq("status", "pending")
+                .limit(50)
+            ),
+            operation="get_pending_todo_digest_briefings_select",
         )
         return [briefing for briefing in (response.data or []) if self._is_todo_digest_briefing(briefing)]
 
@@ -1252,13 +1453,15 @@ class TodoManager:
         cutoff = datetime.now(timezone.utc) - timedelta(hours=self.TODO_UNDATED_BRIEFING_COOLDOWN_HOURS)
         client = self._require_client()
         try:
-            response = (
-                client.table(self.BRIEFING_TABLE_NAME)
-                .select("id, content, created_at")
-                .eq("user_id", user)
-                .order("created_at", desc=True)
-                .limit(200)
-                .execute()
+            response = self._execute_query(
+                lambda: (
+                    client.table(self.BRIEFING_TABLE_NAME)
+                    .select("id, content, created_at")
+                    .eq("user_id", user)
+                    .order("created_at", desc=True)
+                    .limit(200)
+                ),
+                operation="undated_briefing_recently_generated_select",
             )
         except Exception:
             return False
@@ -1302,6 +1505,7 @@ class TodoManager:
     def _build_timed_todo_briefing(self, todo: Dict[str, Any], due_local: datetime, now_local: datetime) -> Dict[str, Any]:
         source_type = str(todo.get("source_type") or "manual").lower()
         planner = self._plan_timed_briefing_send(due_local=due_local, now_local=now_local)
+        todo_groups = self._todo_groups_from_todos([todo])
         message, suggested_action = self._compose_todo_briefing_message(
             kind="timed_due",
             todos=[todo],
@@ -1316,6 +1520,7 @@ class TodoManager:
             "priority": priority,
             "kind": "timed_due",
             "source_types": [source_type],
+            "todo_groups": todo_groups,
             "urgency_bucket": self._urgency_bucket_for_timed_due(due_local=due_local, now_local=now_local),
             "due_at_iso": due_local.astimezone(timezone.utc).isoformat(),
             "suggested_action": suggested_action,
@@ -1335,6 +1540,7 @@ class TodoManager:
         due_at_iso: Optional[str] = None,
     ) -> Dict[str, Any]:
         source_types = sorted({str(todo.get("source_type") or "unknown").lower() for todo in todos})
+        todo_groups = self._todo_groups_from_todos(todos)
         return {
             "briefing_key": f"{kind}:" + ",".join(sorted(str(todo["id"]) for todo in todos)),
             "message": message,
@@ -1343,6 +1549,7 @@ class TodoManager:
             "priority": priority,
             "kind": kind,
             "source_types": source_types,
+            "todo_groups": todo_groups,
             "urgency_bucket": urgency_bucket,
             "due_at_iso": due_at_iso,
             "suggested_action": suggested_action,
@@ -1430,16 +1637,30 @@ class TodoManager:
         if not briefing_ids:
             return 0
 
+        unique_ids: List[str] = []
+        seen_ids: set[str] = set()
+        for raw_id in briefing_ids:
+            briefing_id = str(raw_id or "").strip()
+            if not briefing_id or briefing_id in seen_ids:
+                continue
+            seen_ids.add(briefing_id)
+            unique_ids.append(briefing_id)
+        if not unique_ids:
+            return 0
+
         client = self._require_client()
         now = self._now_iso()
         skipped = 0
-        for briefing_id in briefing_ids:
-            client.table(self.BRIEFING_TABLE_NAME).update(
-                {
-                    "status": "skipped",
-                    "dismissed_at": now,
-                }
-            ).eq("id", briefing_id).eq("status", "pending").execute()
+        for briefing_id in unique_ids:
+            self._execute_query(
+                lambda briefing_id=briefing_id: client.table(self.BRIEFING_TABLE_NAME).update(
+                    {
+                        "status": "skipped",
+                        "dismissed_at": now,
+                    }
+                ).eq("id", briefing_id).eq("status", "pending"),
+                operation="mark_briefings_skipped_update",
+            )
             skipped += 1
         return skipped
 
@@ -1458,11 +1679,30 @@ class TodoManager:
         user: Optional[str],
         max_items: int = 5,
         invalidated_todo_id: Optional[str] = None,
+        invalidated_todo_groups: Optional[List[str]] = None,
     ) -> Dict[str, Any]:
         client = self._require_client()
         normalized_user = self.normalize_user(user)
         pending_digests = self._get_pending_todo_digest_briefings(user=normalized_user)
         planned_summaries = self.build_todo_briefing_summaries(user=normalized_user, max_items=max_items)
+        normalized_invalidated_groups = sorted(
+            {
+                normalized
+                for normalized in (
+                    self._normalize_todo_group(value)
+                    for value in (invalidated_todo_groups or [])
+                )
+                if normalized
+            }
+        )
+
+        todo_group_by_id: Dict[str, str] = {}
+        if normalized_invalidated_groups:
+            for todo in self.list_todos(user=normalized_user, include_completed=True, limit=500):
+                todo_id = str(todo.get("id") or "").strip()
+                todo_group = self._normalize_todo_group(self._todo_group_from_row(todo))
+                if todo_id and todo_group:
+                    todo_group_by_id[todo_id] = todo_group
 
         if not planned_summaries:
             skipped = self._mark_briefings_skipped([str(briefing.get("id")) for briefing in pending_digests if briefing.get("id")])
@@ -1474,6 +1714,22 @@ class TodoManager:
 
         stale_ids: List[str] = []
         created_ids: List[str] = []
+        forced_refresh_keys = set()
+
+        if normalized_invalidated_groups:
+            invalidated_set = set(normalized_invalidated_groups)
+            for briefing in pending_digests:
+                briefing_groups = set(
+                    self._briefing_todo_groups(briefing, todo_group_by_id=todo_group_by_id)
+                )
+                if not briefing_groups.intersection(invalidated_set):
+                    continue
+                briefing_id = str(briefing.get("id") or "")
+                if briefing_id:
+                    stale_ids.append(briefing_id)
+                briefing_key = self._briefing_key(briefing)
+                if briefing_key:
+                    forced_refresh_keys.add(briefing_key)
 
         for key, briefings in existing_by_key.items():
             planned = planned_by_key.get(key)
@@ -1484,9 +1740,21 @@ class TodoManager:
                     continue
                 existing_content = self._briefing_content_dict(briefing)
                 existing_meta = existing_content.get("meta") or {}
+                summary_groups = sorted(
+                    {
+                        normalized
+                        for normalized in (
+                            self._normalize_todo_group(value)
+                            for value in (planned.get("todo_groups") or [])
+                        )
+                        if normalized
+                    }
+                )
                 if (
-                    briefing.get("opener_text") == planned["message"]
+                    key not in forced_refresh_keys
+                    and briefing.get("opener_text") == planned["message"]
                     and self._briefing_todo_ids(briefing) == planned["todo_ids"]
+                    and self._briefing_todo_groups(briefing, todo_group_by_id=todo_group_by_id) == summary_groups
                     and existing_content.get("active_from") == planned["active_from"]
                     and str(briefing.get("priority") or "normal") == planned["priority"]
                     and str(existing_meta.get("urgency_bucket") or "") == str(planned.get("urgency_bucket") or "")
@@ -1525,6 +1793,7 @@ class TodoManager:
                         "briefing_key": summary["briefing_key"],
                         "briefing_kind": summary["kind"],
                         "source_types": summary["source_types"],
+                        "todo_groups": summary.get("todo_groups") or [],
                         "urgency_bucket": summary.get("urgency_bucket"),
                         "due_at_iso": summary.get("due_at_iso"),
                         "todo_ids": summary["todo_ids"],
@@ -1545,7 +1814,10 @@ class TodoManager:
                 "voice_read_at": None,
                 "dismissed_at": None,
             }
-            client.table(self.BRIEFING_TABLE_NAME).insert(record).execute()
+            self._execute_query(
+                lambda record=record: client.table(self.BRIEFING_TABLE_NAME).insert(record),
+                operation="upsert_daily_briefing_insert",
+            )
             created_ids.append(briefing_id)
 
         return {
@@ -1724,7 +1996,10 @@ class TodoManager:
                 "advanced_to": None,
             }),
         }
-        client.table(self.TABLE_NAME).update(complete_update).eq("id", current["id"]).execute()
+        self._execute_query(
+            lambda: client.table(self.TABLE_NAME).update(complete_update).eq("id", current["id"]),
+            operation="advance_todo_complete_update",
+        )
 
         normalized_user = self.normalize_user(user)
         due_dt = self.parse_due_datetime(due_at=due_at) if due_at else None
@@ -1752,7 +2027,10 @@ class TodoManager:
             "updated_at": now,
         }
 
-        client.table(self.TABLE_NAME).insert(new_todo).execute()
+        self._execute_query(
+            lambda: client.table(self.TABLE_NAME).insert(new_todo),
+            operation="advance_todo_insert_next",
+        )
 
         advanced_update = {
             "source_metadata": self._merge_source_metadata(current, {
@@ -1761,7 +2039,10 @@ class TodoManager:
                 "advanced_to": new_id,
             }),
         }
-        client.table(self.TABLE_NAME).update(advanced_update).eq("id", current["id"]).execute()
+        self._execute_query(
+            lambda: client.table(self.TABLE_NAME).update(advanced_update).eq("id", current["id"]),
+            operation="advance_todo_mark_advanced",
+        )
 
         formatted = self._format_todo(new_todo)
         self._refresh_daily_briefing_after_todo_change(normalized_user, invalidated_todo_id=current["id"])
@@ -1786,12 +2067,14 @@ class TodoManager:
         anchor_metadata = self._source_metadata_dict(anchor)
         chain_id = anchor_metadata.get("chain_id") or anchor["id"]
 
-        response = (
-            client.table(self.TABLE_NAME)
-            .select("*")
-            .eq("user_id", normalized_user)
-            .limit(200)
-            .execute()
+        response = self._execute_query(
+            lambda: (
+                client.table(self.TABLE_NAME)
+                .select("*")
+                .eq("user_id", normalized_user)
+                .limit(200)
+            ),
+            operation="get_chain_select",
         )
 
         chain_todos = []

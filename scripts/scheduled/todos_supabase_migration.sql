@@ -32,7 +32,10 @@ ON todos(user_id, source_type, source_id);
 CREATE INDEX IF NOT EXISTS idx_todos_source_metadata
 ON todos USING gin (source_metadata);
 
+CREATE INDEX IF NOT EXISTS idx_todos_group_name
+ON todos ((source_metadata->>'todo_group'));
+
 COMMENT ON TABLE todos IS 'Persistent action items created from voice, Discord, manual commands, and calendar-linked sources.';
 COMMENT ON COLUMN todos.source_type IS 'Origin of the todo such as voice, discord, calendar, or manual.';
 COMMENT ON COLUMN todos.source_id IS 'External or generated identifier for the todo source.';
-COMMENT ON COLUMN todos.source_metadata IS 'Source-specific context such as calendar event details or Discord interaction metadata.';
+COMMENT ON COLUMN todos.source_metadata IS 'Source-specific context such as calendar event details, Discord metadata, and optional todo_group category.';

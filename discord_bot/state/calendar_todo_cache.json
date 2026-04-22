@@ -1,90 +1,9 @@
 {
-  "last_pull_at": "2026-04-18T20:18:01.170767",
+  "last_pull_at": "2026-04-22T00:48:29.916634",
   "sync_summary": "Calendar sync: 10 events from 4 calendar(s).",
   "calendar_todos": [
     {
-      "id": "todo_20260417_122714_cc33ae69",
-      "user_id": "Morgan",
-      "title": "Mann.",
-      "details": null,
-      "due_at": "2026-04-20T16:30:00+00:00",
-      "completed": false,
-      "completed_at": null,
-      "source_type": "calendar",
-      "source_id": "0518hv88pgdpgcul497mahusvi_20260420T163000Z",
-      "source_metadata": {
-        "all_day": false,
-        "end_date": "2026-04-20",
-        "end_time": "14:30:00",
-        "event_id": "0518hv88pgdpgcul497mahusvi_20260420T163000Z",
-        "location": "",
-        "start_date": "2026-04-20",
-        "start_time": "12:30:00",
-        "description": "",
-        "calendar_name": "mns66@cornell.edu",
-        "calendar_user": "morgan_school"
-      },
-      "created_at": "2026-04-17T12:27:14.855038+00:00",
-      "updated_at": "2026-04-19T00:17:57.908639+00:00",
-      "due_display": "2026-04-20 12:30 PM EDT",
-      "group": null
-    },
-    {
-      "id": "todo_20260417_122715_3bd64c69",
-      "user_id": "Morgan",
-      "title": "Data Viz AE",
-      "details": null,
-      "due_at": "2026-04-22T02:30:00+00:00",
-      "completed": false,
-      "completed_at": null,
-      "source_type": "calendar",
-      "source_id": "11s0tj1jctd2r0qtck4bqq50a1_20260422T023000Z",
-      "source_metadata": {
-        "all_day": false,
-        "end_date": "2026-04-21",
-        "end_time": "23:30:00",
-        "event_id": "11s0tj1jctd2r0qtck4bqq50a1_20260422T023000Z",
-        "location": "",
-        "start_date": "2026-04-21",
-        "start_time": "22:30:00",
-        "description": "",
-        "calendar_name": "mns66@cornell.edu",
-        "calendar_user": "morgan_school"
-      },
-      "created_at": "2026-04-17T12:27:15.1091+00:00",
-      "updated_at": "2026-04-19T00:17:58.114952+00:00",
-      "due_display": "2026-04-21 10:30 PM EDT",
-      "group": null
-    },
-    {
-      "id": "todo_20260418_035147_f6bd075c",
-      "user_id": "Morgan",
-      "title": "DL - Coding Assignment 4",
-      "details": null,
-      "due_at": "2026-04-22T02:30:00+00:00",
-      "completed": false,
-      "completed_at": null,
-      "source_type": "calendar",
-      "source_id": "2ff95u3l78pgn5tfqf7cmlvt34",
-      "source_metadata": {
-        "all_day": false,
-        "end_date": "2026-04-21",
-        "end_time": "23:30:00",
-        "event_id": "2ff95u3l78pgn5tfqf7cmlvt34",
-        "location": "",
-        "start_date": "2026-04-21",
-        "start_time": "22:30:00",
-        "description": "",
-        "calendar_name": "mns66@cornell.edu",
-        "calendar_user": "morgan_school"
-      },
-      "created_at": "2026-04-18T03:51:47.199677+00:00",
-      "updated_at": "2026-04-19T00:17:58.333319+00:00",
-      "due_display": "2026-04-21 10:30 PM EDT",
-      "group": null
-    },
-    {
-      "id": "todo_20260417_122715_491609b7",
+      "id": "todo_20260419_161442_8d55abec",
       "user_id": "Morgan",
       "title": "Mann.",
       "details": null,
@@ -105,13 +24,13 @@
         "calendar_name": "mns66@cornell.edu",
         "calendar_user": "morgan_school"
       },
-      "created_at": "2026-04-17T12:27:15.35254+00:00",
-      "updated_at": "2026-04-19T00:17:58.537244+00:00",
+      "created_at": "2026-04-19T16:14:42.639366+00:00",
+      "updated_at": "2026-04-22T04:48:25.596804+00:00",
       "due_display": "2026-04-22 12:30 PM EDT",
       "group": null
     },
     {
-      "id": "todo_20260417_122715_a924409b",
+      "id": "todo_20260419_161442_c64bdc5b",
       "user_id": "Morgan",
       "title": "INFO posters",
       "details": null,
@@ -132,13 +51,13 @@
         "calendar_name": "mns66@cornell.edu",
         "calendar_user": "morgan_school"
       },
-      "created_at": "2026-04-17T12:27:15.604819+00:00",
-      "updated_at": "2026-04-19T00:17:58.72837+00:00",
+      "created_at": "2026-04-19T16:14:42.919035+00:00",
+      "updated_at": "2026-04-22T04:48:25.848783+00:00",
       "due_display": "2026-04-22 03:00 PM EDT",
       "group": null
     },
     {
-      "id": "todo_20260417_122715_988fc01f",
+      "id": "todo_20260419_161443_fbbc38e9",
       "user_id": "Morgan",
       "title": "Data Viz AE",
       "details": null,
@@ -159,13 +78,13 @@
         "calendar_name": "mns66@cornell.edu",
         "calendar_user": "morgan_school"
       },
-      "created_at": "2026-04-17T12:27:15.861097+00:00",
-      "updated_at": "2026-04-19T00:17:58.929377+00:00",
+      "created_at": "2026-04-19T16:14:43.207725+00:00",
+      "updated_at": "2026-04-22T04:48:26.098242+00:00",
       "due_display": "2026-04-23 10:30 PM EDT",
       "group": null
     },
     {
-      "id": "todo_20260418_035248_cf60f4a9",
+      "id": "todo_20260419_161443_2d601d62",
       "user_id": "Morgan",
       "title": "HW #5",
       "details": null,
@@ -186,13 +105,13 @@
         "calendar_name": "mns66@cornell.edu",
         "calendar_user": "morgan_school"
       },
-      "created_at": "2026-04-18T03:52:48.915232+00:00",
-      "updated_at": "2026-04-19T00:17:59.128649+00:00",
+      "created_at": "2026-04-19T16:14:43.492923+00:00",
+      "updated_at": "2026-04-22T04:48:26.364867+00:00",
       "due_display": "2026-04-23 10:30 PM EDT",
       "group": null
     },
     {
-      "id": "todo_20260417_133442_4ebb9f24",
+      "id": "todo_20260419_161443_ca6e91a8",
       "user_id": "Morgan",
       "title": "Allergy md",
       "details": null,
@@ -213,13 +132,13 @@
         "calendar_name": "mns66@cornell.edu",
         "calendar_user": "morgan_school"
       },
-      "created_at": "2026-04-17T13:34:42.001084+00:00",
-      "updated_at": "2026-04-19T00:17:59.359132+00:00",
+      "created_at": "2026-04-19T16:14:43.771288+00:00",
+      "updated_at": "2026-04-22T04:48:26.622669+00:00",
       "due_display": "2026-04-24 08:40 AM EDT",
       "group": null
     },
     {
-      "id": "todo_20260418_170212_22c74b9c",
+      "id": "todo_20260422_010154_41d2dd4d",
       "user_id": "Morgan",
       "title": "Check discover debt",
       "details": null,
@@ -240,13 +159,13 @@
         "calendar_name": "morgannstuart@gmail.com",
         "calendar_user": "morgan_personal"
       },
-      "created_at": "2026-04-18T17:02:12.250822+00:00",
-      "updated_at": "2026-04-19T00:17:55.230641+00:00",
+      "created_at": "2026-04-22T01:01:54.132629+00:00",
+      "updated_at": "2026-04-22T04:48:22.668288+00:00",
       "due_display": "2026-04-25 01:00 PM EDT",
       "group": null
     },
     {
-      "id": "todo_20260418_192745_71d28196",
+      "id": "todo_20260422_010052_80ecb0ae",
       "user_id": "Morgan",
       "title": "Implementation Phase Deadline",
       "details": null,
@@ -267,9 +186,90 @@
         "calendar_name": "c_a9971ca39f405c3c8c855332f1d5bc8721378fef7845b1e3fc7b62601e0911bc@group.calendar.google.com",
         "calendar_user": "Gen_AI"
       },
-      "created_at": "2026-04-18T19:27:45.365552+00:00",
-      "updated_at": "2026-04-19T00:18:00.289185+00:00",
+      "created_at": "2026-04-22T01:00:52.359026+00:00",
+      "updated_at": "2026-04-22T04:48:28.472232+00:00",
       "due_display": "2026-04-25 03:00 PM EDT",
+      "group": null
+    },
+    {
+      "id": "todo_20260422_010052_92cf213f",
+      "user_id": "Morgan",
+      "title": "TBD - DEMO Week #2",
+      "details": null,
+      "due_at": "2026-04-26T18:30:00+00:00",
+      "completed": false,
+      "completed_at": null,
+      "source_type": "calendar",
+      "source_id": "0niupu489curns23n86v41i43m",
+      "source_metadata": {
+        "all_day": false,
+        "end_date": "2026-04-26",
+        "end_time": "15:30:00",
+        "event_id": "0niupu489curns23n86v41i43m",
+        "location": "",
+        "start_date": "2026-04-26",
+        "start_time": "14:30:00",
+        "description": "",
+        "calendar_name": "c_a9971ca39f405c3c8c855332f1d5bc8721378fef7845b1e3fc7b62601e0911bc@group.calendar.google.com",
+        "calendar_user": "Gen_AI"
+      },
+      "created_at": "2026-04-22T01:00:52.633593+00:00",
+      "updated_at": "2026-04-22T04:48:28.727736+00:00",
+      "due_display": "2026-04-26 02:30 PM EDT",
+      "group": null
+    },
+    {
+      "id": "todo_20260420_163008_57fec52f",
+      "user_id": "Morgan",
+      "title": "Mann.",
+      "details": null,
+      "due_at": "2026-04-27T16:30:00+00:00",
+      "completed": false,
+      "completed_at": null,
+      "source_type": "calendar",
+      "source_id": "0518hv88pgdpgcul497mahusvi_20260427T163000Z",
+      "source_metadata": {
+        "all_day": false,
+        "end_date": "2026-04-27",
+        "end_time": "14:30:00",
+        "event_id": "0518hv88pgdpgcul497mahusvi_20260427T163000Z",
+        "location": "",
+        "start_date": "2026-04-27",
+        "start_time": "12:30:00",
+        "description": "",
+        "calendar_name": "mns66@cornell.edu",
+        "calendar_user": "morgan_school"
+      },
+      "created_at": "2026-04-20T16:30:08.557203+00:00",
+      "updated_at": "2026-04-22T04:48:26.87656+00:00",
+      "due_display": "2026-04-27 12:30 PM EDT",
+      "group": null
+    },
+    {
+      "id": "todo_20260422_023024_9573b816",
+      "user_id": "Morgan",
+      "title": "Data Viz AE",
+      "details": null,
+      "due_at": "2026-04-29T02:30:00+00:00",
+      "completed": false,
+      "completed_at": null,
+      "source_type": "calendar",
+      "source_id": "11s0tj1jctd2r0qtck4bqq50a1_20260429T023000Z",
+      "source_metadata": {
+        "all_day": false,
+        "end_date": "2026-04-28",
+        "end_time": "23:30:00",
+        "event_id": "11s0tj1jctd2r0qtck4bqq50a1_20260429T023000Z",
+        "location": "",
+        "start_date": "2026-04-28",
+        "start_time": "22:30:00",
+        "description": "",
+        "calendar_name": "mns66@cornell.edu",
+        "calendar_user": "morgan_school"
+      },
+      "created_at": "2026-04-22T02:30:24.028587+00:00",
+      "updated_at": "2026-04-22T04:48:27.136428+00:00",
+      "due_display": "2026-04-28 10:30 PM EDT",
       "group": null
     }
   ]
