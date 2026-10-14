@@ -1,0 +1,98 @@
+# ============================================
+# Secrets & credentials -- never commit these
+# ============================================
+.env
+.env.*
+*.env
+!.env.example
+creds/
+**/creds/
+*credentials*.json
+*token*.json
+*service-account*.json
+client_secret*.json
+.cache
+**/.cache
+.spotify_cache
+*.pem
+*.key
+
+# ============================================
+# Personal / runtime data
+# ============================================
+# Email ephemeral data, Discord bot todo state, app state
+email_ephem_data/
+**/email_ephem_data/
+discord_bot/state/
+state_management/*.json
+!state_management/.gitkeep
+# Scheduled-script run state and caches
+scripts/scheduled/**/*_state.json
+scripts/scheduled/*/ephemeral_data/*
+!scripts/scheduled/*/ephemeral_data/.gitkeep
+scripts/scheduled/calendar_briefing/event_cache.json
+scripts/scheduled/weather_briefing/location_cache.json
+# Email/news scratch outputs
+new_mail.json
+relevance_results.json
+test_relevance_results.json
+full_article_analysis.json
+headlines.json
+news.json
+top_headlines.json
+daily_key_points.json
+daily_summary.txt
+email_summaries.json
+# Legacy MCP state file (now uses state_management/app_state.json)
+.mcp_state.json
+
+# Recordings / screen captures
+*.mov
+*.mp4
+*.wav
+*.m4a
+*.mp3
+recordings/
+
+# Logs & process files
+logs/
+*.log
+*.pid
+
+# ============================================
+# Generated test / fine-tuning artifacts
+# ============================================
+tests/tool_response_tests/output.json
+tests/tool_response_tests/output.txt
+tests/briefing_processor/output_openers.json
+tests/tool_response_tests/finetuning/build/
+tests/tool_response_tests/finetuning/datasets/archive/
+# Pulled from the production Supabase log (real user utterances)
+tests/tool_response_tests/finetuning/datasets/source/supabase_raw_pairs.json
+tests/tool_response_tests/finetuning/datasets/source/supabase_training_data.jsonl
+mcp_server/tool_response_tests/input.json
+mcp_server/tool_response_tests/output.json
+# Generated at runtime by todo_menubar/app.py
+todo_overlay/static/_menubar_index.html
+
+# ============================================
+# Large model files (downloaded, not source)
+# ============================================
+audio_data/chatterbox_models/
+audio_data/piper_models/
+audio_data/announcement_cache/
+
+# ============================================
+# Python / tooling
+# ============================================
+__pycache__/
+*.py[cod]
+venv/
+.venv/
+.venv_mcp/
+.pytest_cache/
+.DS_Store
+
+# Editor: keep shared Cursor rules, ignore the rest
+.cursor/*
+!.cursor/rules/

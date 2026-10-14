@@ -1,0 +1,719 @@
+#!/bin/bash
+# ==============================================
+# HomeAssist Control Script
+# Can be run from anywhere: homeassist [command]
+# ==============================================
+
+PROJECT_DIR="$HOME/Desktop/HomeAssistV3"
+TODO_OVERLAY_PORT=8421
+TODO_OVERLAY_PID_FILE="${PROJECT_DIR}/.todo_overlay.pid"
+TODO_OVERLAY_URL="http://127.0.0.1:${TODO_OVERLAY_PORT}"
+TODO_MENUBAR_PID_FILE="${PROJECT_DIR}/.todo_menubar.pid"
+DISCORD_BOT_PID_FILE="${PROJECT_DIR}/.discord_bot.pid"
+
+discord_bot_cleanup_pid_file() {
+    if [ -f "$DISCORD_BOT_PID_FILE" ]; then
+        OLD_PID=$(cat "$DISCORD_BOT_PID_FILE")
+        if ! kill -0 "$OLD_PID" 2>/dev/null; then
+            rm -f "$DISCORD_BOT_PID_FILE"
+        fi
+    fi
+}
+
+discord_bot_pid() {
+    discord_bot_cleanup_pid_file
+
+    if [ -f "$DISCORD_BOT_PID_FILE" ]; then
+        OLD_PID=$(cat "$DISCORD_BOT_PID_FILE")
+        if kill -0 "$OLD_PID" 2>/dev/null; then
+            echo "$OLD_PID"
+            return 0
+        fi
+    fi
+
+    pgrep -f "python.*-m discord_bot" | awk 'NR==1 {print $1}'
+}
+
+discord_bot_running() {
+    RUNNING_PID=$(discord_bot_pid)
+    [ -n "$RUNNING_PID" ]
+}
+
+run_discord_bot_foreground() {
+    cd "${PROJECT_DIR}"
+    source .env 2>/dev/null
+    source ./venv/bin/activate
+    echo "🤖 Starting Discord bot..."
+    python -u -m discord_bot &
+    DISCORD_FOREGROUND_PID=$!
+    echo $DISCORD_FOREGROUND_PID > "$DISCORD_BOT_PID_FILE"
+    wait $DISCORD_FOREGROUND_PID
+    EXIT_CODE=$?
+    rm -f "$DISCORD_BOT_PID_FILE"
+    return $EXIT_CODE
+}
+
+start_discord_bot_background() {
+    discord_bot_cleanup_pid_file
+    if discord_bot_running; then
+        RUNNING_PID=$(discord_bot_pid)
+        echo "🤖 Discord bot already running (PID: $RUNNING_PID)"
+        return 0
+    fi
+
+    cd "${PROJECT_DIR}"
+    source .env 2>/dev/null
+    source ./venv/bin/activate
+    python -u -m discord_bot > "${PROJECT_DIR}/logs/discord_bot.log" 2>&1 &
+    DISCORD_BOT_PID=$!
+    echo $DISCORD_BOT_PID > "$DISCORD_BOT_PID_FILE"
+    echo "🤖 Discord bot started (PID: $DISCORD_BOT_PID)"
+    return 0
+}
+
+stop_discord_bot() {
+    discord_bot_cleanup_pid_file
+
+    if [ -f "$DISCORD_BOT_PID_FILE" ]; then
+        DISCORD_PID=$(cat "$DISCORD_BOT_PID_FILE")
+        if kill -0 "$DISCORD_PID" 2>/dev/null; then
+            echo "🛑 Stopping Discord bot (PID: $DISCORD_PID)..."
+            kill "$DISCORD_PID" 2>/dev/null
+            sleep 1
+            kill -9 "$DISCORD_PID" 2>/dev/null
+        fi
+    fi
+
+    EXTRA_PIDS=$(pgrep -f "python.*-m discord_bot" 2>/dev/null || true)
+    if [ -n "$EXTRA_PIDS" ]; then
+        echo "$EXTRA_PIDS" | while read -r PID; do
+            [ -z "$PID" ] && continue
+            kill "$PID" 2>/dev/null
+            sleep 1
+            kill -9 "$PID" 2>/dev/null
+        done
+    fi
+
+    rm -f "$DISCORD_BOT_PID_FILE"
+    echo "✅ Discord bot stopped"
+}
+
+todo_overlay_cleanup_pid_file() {
+    if [ -f "$TODO_OVERLAY_PID_FILE" ]; then
+        OLD_PID=$(cat "$TODO_OVERLAY_PID_FILE")
+        if ! kill -0 "$OLD_PID" 2>/dev/null; then
+            rm -f "$TODO_OVERLAY_PID_FILE"
+        fi
+    fi
+}
+
+todo_overlay_pid() {
+    lsof -i TCP:$TODO_OVERLAY_PORT -sTCP:LISTEN -t 2>/dev/null | awk 'NR==1 {print $1}'
+}
+
+todo_overlay_running() {
+    lsof -i TCP:$TODO_OVERLAY_PORT -sTCP:LISTEN >/dev/null 2>&1
+}
+
+start_todo_overlay() {
+    todo_overlay_cleanup_pid_file
+    if todo_overlay_running; then
+        RUNNING_PID=$(todo_overlay_pid)
+        echo "📝 Todo overlay already running (PID: $RUNNING_PID)"
+        return 0
+    fi
+
+    echo "📝 Starting todo overlay on port $TODO_OVERLAY_PORT..."
+    cd "${PROJECT_DIR}"
+    source .env 2>/dev/null
+
+    nohup ./venv/bin/python -u -m todo_overlay --port $TODO_OVERLAY_PORT \
+        > "${PROJECT_DIR}/logs/todo_overlay.log" 2>&1 &
+    TODO_OVERLAY_PID=$!
+    echo $TODO_OVERLAY_PID > "$TODO_OVERLAY_PID_FILE"
+
+    sleep 1
+    if kill -0 "$TODO_OVERLAY_PID" 2>/dev/null; then
+        echo "✅ Todo overlay started (PID: $TODO_OVERLAY_PID)"
+        echo "   URL: $TODO_OVERLAY_URL"
+        return 0
+    fi
+
+    echo "❌ Todo overlay failed to start"
+    rm -f "$TODO_OVERLAY_PID_FILE"
+    return 1
+}
+
+stop_todo_overlay() {
+    todo_overlay_cleanup_pid_file
+    TODO_OVERLAY_PID=$(todo_overlay_pid)
+
+    if [ -z "$TODO_OVERLAY_PID" ] && [ -f "$TODO_OVERLAY_PID_FILE" ]; then
+        TODO_OVERLAY_PID=$(cat "$TODO_OVERLAY_PID_FILE")
+    fi
+
+    if [ -z "$TODO_OVERLAY_PID" ]; then
+        rm -f "$TODO_OVERLAY_PID_FILE"
+        echo "✅ Todo overlay is not running"
+        return 0
+    fi
+
+    echo "🛑 Stopping todo overlay (PID: $TODO_OVERLAY_PID)..."
+    kill "$TODO_OVERLAY_PID" 2>/dev/null
+    sleep 1
+    kill -9 "$TODO_OVERLAY_PID" 2>/dev/null
+    rm -f "$TODO_OVERLAY_PID_FILE"
+    echo "✅ Todo overlay stopped"
+}
+
+open_todo_overlay() {
+    if ! todo_overlay_running; then
+        start_todo_overlay || return 1
+    fi
+
+    open "$TODO_OVERLAY_URL"
+    echo "🌐 Opened todo overlay: $TODO_OVERLAY_URL"
+}
+
+todo_menubar_cleanup_pid_file() {
+    if [ -f "$TODO_MENUBAR_PID_FILE" ]; then
+        OLD_PID=$(cat "$TODO_MENUBAR_PID_FILE")
+        if ! kill -0 "$OLD_PID" 2>/dev/null; then
+            rm -f "$TODO_MENUBAR_PID_FILE"
+        fi
+    fi
+}
+
+todo_menubar_pid() {
+    if [ -f "$TODO_MENUBAR_PID_FILE" ]; then
+        OLD_PID=$(cat "$TODO_MENUBAR_PID_FILE")
+        if kill -0 "$OLD_PID" 2>/dev/null; then
+            echo "$OLD_PID"
+            return 0
+        fi
+    fi
+
+    pgrep -f "python.*-m todo_menubar" | awk 'NR==1 {print $1}'
+}
+
+todo_menubar_running() {
+    TODO_MENUBAR_PID=$(todo_menubar_pid)
+    [ -n "$TODO_MENUBAR_PID" ]
+}
+
+start_todo_menubar() {
+    todo_menubar_cleanup_pid_file
+    if todo_menubar_running; then
+        RUNNING_PID=$(todo_menubar_pid)
+        echo "📌 Todo menu bar app already running (PID: $RUNNING_PID)"
+        return 0
+    fi
+
+    echo "📌 Starting todo menu bar app..."
+    cd "${PROJECT_DIR}"
+    source .env 2>/dev/null
+
+    nohup ./venv/bin/python -u -m todo_menubar --port $TODO_OVERLAY_PORT \
+        > "${PROJECT_DIR}/logs/todo_menubar.log" 2>&1 &
+    TODO_MENUBAR_PID=$!
+    echo $TODO_MENUBAR_PID > "$TODO_MENUBAR_PID_FILE"
+
+    sleep 1
+    if kill -0 "$TODO_MENUBAR_PID" 2>/dev/null; then
+        echo "✅ Todo menu bar app started (PID: $TODO_MENUBAR_PID)"
+        return 0
+    fi
+
+    echo "❌ Todo menu bar app failed to start"
+    rm -f "$TODO_MENUBAR_PID_FILE"
+    return 1
+}
+
+stop_todo_menubar() {
+    todo_menubar_cleanup_pid_file
+    TODO_MENUBAR_PID=$(todo_menubar_pid)
+
+    if [ -z "$TODO_MENUBAR_PID" ]; then
+        rm -f "$TODO_MENUBAR_PID_FILE"
+        echo "✅ Todo menu bar app is not running"
+        return 0
+    fi
+
+    echo "🛑 Stopping todo menu bar app (PID: $TODO_MENUBAR_PID)..."
+    kill "$TODO_MENUBAR_PID" 2>/dev/null
+    sleep 1
+    kill -9 "$TODO_MENUBAR_PID" 2>/dev/null
+    rm -f "$TODO_MENUBAR_PID_FILE"
+    echo "✅ Todo menu bar app stopped"
+}
+
+case "$1" in
+    start)
+        echo "🚀 Starting HomeAssist services..."
+        # Stop watchdog to prevent duplicate processes
+        launchctl unload ~/Library/LaunchAgents/com.homeassist.watchdog.plist 2>/dev/null
+        # Start main services
+        launchctl load ~/Library/LaunchAgents/com.homeassist.assistant.plist 2>/dev/null
+        launchctl load ~/Library/LaunchAgents/com.homeassist.bluetooth.plist 2>/dev/null
+        launchctl load ~/Library/LaunchAgents/com.homeassist.terminal.plist 2>/dev/null
+        sleep 2
+        launchctl list | grep homeassist
+        ;;
+    
+    stop)
+        echo "🛑 Stopping HomeAssist services..."
+        # Unload all services EXCEPT MCP (we want MCP to stay alive)
+        launchctl unload ~/Library/LaunchAgents/com.homeassist.assistant.plist 2>/dev/null
+        launchctl unload ~/Library/LaunchAgents/com.homeassist.bluetooth.plist 2>/dev/null
+        launchctl unload ~/Library/LaunchAgents/com.homeassist.watchdog.plist 2>/dev/null
+        
+        # Kill all processes (aggressive) BUT NOT MCP server
+        pkill -9 -f "homeassist run" 2>/dev/null
+        pkill -9 -f "assistant_framework" 2>/dev/null
+        pkill -9 -f "openwakeword" 2>/dev/null
+        pkill -9 -f "multiprocessing.spawn" 2>/dev/null
+        pkill -9 -f "multiprocessing.resource_tracker" 2>/dev/null
+        pkill -9 -f "discord_bot" 2>/dev/null
+        
+        # Kill audio processes
+        pkill -9 -f "say " 2>/dev/null
+        pkill -9 afplay 2>/dev/null
+        pkill -9 -f "ffplay" 2>/dev/null
+        pkill -9 -f "mpv" 2>/dev/null
+        
+        echo "✅ Stopped (MCP server still running)"
+        if todo_overlay_running; then
+            echo "📝 Todo overlay is still available at $TODO_OVERLAY_URL"
+        fi
+        if todo_menubar_running; then
+            echo "📌 Todo menu bar app is still running"
+        fi
+        ;;
+    
+    restart)
+        echo "🔄 Restarting HomeAssist..."
+        # Kill any duplicate processes first
+        pkill -f "python.*assistant_framework.main continuous" 2>/dev/null
+        sleep 1
+        launchctl kickstart -k gui/$(id -u)/com.homeassist.assistant
+        sleep 2
+        # Verify single instance
+        COUNT=$(ps aux | grep "[p]ython.*assistant_framework.main" | wc -l | xargs)
+        if [ "$COUNT" -eq 1 ]; then
+            echo "✅ Restarted (single instance)"
+        else
+            echo "⚠️  Warning: $COUNT instances running"
+        fi
+        ;;
+    
+    status)
+        echo "📊 HomeAssist Service Status:"
+        echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+        launchctl list | grep homeassist
+        echo ""
+        echo "Processes:"
+        COUNT=$(ps aux | grep "[p]ython.*assistant" | grep -v grep | wc -l | xargs)
+        ps aux | grep "[p]ython.*assistant" | grep -v grep || echo "  (no assistant process running)"
+        if [ "$COUNT" -gt 2 ]; then
+            echo ""
+            echo "⚠️  WARNING: Multiple instances detected ($COUNT)"
+            echo "   Run: homeassist restart"
+        fi
+        echo ""
+        if todo_overlay_running; then
+            TODO_OVERLAY_PID=$(todo_overlay_pid)
+            echo "Todo overlay: running (PID: $TODO_OVERLAY_PID)"
+            echo "  URL: $TODO_OVERLAY_URL"
+        else
+            echo "Todo overlay: not running"
+        fi
+        if todo_menubar_running; then
+            TODO_MENUBAR_PID=$(todo_menubar_pid)
+            echo "Todo menu bar app: running (PID: $TODO_MENUBAR_PID)"
+        else
+            echo "Todo menu bar app: not running"
+        fi
+        ;;
+    
+    logs)
+        echo "📋 Opening live logs..."
+        tail -f "${PROJECT_DIR}/logs/assistant_output.log" "${PROJECT_DIR}/logs/assistant_runner.log" 2>/dev/null
+        ;;
+    
+    install)
+        echo "📦 Running installer..."
+        cd "${PROJECT_DIR}/os_background_service" && ./install.sh
+        ;;
+    
+    uninstall)
+        echo "🗑️  Running uninstaller..."
+        cd "${PROJECT_DIR}/os_background_service" && ./uninstall.sh
+        ;;
+    
+    mcp)
+        MCP_PORT=3000
+        MCP_PID_FILE="${PROJECT_DIR}/.mcp_server.pid"
+        
+        case "$2" in
+            start)
+                # Check if already running
+                if [ -f "$MCP_PID_FILE" ]; then
+                    OLD_PID=$(cat "$MCP_PID_FILE")
+                    if kill -0 "$OLD_PID" 2>/dev/null; then
+                        echo "⚠️  MCP server already running (PID: $OLD_PID)"
+                        exit 0
+                    fi
+                fi
+                
+                echo "🚀 Starting MCP server (SSE on port $MCP_PORT)..."
+                cd "${PROJECT_DIR}"
+                source .env 2>/dev/null
+                
+                # Start MCP server in background with SSE transport
+                nohup ./venv/bin/python -m mcp_server.server --transport sse --port $MCP_PORT --quiet \
+                    > "${PROJECT_DIR}/logs/mcp_server.log" 2>&1 &
+                MCP_PID=$!
+                echo $MCP_PID > "$MCP_PID_FILE"
+                
+                # Wait for server to be ready
+                sleep 1
+                if kill -0 "$MCP_PID" 2>/dev/null; then
+                    echo "✅ MCP server started (PID: $MCP_PID)"
+                    echo "   URL: http://127.0.0.1:$MCP_PORT/sse"
+                else
+                    echo "❌ MCP server failed to start"
+                    cat "${PROJECT_DIR}/logs/mcp_server.log" | tail -20
+                    rm -f "$MCP_PID_FILE"
+                    exit 1
+                fi
+                ;;
+            
+            stop)
+                if [ -f "$MCP_PID_FILE" ]; then
+                    MCP_PID=$(cat "$MCP_PID_FILE")
+                    if kill -0 "$MCP_PID" 2>/dev/null; then
+                        echo "🛑 Stopping MCP server (PID: $MCP_PID)..."
+                        kill "$MCP_PID" 2>/dev/null
+                        sleep 1
+                        kill -9 "$MCP_PID" 2>/dev/null
+                    fi
+                    rm -f "$MCP_PID_FILE"
+                    echo "✅ MCP server stopped"
+                else
+                    # Also try to kill any stray MCP servers
+                    pkill -f "mcp_server.server" 2>/dev/null
+                    echo "✅ MCP server stopped"
+                fi
+                ;;
+            
+            status)
+                # Check if port 3000 is listening (most reliable check)
+                if lsof -i :$MCP_PORT -sTCP:LISTEN >/dev/null 2>&1; then
+                    MCP_PID=$(lsof -i :$MCP_PORT -sTCP:LISTEN -t 2>/dev/null | head -1)
+                    echo "✅ MCP SSE server running (PID: $MCP_PID)"
+                    echo "   URL: http://127.0.0.1:$MCP_PORT/sse"
+                    echo "   Mode: Fast SSE (~50ms connection)"
+                    # Show active connections
+                    CONN_COUNT=$(lsof -i :$MCP_PORT 2>/dev/null | grep -c ESTABLISHED 2>/dev/null || true)
+                    if [ -n "$CONN_COUNT" ] && [ "$CONN_COUNT" -gt 0 ] 2>/dev/null; then
+                        echo "   Active connections: $CONN_COUNT"
+                    else
+                        echo "   Active connections: 0"
+                    fi
+                else
+                    echo "❌ MCP SSE server not running on port $MCP_PORT"
+                    echo "   ⚠️  Assistant will use slow subprocess mode (~2s)"
+                    echo ""
+                    echo "   To start: homeassist mcp start"
+                fi
+                # Clean up stale PID file
+                if [ -f "$MCP_PID_FILE" ]; then
+                    OLD_PID=$(cat "$MCP_PID_FILE")
+                    if ! kill -0 "$OLD_PID" 2>/dev/null; then
+                        rm -f "$MCP_PID_FILE"
+                    fi
+                fi
+                ;;
+            
+            restart)
+                "$0" mcp stop
+                sleep 1
+                "$0" mcp start
+                ;;
+            
+            logs)
+                tail -f "${PROJECT_DIR}/logs/mcp_server.log"
+                ;;
+            
+            *)
+                echo "Usage: homeassist mcp [start|stop|status|restart|logs]"
+                ;;
+        esac
+        ;;
+    
+    discord)
+        case "$2" in
+            ""|start)
+                if discord_bot_running; then
+                    RUNNING_PID=$(discord_bot_pid)
+                    echo "🤖 Discord bot already running (PID: $RUNNING_PID)"
+                    echo "   Use './homeassist discord restart' to replace it"
+                    exit 0
+                fi
+                run_discord_bot_foreground
+                ;;
+            stop)
+                stop_discord_bot
+                ;;
+            restart)
+                stop_discord_bot
+                sleep 1
+                run_discord_bot_foreground
+                ;;
+            status)
+                if discord_bot_running; then
+                    RUNNING_PID=$(discord_bot_pid)
+                    echo "✅ Discord bot running (PID: $RUNNING_PID)"
+                else
+                    echo "❌ Discord bot not running"
+                fi
+                ;;
+            logs)
+                tail -f "${PROJECT_DIR}/logs/discord_bot.log"
+                ;;
+            *)
+                echo "Usage: homeassist discord [start|stop|restart|status|logs]"
+                exit 1
+                ;;
+        esac
+        ;;
+    
+    todo-ui)
+        case "$2" in
+            start)
+                start_todo_overlay && start_todo_menubar
+                ;;
+            stop)
+                stop_todo_menubar
+                stop_todo_overlay
+                ;;
+            status)
+                if todo_overlay_running; then
+                    TODO_OVERLAY_PID=$(todo_overlay_pid)
+                    echo "✅ Todo overlay running (PID: $TODO_OVERLAY_PID)"
+                    echo "   URL: $TODO_OVERLAY_URL"
+                else
+                    echo "❌ Todo overlay not running"
+                fi
+                if todo_menubar_running; then
+                    TODO_MENUBAR_PID=$(todo_menubar_pid)
+                    echo "✅ Todo menu bar app running (PID: $TODO_MENUBAR_PID)"
+                else
+                    echo "❌ Todo menu bar app not running"
+                fi
+                todo_overlay_cleanup_pid_file
+                todo_menubar_cleanup_pid_file
+                ;;
+            open)
+                open_todo_overlay
+                ;;
+            logs)
+                tail -f "${PROJECT_DIR}/logs/todo_overlay.log" "${PROJECT_DIR}/logs/todo_menubar.log"
+                ;;
+            restart)
+                stop_todo_menubar
+                stop_todo_overlay
+                sleep 1
+                start_todo_overlay && start_todo_menubar
+                ;;
+            *)
+                echo "Usage: homeassist todo-ui [start|stop|status|open|restart|logs]"
+                ;;
+        esac
+        ;;
+    
+    run)
+        cd "${PROJECT_DIR}"
+        source .env 2>/dev/null
+        
+        # Check if already running
+        if pgrep -f "homeassist run" > /dev/null 2>&1; then
+            EXISTING_COUNT=$(pgrep -f "homeassist run" | wc -l | xargs)
+            if [ "$EXISTING_COUNT" -gt 1 ]; then
+                echo "⚠️  HomeAssist is already running"
+                echo "   Run 'homeassist stop' first to stop it"
+                exit 1
+            fi
+        fi
+        
+        BLUEUTIL="/opt/homebrew/bin/blueutil"
+        DEVICE_ADDRESS="${HOMEASSIST_BT_DEVICE_ADDRESS:-XX-XX-XX-XX-XX-XX}"  # set HOMEASSIST_BT_DEVICE_ADDRESS in .env
+        DEVICE_NAME="Meta Glasses"
+        
+        is_connected() {
+            [ "$("$BLUEUTIL" --is-connected "$DEVICE_ADDRESS" 2>/dev/null)" = "1" ]
+        }
+        
+        has_wifi() {
+            ipconfig getifaddr en0 > /dev/null 2>&1
+        }
+        
+        is_meta_audio_active() {
+            python3 "${PROJECT_DIR}/scripts/check_meta_audio_active.py" 2>/dev/null
+        }
+        
+        wait_for_wifi() {
+            echo ""
+            echo "📶 Waiting for WiFi..."
+            while ! has_wifi; do
+                sleep 2
+            done
+            echo "✅ WiFi connected"
+        }
+        
+        wait_for_bluetooth() {
+            echo ""
+            echo "🔵 Waiting for $DEVICE_NAME..."
+            while ! is_connected; do
+                "$BLUEUTIL" --connect "$DEVICE_ADDRESS" 2>/dev/null
+                sleep 2
+            done
+            echo "✅ $DEVICE_NAME connected"
+        }
+        
+        wait_for_audio_io() {
+            echo ""
+            echo "🎧 Waiting for audio I/O..."
+            # Give macOS a moment to set up audio after BT connects
+            sleep 1
+            while ! is_meta_audio_active; do
+                sleep 2
+            done
+            echo "✅ Audio I/O ready"
+        }
+        
+        cleanup() {
+            echo ""
+            echo "👋 Shutting down..."
+            pkill -9 -f "say " 2>/dev/null
+            pkill -9 afplay 2>/dev/null
+            pkill -9 -f "ffplay" 2>/dev/null
+            pkill -9 -f "mpv" 2>/dev/null
+            pkill -9 -f "assistant_framework" 2>/dev/null
+            pkill -9 -f "openwakeword" 2>/dev/null
+            [ -n "$DISCORD_BOT_PID" ] && kill $DISCORD_BOT_PID 2>/dev/null
+            [ -n "$CAFFEINATE_PID" ] && kill $CAFFEINATE_PID 2>/dev/null
+            stop_todo_menubar
+            stop_todo_overlay
+            exit 0
+        }
+        trap cleanup SIGINT SIGTERM
+        
+        clear
+        echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+        echo "🏠 HomeAssist"
+        echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+        echo ""
+        echo "Press Ctrl+C to exit"
+        
+        # Start Discord bot in background (runs independently of voice pipeline)
+        DISCORD_BOT_PID=""
+        if [ -n "$DISCORD_BOT_TOKEN" ]; then
+            if discord_bot_running; then
+                echo "🤖 Discord bot already running (PID: $(discord_bot_pid))"
+            else
+                start_discord_bot_background
+            fi
+        fi
+
+        if start_todo_overlay; then
+            echo "📝 Todo overlay ready at $TODO_OVERLAY_URL"
+        else
+            echo "⚠️  Todo overlay failed to start; continuing without it"
+        fi
+
+        if start_todo_menubar; then
+            echo "📌 Todo menu bar app ready"
+        else
+            echo "⚠️  Todo menu bar app failed to start; continuing without it"
+        fi
+        
+        # Main loop
+        while true; do
+            # Step 1: Ensure WiFi
+            if ! has_wifi; then
+                wait_for_wifi
+            fi
+            
+            # Step 2: Ensure Bluetooth connection
+            if ! is_connected; then
+                wait_for_bluetooth
+            fi
+            
+            # Step 3: Ensure audio I/O is routed to Meta glasses
+            if ! is_meta_audio_active; then
+                wait_for_audio_io
+            fi
+            
+            # Step 4: Boot the program
+            echo ""
+            echo "🚀 Starting HomeAssist..."
+            echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+            echo ""
+            
+            afplay /System/Library/Sounds/Glass.aiff &
+            source ./venv/bin/activate
+            
+            caffeinate -is &
+            CAFFEINATE_PID=$!
+            
+            # Run the assistant
+            python -u -m assistant_framework.main continuous
+            EXIT_CODE=$?
+            
+            kill $CAFFEINATE_PID 2>/dev/null
+            wait $CAFFEINATE_PID 2>/dev/null
+            
+            echo ""
+            echo "🔴 Assistant exited (code: $EXIT_CODE)"
+            echo "🔄 Checking connectivity..."
+            sleep 2
+        done
+        ;;
+    
+    *)
+        echo "🏠 HomeAssist Control"
+        echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+        echo ""
+        echo "Usage: homeassist [command]"
+        echo ""
+        echo "Commands:"
+        echo "  start      - Start all background services"
+        echo "  stop       - Stop all background services"
+        echo "  restart    - Restart the assistant"
+        echo "  status     - Show service status"
+        echo "  logs       - Show live logs"
+        echo "  run        - Run assistant with Bluetooth auto-connect"
+        echo "  discord    - Start the Discord bot (text channel)"
+        echo "  todo-ui    - Manage the todo menu bar app and overlay"
+        echo "  install    - Run the service installer"
+        echo "  uninstall  - Remove all services"
+        echo ""
+        echo "MCP Server (persistent tool server):"
+        echo "  mcp start  - Start MCP server in background"
+        echo "  mcp stop   - Stop MCP server"
+        echo "  mcp status - Check MCP server status"
+        echo "  mcp logs   - View MCP server logs"
+        echo ""
+        echo "Todo UI:"
+        echo "  todo-ui start  - Start the menu bar app and overlay server"
+        echo "  todo-ui open   - Open the overlay in your browser"
+        echo "  todo-ui stop   - Stop the menu bar app and overlay server"
+        echo "  todo-ui logs   - View todo UI logs"
+        echo ""
+        echo "Examples:"
+        echo "  homeassist mcp start   # Start persistent MCP server"
+        echo "  homeassist run         # Run with Bluetooth auto-connect"
+        echo "  homeassist todo-ui start # Start the todo menu bar app"
+        ;;
+esac

@@ -1,0 +1,29 @@
+[
+  {"Weather": ["What's the weather like today in Springfield?", "What's the weather like today?"]},
+  {"Lights": ["Turn on the living room lights"]},
+  {"Calendar": [
+    "What's on my calendar for tomorrow?",
+    "Show me events from my club calendar",
+    "What meetings do I have this week?",
+    "Create an event tomorrow at 2pm called 'Test Meeting'"
+  ]},
+  {"Notifications": ["What notifications do I have?"]},
+  {"Emails": ["What emails do I have?"]},
+  {"News": ["Tell me todays news."]},
+  {"Clipboard": ["What's on the clipboard?"]},
+  {"Music": ["What's playing on Spotify?"]},
+  {"Search": ["What's the weather like in Tokyo?"]},
+  {"Write": ["Write a prompt for Cursor to write a Python script to calculate the Fibonacci sequence."]},
+  {"Read": ["Read the clipboard."]},
+  {"Capabilities": ["What can you do?", "How does your transcription work?", "How does your memory work?", "How does your planning work?", "How does your decision making work?"]},
+  {"Briefings": ["What's the briefing for today?", "Show my briefings"]},
+  {"Todos": [
+    "What's on my to-do list?",
+    "Add hello world to my to-do list",
+    "Mark hello world done",
+    "What's due today?",
+    "Remind me to call the dentist at 2pm"
+  ]},
+  {"Emails": ["What emails do I have?"]}
+]
+

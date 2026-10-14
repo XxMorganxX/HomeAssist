@@ -1,0 +1,46 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+    <key>Label</key>
+    <string>com.homeassist.assistant</string>
+
+    <key>ProgramArguments</key>
+    <array>
+        <string>/usr/bin/osascript</string>
+        <string>-e</string>
+        <string>tell application "Terminal" to do script "cd $HOME/Desktop/HomeAssistV3 &amp;&amp; ./homeassist run"</string>
+    </array>
+
+    <!-- Start on login -->
+    <key>RunAtLoad</key>
+    <true/>
+
+    <!-- One-shot - homeassist run has its own restart loop -->
+    <key>KeepAlive</key>
+    <false/>
+
+    <!-- Wait a few seconds after login for system to settle -->
+    <key>StartInterval</key>
+    <integer>5</integer>
+
+    <key>StandardOutPath</key>
+    <string>~/Desktop/HomeAssistV3/logs/assistant_launcher.log</string>
+    <key>StandardErrorPath</key>
+    <string>~/Desktop/HomeAssistV3/logs/assistant_launcher.log</string>
+
+    <key>EnvironmentVariables</key>
+    <dict>
+        <key>PATH</key>
+        <string>/opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin:/sbin:/usr/sbin</string>
+    </dict>
+
+    <!-- Highest priority (match Bluetooth service) -->
+    <key>Nice</key>
+    <integer>-10</integer>
+    <key>ProcessType</key>
+    <string>Interactive</string>
+    <key>LowPriorityIO</key>
+    <false/>
+</dict>
+</plist>

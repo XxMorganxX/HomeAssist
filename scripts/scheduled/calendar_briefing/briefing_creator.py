@@ -1,0 +1,1207 @@
+"""
+Briefing Creator for Calendar Reminders
+
+Converts reminder suggestions into scheduled briefing announcements
+and stores them in Supabase for the assistant to deliver.
+"""
+
+import os
+import json
+import hashlib
+from datetime import datetime, timezone, timedelta
+from typing import List, Dict, Any, Optional, Set
+from pathlib import Path
+from zoneinfo import ZoneInfo
+
+# Project root setup
+PROJECT_ROOT = Path(__file__).resolve().parents[3]
+import sys
+if str(PROJECT_ROOT) not in sys.path:
+    sys.path.insert(0, str(PROJECT_ROOT))
+
+from dotenv import load_dotenv
+
+load_dotenv()
+
+# Default timezone for parsing local times
+DEFAULT_TIMEZONE = os.getenv("DEFAULT_TIME_ZONE", "America/New_York")
+
+# Default start hour for all-day events (9 AM)
+ALL_DAY_START_HOUR = int(os.getenv("ALL_DAY_EVENT_START_HOUR", "9"))
+
+# Cache settings
+SCRIPT_DIR = Path(__file__).parent
+EVENT_CACHE_FILE = SCRIPT_DIR / "event_cache.json"
+EVENT_CACHE_RETENTION_DAYS = 30
+
+
+def _normalize_delivery_status(briefing: Dict[str, Any], status_field: str, legacy_terminal_status: str) -> str:
+    """Treat legacy shared delivery fields as terminal delivery states."""
+    current = briefing.get(status_field)
+    if isinstance(current, str) and current:
+        return current
+    if briefing.get("status") == "delivered" or briefing.get("delivered_at"):
+        if status_field == "voice_status":
+            return legacy_terminal_status
+        return "pending"
+    return "pending"
+
+
+def _has_pending_delivery(briefing: Dict[str, Any]) -> bool:
+    """Return True while either Discord or voice still needs the briefing."""
+    discord_status = _normalize_delivery_status(briefing, "discord_status", "sent")
+    voice_status = _normalize_delivery_status(briefing, "voice_status", "read")
+    return discord_status == "pending" or voice_status == "pending"
+
+
+def _is_voice_delivery_complete(briefing: Dict[str, Any]) -> bool:
+    """Return True when the voice channel no longer needs the briefing."""
+    return _normalize_delivery_status(briefing, "voice_status", "read") == "read"
+
+
+def _parse_iso_datetime(value: Any) -> Optional[datetime]:
+    """Parse an ISO timestamp into a timezone-aware datetime."""
+    if not isinstance(value, str) or not value:
+        return None
+    try:
+        parsed = datetime.fromisoformat(value.replace("Z", "+00:00"))
+    except ValueError:
+        return None
+    if parsed.tzinfo is None:
+        return parsed.replace(tzinfo=timezone.utc)
+    return parsed.astimezone(timezone.utc)
+
+
+class EventCache:
+    """
+    Tracks processed calendar events to avoid duplicate analysis and briefings.
+
+    Caches event fingerprints (normalized event snapshots) with timestamps.
+    This allows re-processing when event details change while still skipping
+    unchanged events.
+    Auto-prunes entries older than 30 days.
+    
+    Storage backends (in order of preference):
+    1. Supabase `calendar_event_cache` table (for CI/GitHub Actions)
+    2. Local JSON file fallback (for local development)
+    """
+    
+    TABLE_NAME = "calendar_event_cache"
+    
+    def __init__(self, cache_file: Path = EVENT_CACHE_FILE, retention_days: int = EVENT_CACHE_RETENTION_DAYS):
+        """Initialize the event cache.
+        
+        Args:
+            cache_file: Path to the JSON cache file (fallback)
+            retention_days: Number of days to retain entries (default 30)
+        """
+        self.cache_file = cache_file
+        self.retention_days = retention_days
+        self._cache: Dict[str, str] = {}  # fingerprint -> ISO timestamp when first seen
+        self._supabase_client = None
+        self._use_supabase = False
+        
+        # Try Supabase first, fall back to local file
+        self._init_supabase()
+        self._load()
+    
+    def _init_supabase(self) -> None:
+        """Initialize Supabase client for cache storage."""
+        try:
+            from supabase import create_client
+            
+            url = os.getenv("SUPABASE_URL")
+            key = os.getenv("SUPABASE_KEY")
+            
+            if url and key:
+                self._supabase_client = create_client(url, key)
+                self._use_supabase = True
+                print("📂 EventCache: Using Supabase storage")
+            else:
+                print("📂 EventCache: Supabase not configured, using local file")
+        except ImportError:
+            print("📂 EventCache: supabase package not installed, using local file")
+        except Exception as e:
+            print(f"⚠️  EventCache: Supabase init failed ({e}), using local file")
+    
+    def _load(self) -> None:
+        """Load cache from storage."""
+        if self._use_supabase:
+            self._load_from_supabase()
+        else:
+            self._load_from_file()
+    
+    def _load_from_supabase(self) -> None:
+        """Load cache from Supabase table."""
+        try:
+            # Get all non-expired entries
+            cutoff = (datetime.now(timezone.utc) - timedelta(days=self.retention_days)).isoformat()
+            
+            response = (
+                self._supabase_client.table(self.TABLE_NAME)
+                .select("event_id, first_seen")
+                .gte("first_seen", cutoff)
+                .execute()
+            )
+            
+            self._cache = {
+                row["event_id"]: row["first_seen"]
+                for row in (response.data or [])
+            }
+            print(f"📂 EventCache: Loaded {len(self._cache)} cached events from Supabase")
+            
+        except Exception as e:
+            print(f"⚠️  EventCache: Error loading from Supabase ({e}), trying local file")
+            self._use_supabase = False
+            self._load_from_file()
+    
+    def _load_from_file(self) -> None:
+        """Load cache from local JSON file."""
+        if self.cache_file.exists():
+            try:
+                with open(self.cache_file, "r", encoding="utf-8") as f:
+                    data = json.load(f)
+                    self._cache = data.get("seen_events", {})
+                    print(f"📂 EventCache: Loaded {len(self._cache)} cached events from local file")
+            except (json.JSONDecodeError, IOError) as e:
+                print(f"⚠️  EventCache: Error loading cache file - {e}")
+                self._cache = {}
+        else:
+            self._cache = {}
+            print("📂 EventCache: No existing cache, starting fresh")
+    
+    def _save(self) -> None:
+        """Save cache to storage."""
+        if self._use_supabase:
+            self._save_to_supabase()
+        else:
+            self._save_to_file()
+    
+    def _save_to_supabase(self) -> None:
+        """Save new entries to Supabase (upsert)."""
+        # Note: We save incrementally in mark_seen_batch, this is just for consistency
+        pass
+    
+    def _save_to_file(self) -> None:
+        """Save cache to local JSON file."""
+        try:
+            data = {
+                "last_updated": datetime.now(timezone.utc).isoformat(),
+                "retention_days": self.retention_days,
+                "seen_events": self._cache,
+            }
+            with open(self.cache_file, "w", encoding="utf-8") as f:
+                json.dump(data, f, indent=2)
+        except IOError as e:
+            print(f"❌ EventCache: Error saving cache file - {e}")
+    
+    def is_seen(self, cache_key: str) -> bool:
+        """Check whether a cache key has already been processed."""
+        return cache_key in self._cache
+
+    def mark_seen(self, cache_key: str) -> None:
+        """Mark a cache key as processed."""
+        if cache_key not in self._cache:
+            now = datetime.now(timezone.utc).isoformat()
+            self._cache[cache_key] = now
+            
+            # Write to Supabase immediately if available
+            if self._use_supabase:
+                try:
+                    self._supabase_client.table(self.TABLE_NAME).upsert({
+                        "event_id": cache_key,
+                        "first_seen": now,
+                    }).execute()
+                except Exception as e:
+                    print(f"⚠️  EventCache: Failed to write to Supabase - {e}")
+    
+    def mark_seen_batch(self, cache_keys: List[str]) -> None:
+        """Mark multiple cache keys as processed."""
+        now = datetime.now(timezone.utc).isoformat()
+        new_ids = [cache_key for cache_key in cache_keys if cache_key and cache_key not in self._cache]
+        
+        if not new_ids:
+            return
+        
+        # Update local cache
+        for cache_key in new_ids:
+            self._cache[cache_key] = now
+        
+        # Batch write to Supabase if available
+        if self._use_supabase:
+            try:
+                records = [{"event_id": eid, "first_seen": now} for eid in new_ids]
+                self._supabase_client.table(self.TABLE_NAME).upsert(records).execute()
+                print(f"📝 EventCache: Saved {len(new_ids)} events to Supabase")
+            except Exception as e:
+                print(f"⚠️  EventCache: Failed to batch write to Supabase - {e}")
+
+    def _build_event_fingerprint(self, event: Dict[str, Any], namespace: Optional[str] = None) -> str:
+        """Create a stable fingerprint from normalized event data."""
+        reminders = event.get("reminders_minutes_before", [])
+        normalized_reminders = []
+        for value in reminders if isinstance(reminders, list) else []:
+            try:
+                normalized_reminders.append(int(value))
+            except (TypeError, ValueError):
+                continue
+        normalized_payload = {
+            "namespace": str(namespace or "").strip().lower(),
+            "event_id": str(event.get("id") or event.get("event_id") or "").strip(),
+            "title": str(event.get("summary") or event.get("event_title") or "").strip(),
+            "date": str(event.get("start_date") or event.get("event_date") or "").strip(),
+            "time": str(event.get("start_time") or event.get("event_time") or "").strip(),
+            "end_date": str(event.get("end_date") or "").strip(),
+            "end_time": str(event.get("end_time") or "").strip(),
+            "location": str(event.get("location") or "").strip(),
+            "description": str(event.get("description") or "").strip(),
+            "all_day": bool(event.get("all_day", False)),
+            "priority": str(event.get("priority") or "").strip(),
+            "reminders_minutes_before": sorted(set(normalized_reminders)),
+        }
+        serialized = json.dumps(normalized_payload, sort_keys=True, separators=(",", ":"))
+        return hashlib.sha1(serialized.encode("utf-8")).hexdigest()
+    
+    def filter_unseen_events(self, events: List[Dict[str, Any]], namespace: Optional[str] = None) -> List[Dict[str, Any]]:
+        """Filter a list of calendar events to only those not yet seen.
+        
+        Args:
+            events: List of formatted calendar events (must have 'id' field)
+            namespace: Optional user/context namespace for dedupe partitioning
+            
+        Returns:
+            List of events that haven't been processed yet
+        """
+        unseen = []
+        for event in events:
+            fingerprint = self._build_event_fingerprint(event, namespace=namespace)
+            if fingerprint in self._cache:
+                continue
+
+            enriched_event = dict(event)
+            enriched_event["__event_fingerprint"] = fingerprint
+            unseen.append(enriched_event)
+        return unseen
+    
+    def prune_old_entries(self) -> int:
+        """Remove entries older than retention period.
+        
+        Returns:
+            Number of entries removed
+        """
+        cutoff = datetime.now(timezone.utc) - timedelta(days=self.retention_days)
+        cutoff_iso = cutoff.isoformat()
+        old_count = len(self._cache)
+        
+        # Prune local cache
+        self._cache = {
+            eid: ts for eid, ts in self._cache.items()
+            if datetime.fromisoformat(ts.replace("Z", "+00:00")) > cutoff
+        }
+        
+        removed = old_count - len(self._cache)
+        
+        # Prune Supabase if available
+        if self._use_supabase:
+            try:
+                self._supabase_client.table(self.TABLE_NAME).delete().lt("first_seen", cutoff_iso).execute()
+                if removed > 0:
+                    print(f"🧹 EventCache: Pruned {removed} old entries from Supabase")
+            except Exception as e:
+                print(f"⚠️  EventCache: Failed to prune Supabase - {e}")
+        elif removed > 0:
+            print(f"🧹 EventCache: Pruned {removed} entries older than {self.retention_days} days")
+        
+        return removed
+    
+    def save_and_prune(self) -> None:
+        """Prune old entries and save."""
+        self.prune_old_entries()
+        self._save()
+    
+    def get_stats(self) -> Dict[str, Any]:
+        """Get cache statistics."""
+        return {
+            "total_entries": len(self._cache),
+            "cache_file": str(self.cache_file),
+            "retention_days": self.retention_days,
+        }
+
+
+class ReminderDatetimeCalculator:
+    """
+    Calculates actual reminder datetimes from event data.
+    
+    Handles:
+    - Events with specific times (e.g., "13:00:00")
+    - All-day events (e.g., "All Day")
+    - Timezone conversion
+    """
+    
+    def __init__(self, timezone_str: str = DEFAULT_TIMEZONE):
+        """Initialize with a specific timezone."""
+        self.tz = ZoneInfo(timezone_str)
+    
+    def parse_event_datetime(
+        self,
+        event_date: str,
+        event_time: str,
+    ) -> datetime:
+        """
+        Parse event date and time into a timezone-aware datetime.
+        
+        Args:
+            event_date: Date string in YYYY-MM-DD format
+            event_time: Time string in HH:MM:SS format, or "All Day"
+            
+        Returns:
+            Timezone-aware datetime for the event start
+        """
+        # Parse the date
+        try:
+            date_obj = datetime.strptime(event_date, "%Y-%m-%d").date()
+        except ValueError:
+            # Fallback: try other formats
+            date_obj = datetime.now().date()
+        
+        # Parse the time
+        if event_time.lower() in ("all day", "all-day", "allday", ""):
+            # All-day events: use configured start hour
+            time_obj = datetime.min.time().replace(hour=ALL_DAY_START_HOUR)
+        else:
+            try:
+                # Try HH:MM:SS format
+                time_obj = datetime.strptime(event_time, "%H:%M:%S").time()
+            except ValueError:
+                try:
+                    # Try HH:MM format
+                    time_obj = datetime.strptime(event_time, "%H:%M").time()
+                except ValueError:
+                    # Fallback to 9 AM
+                    time_obj = datetime.min.time().replace(hour=9)
+        
+        # Combine date and time with timezone
+        naive_dt = datetime.combine(date_obj, time_obj)
+        return naive_dt.replace(tzinfo=self.tz)
+    
+    def calculate_reminder_datetime(
+        self,
+        event_datetime: datetime,
+        minutes_before: int,
+    ) -> datetime:
+        """
+        Calculate the datetime when a reminder should fire.
+        
+        Args:
+            event_datetime: When the event starts
+            minutes_before: How many minutes before to remind
+            
+        Returns:
+            Datetime when the reminder should be delivered
+        """
+        return event_datetime - timedelta(minutes=minutes_before)
+    
+    def calculate_all_reminder_times(
+        self,
+        event_date: str,
+        event_time: str,
+        reminders_minutes_before: List[int],
+    ) -> List[Dict[str, Any]]:
+        """
+        Calculate all reminder times for an event.
+        
+        Args:
+            event_date: Event date string
+            event_time: Event time string
+            reminders_minutes_before: List of minutes before event
+            
+        Returns:
+            List of dicts with reminder_at datetime and minutes_before
+        """
+        event_dt = self.parse_event_datetime(event_date, event_time)
+        
+        reminders = []
+        for minutes in reminders_minutes_before:
+            reminder_dt = self.calculate_reminder_datetime(event_dt, minutes)
+            reminders.append({
+                "reminder_at": reminder_dt,
+                "reminder_at_iso": reminder_dt.isoformat(),
+                "minutes_before": minutes,
+                "event_datetime": event_dt,
+                "event_datetime_iso": event_dt.isoformat(),
+            })
+        
+        return reminders
+    
+    def format_time_until(self, minutes: int) -> str:
+        """Format minutes into human-readable time description."""
+        if minutes >= 1440:
+            days = minutes // 1440
+            return f"{days} day{'s' if days > 1 else ''}"
+        elif minutes >= 60:
+            hours = minutes // 60
+            return f"{hours} hour{'s' if hours > 1 else ''}"
+        else:
+            return f"{minutes} minute{'s' if minutes > 1 else ''}"
+
+
+class BriefingCreator:
+    """
+    Creates briefing announcements from calendar reminder suggestions
+    and stores them in Supabase.
+    """
+    
+    # Supabase table for briefing announcements
+    TABLE_NAME = "briefing_announcements"
+    
+    # System prompt for generating opener text
+    OPENER_SYSTEM_PROMPT = """Generate a friendly 1-2 sentence spoken reminder for a voice assistant. Be warm, natural, and helpful. Don't be robotic.
+
+IMPORTANT: If the input contains {{TIME_UNTIL_EVENT}}, you MUST preserve this exact placeholder in your output. It will be replaced with the actual time remaining when spoken.
+
+Examples:
+- Input: "Doctor Appointment starts in {{TIME_UNTIL_EVENT}}" → Output: "Just a heads up - your doctor appointment is in {{TIME_UNTIL_EVENT}}. Need anything before you head out?"
+- Input: "Team Meeting at 2pm. It starts in {{TIME_UNTIL_EVENT}}" → Output: "Quick reminder, your team meeting starts in {{TIME_UNTIL_EVENT}}!"
+- Input: "Vegas Trip tomorrow at 8am. It starts in {{TIME_UNTIL_EVENT}}" → Output: "Hey! Your Vegas trip is coming up in {{TIME_UNTIL_EVENT}}. Have you started packing yet?"
+"""
+    
+    def __init__(self, timezone_str: str = DEFAULT_TIMEZONE, generate_openers: bool = True):
+        """Initialize the briefing creator.
+        
+        Args:
+            timezone_str: Timezone for datetime calculations
+            generate_openers: Whether to generate AI opener_text for briefings
+        """
+        self.calculator = ReminderDatetimeCalculator(timezone_str)
+        self._client = None
+        self._initialized = False
+        self._generate_openers = generate_openers
+        self._ai_model = None
+        self._event_cache = EventCache()
+        self._last_processed_event_briefing_ids: Dict[str, Set[str]] = {}
+        self._init_supabase()
+        if generate_openers:
+            self._init_ai()
+    
+    def _init_supabase(self):
+        """Initialize Supabase client."""
+        try:
+            from supabase import create_client
+            
+            url = os.getenv("SUPABASE_URL")
+            key = os.getenv("SUPABASE_KEY")
+            
+            if not url or not key:
+                print("⚠️  BriefingCreator: SUPABASE_URL or SUPABASE_KEY not set")
+                return
+            
+            self._client = create_client(url, key)
+            self._initialized = True
+            print("✅ BriefingCreator Supabase client initialized")
+            
+        except ImportError:
+            print("⚠️  BriefingCreator: supabase package not installed")
+        except Exception as e:
+            print(f"❌ BriefingCreator: Failed to initialize Supabase - {e}")
+    
+    def _init_ai(self):
+        """Initialize AI model for opener generation."""
+        try:
+            import google.generativeai as genai
+            
+            api_key = os.getenv("GEMINI_API_KEY")
+            if not api_key:
+                print("⚠️  BriefingCreator: GEMINI_API_KEY not set, openers will not be generated")
+                return
+            
+            genai.configure(api_key=api_key)
+            # Use gemini-2.0-flash-lite for opener generation (faster, doesn't use thinking tokens)
+            opener_model = os.getenv("OPENER_GEMINI_MODEL", "gemini-2.0-flash-lite")
+            self._ai_model = genai.GenerativeModel(
+                opener_model,
+                generation_config={
+                    "temperature": 0.7,
+                    "max_output_tokens": 200,
+                },
+            )
+            print(f"✅ BriefingCreator AI initialized ({opener_model})")
+            
+        except ImportError:
+            print("⚠️  BriefingCreator: google-generativeai not installed, openers will not be generated")
+        except Exception as e:
+            print(f"⚠️  BriefingCreator: Failed to initialize AI - {e}")
+    
+    def generate_opener(self, message: str, max_retries: int = 2) -> Optional[str]:
+        """
+        Generate a natural conversation opener for a reminder message.
+        
+        Args:
+            message: The reminder message to convert to an opener
+            max_retries: Number of retries if response seems incomplete
+            
+        Returns:
+            Generated opener text, or None if generation fails
+        """
+        if not self._ai_model:
+            return None
+        
+        # Build full prompt with instructions
+        prompt = f"""{self.OPENER_SYSTEM_PROMPT}
+
+Generate a friendly spoken reminder for: "{message}"
+
+Output ONLY the reminder text (1-2 complete sentences that end properly), nothing else:"""
+        
+        for attempt in range(max_retries + 1):
+            try:
+                response = self._ai_model.generate_content(prompt)
+                
+                # Extract text from response - try .text first (most reliable)
+                opener = ""
+                try:
+                    opener = response.text
+                except Exception:
+                    # Fallback: iterate through candidates
+                    try:
+                        candidates = getattr(response, "candidates", []) or []
+                        for c in candidates:
+                            cont = getattr(c, "content", None)
+                            parts = getattr(cont, "parts", []) if cont else []
+                            for p in parts:
+                                t = getattr(p, "text", None)
+                                if t:
+                                    opener += t
+                    except Exception:
+                        opener = ""
+                
+                opener = (opener or "").strip()
+                
+                # Validate opener is complete (ends with sentence-ending punctuation)
+                if opener and self._is_opener_complete(opener):
+                    return opener
+                elif opener and attempt < max_retries:
+                    # Retry if truncated
+                    continue
+                elif opener:
+                    # Last attempt - try to fix truncated opener
+                    return self._fix_truncated_opener(opener, message)
+                    
+            except Exception as e:
+                if attempt == max_retries:
+                    print(f"⚠️  Failed to generate opener after {max_retries + 1} attempts: {e}")
+                continue
+        
+        return None
+    
+    def _is_opener_complete(self, opener: str) -> bool:
+        """Check if an opener appears to be a complete sentence."""
+        if not opener:
+            return False
+        
+        # Must be at least 30 characters for a meaningful opener
+        if len(opener) < 30:
+            return False
+        
+        # Should end with sentence-ending punctuation
+        ending_chars = ".!?"
+        stripped = opener.rstrip()
+        if stripped and stripped[-1] in ending_chars:
+            return True
+        
+        # Check if it ends with a closing quote followed by punctuation
+        if len(stripped) >= 2 and stripped[-1] in "\"'" and stripped[-2] in ending_chars:
+            return True
+        
+        return False
+    
+    def _fix_truncated_opener(self, opener: str, original_message: str) -> str:
+        """Attempt to fix a truncated opener by completing it sensibly."""
+        # If it ends mid-sentence, try to complete it
+        opener = opener.rstrip()
+        
+        # Remove trailing incomplete fragments
+        # Common truncation patterns: ends with articles, prepositions, etc.
+        incomplete_endings = [" a", " an", " the", " at", " in", " on", " to", " for", " your", " is", " are"]
+        for ending in incomplete_endings:
+            if opener.lower().endswith(ending):
+                opener = opener[:-len(ending)].rstrip()
+                break
+        
+        # If still doesn't end properly, add a sensible ending
+        if opener and opener[-1] not in ".!?":
+            # Just add a period if we had to truncate
+            if opener[-1] in ",:;":
+                opener = opener[:-1]
+            opener = opener.rstrip() + "."
+        
+        return opener
+    
+    def is_available(self) -> bool:
+        """Check if Supabase storage is available."""
+        return self._initialized and self._client is not None
+    
+    def create_briefings_from_suggestions(
+        self,
+        suggestions: Dict[str, List[Dict[str, Any]]],
+    ) -> List[Dict[str, Any]]:
+        """
+        Convert reminder suggestions into briefing announcements.
+        
+        Args:
+            suggestions: Dict mapping calendar_user -> list of analyzed events
+            
+        Returns:
+            List of briefing dicts ready for storage
+        """
+        briefings = []
+        now = datetime.now(timezone.utc)
+        self._last_processed_event_briefing_ids = {}
+        
+        for calendar_user, events in suggestions.items():
+            # Map calendar user to assistant user
+            assistant_user = self._map_to_assistant_user(calendar_user)
+            
+            for event in events:
+                event_id = str(event.get("event_id") or event.get("id") or "").strip()
+                event_briefings = self._create_event_briefings(
+                    event=event,
+                    calendar_user=calendar_user,
+                    assistant_user=assistant_user,
+                    now=now,
+                )
+                briefings.extend(event_briefings)
+                if event_id:
+                    event_key = self._processed_event_key(assistant_user, calendar_user, event_id)
+                    self._last_processed_event_briefing_ids[event_key] = {
+                        str(briefing.get("id") or "")
+                        for briefing in event_briefings
+                        if briefing.get("id")
+                    }
+        
+        # Sort by activation datetime (when reminders become eligible for delivery)
+        briefings.sort(
+            key=lambda b: (
+                ((b.get("content") or {}).get("active_from") if isinstance(b.get("content"), dict) else "") or "",
+                str(b.get("id") or ""),
+            )
+        )
+        
+        return briefings
+
+    def _processed_event_key(self, assistant_user: str, calendar_user: str, event_id: str) -> str:
+        """Build a deterministic key representing one calendar event stream."""
+        return "|".join(
+            [
+                str(assistant_user or "").strip(),
+                str(calendar_user or "").strip(),
+                str(event_id or "").strip(),
+            ]
+        )
+    
+    def _map_to_assistant_user(self, calendar_user: str) -> str:
+        """Map calendar user identifier to assistant user name."""
+        # Default to primary user from env (DEFAULT_ASSISTANT_USER, then HOMEASSIST_USER_NAME)
+        default_user = os.getenv("DEFAULT_ASSISTANT_USER", os.getenv("HOMEASSIST_USER_NAME", "User"))
+        try:
+            from mcp_server.user_config import map_calendar_user_to_assistant_user
+        except ImportError:
+            return default_user
+        return map_calendar_user_to_assistant_user(calendar_user, default=default_user)
+    
+    def _create_event_briefings(
+        self,
+        event: Dict[str, Any],
+        calendar_user: str,
+        assistant_user: str,
+        now: datetime,
+    ) -> List[Dict[str, Any]]:
+        """Create briefing announcements for a single event."""
+        event_id = event.get("event_id", "")
+        event_title = event.get("event_title", "Event")
+        event_date = event.get("event_date", "")
+        event_time = event.get("event_time", "")
+        priority = event.get("priority", "medium")
+        reminders_minutes = event.get("reminders_minutes_before", [])
+        event_fingerprint = str(event.get("__event_fingerprint") or "")
+        if not event_fingerprint:
+            event_fingerprint = self._event_cache._build_event_fingerprint(event, namespace=calendar_user)
+        
+        # Calculate reminder datetimes
+        reminder_times = self.calculator.calculate_all_reminder_times(
+            event_date, event_time, reminders_minutes
+        )
+        
+        briefings = []
+        for reminder in reminder_times:
+            reminder_at = reminder["reminder_at"]
+            
+            # Skip reminders in the past
+            if reminder_at.astimezone(timezone.utc) < now:
+                continue
+            
+            # Deterministic idempotency key and reminder id.
+            # Using a stable key ensures the same reminder maps to the same row.
+            idempotency_key = "|".join(
+                [
+                    str(assistant_user or "").strip(),
+                    str(calendar_user or "").strip(),
+                    str(event_id or "").strip(),
+                    str(reminder["minutes_before"]),
+                ]
+            )
+            reminder_id = f"calendar_{hashlib.sha1(idempotency_key.encode('utf-8')).hexdigest()}"
+            
+            # Format the briefing message with placeholder for real-time calculation
+            # {{TIME_UNTIL_EVENT}} will be replaced at delivery time with actual time remaining
+            
+            if event_time.lower() in ("all day", "all-day", "allday", ""):
+                time_desc = f"on {event_date}"
+            else:
+                # Format time more naturally (e.g., "1:00 PM" instead of "13:00:00")
+                try:
+                    t = datetime.strptime(event_time, "%H:%M:%S")
+                    formatted_time = t.strftime("%I:%M %p").lstrip("0")
+                except ValueError:
+                    formatted_time = event_time
+                time_desc = f"at {formatted_time} on {event_date}"
+            
+            # Use placeholder - actual time will be calculated when briefing is delivered
+            message = f"You have '{event_title}' coming up {time_desc}. It starts in {{{{TIME_UNTIL_EVENT}}}}."
+            
+            # active_from is the full datetime when the reminder should become active
+            active_from_datetime = reminder["reminder_at_iso"]
+            
+            # Build content JSONB matching briefing_announcements schema
+            content = {
+                "message": message,
+                "llm_instructions": f"Remind the user about their upcoming event: {event_title}. Be helpful and mention any preparation they might need.",
+                "active_from": active_from_datetime,
+                "meta": {
+                    "source": "calendar_briefing",
+                    "event_id": event_id,
+                    "event_title": event_title,
+                    "event_date": event_date,
+                    "event_time": event_time,
+                    "event_datetime_iso": reminder["event_datetime_iso"],
+                    "reminder_at_iso": reminder["reminder_at_iso"],
+                    "minutes_before": reminder["minutes_before"],
+                    "calendar_user": calendar_user,
+                    "idempotency_key": idempotency_key,
+                    "event_fingerprint": event_fingerprint,
+                },
+            }
+            
+            # Map priority to briefing_announcements format
+            briefing_priority = "high" if priority == "high" else "normal"
+            
+            # Generate opener_text using AI
+            opener_text = None
+            if self._generate_openers and self._ai_model:
+                opener_text = self.generate_opener(message)
+            
+            briefing = {
+                "id": reminder_id,
+                "user_id": assistant_user,
+                "content": content,
+                "priority": briefing_priority,
+                "status": "pending",
+            }
+            
+            # Add opener_text if generated
+            if opener_text:
+                briefing["opener_text"] = opener_text
+            
+            briefings.append(briefing)
+        
+        return briefings
+    
+    def store_briefings(
+        self,
+        briefings: List[Dict[str, Any]],
+    ) -> bool:
+        """
+        Store briefing announcements to Supabase briefing_announcements table.
+        
+        Args:
+            briefings: List of briefing dicts matching briefing_announcements schema
+            
+        Returns:
+            True if successful, False otherwise
+        """
+        if not self.is_available():
+            print("⚠️  Supabase not available, skipping briefing storage")
+            return False
+        
+        if not briefings:
+            print("📭 No briefings to store")
+            return True
+        
+        try:
+            # Deduplicate by ID (same event may appear for multiple calendar users)
+            seen_ids = set()
+            records = []
+            for b in briefings:
+                record_id = b.get("id")
+                if record_id and record_id not in seen_ids:
+                    seen_ids.add(record_id)
+                    records.append(b)
+            
+            if len(records) < len(briefings):
+                print(f"   ℹ️  Deduplicated {len(briefings) - len(records)} duplicate briefings")
+            
+            # Upsert to Supabase (will update existing reminders with same ID)
+            self._client.table(self.TABLE_NAME).upsert(records).execute()
+
+            # For processed events, skip stale pending reminders no longer in the
+            # computed reminder set (for example when reminder offsets change).
+            stale_skipped = self._mark_stale_pending_event_reminders(self._last_processed_event_briefing_ids)
+            if stale_skipped > 0:
+                print(f"   🧹 Marked {stale_skipped} stale pending reminder(s) as skipped")
+            
+            # Mark all source event fingerprints as seen in cache
+            fingerprints_seen = set()
+            for record in records:
+                content = record.get("content", {})
+                meta = content.get("meta", {}) if isinstance(content, dict) else {}
+                event_fingerprint = meta.get("event_fingerprint")
+                if event_fingerprint:
+                    fingerprints_seen.add(event_fingerprint)
+            
+            if fingerprints_seen:
+                self._event_cache.mark_seen_batch(list(fingerprints_seen))
+                # Save cache (with pruning of old entries)
+                self._event_cache.save_and_prune()
+            
+            print(f"📅 Stored {len(records)} calendar reminder briefings to Supabase (briefing_announcements)")
+            
+            # Clean up expired calendar reminders
+            expired_count = self._mark_expired_reminders()
+            if expired_count > 0:
+                print(f"🧹 Marked {expired_count} expired calendar reminder(s) as 'expired'")
+            
+            return True
+            
+        except Exception as e:
+            print(f"❌ Failed to store briefings: {e}")
+            return False
+    
+    def _mark_expired_reminders(self) -> int:
+        """
+        Mark pending calendar reminders as 'expired' if their underlying event has passed.
+        
+        This prevents stale reminders from accumulating when they were never delivered.
+        
+        Returns:
+            Number of reminders marked as expired
+        """
+        if not self.is_available():
+            return 0
+        
+        try:
+            now = datetime.now(timezone.utc)
+            
+            # Fetch all pending calendar reminders
+            response = (
+                self._client.table(self.TABLE_NAME)
+                .select("id, content, status, delivered_at, discord_status, voice_status")
+                .eq("status", "pending")
+                .like("id", "calendar_%")  # Deterministic format: calendar_{sha1}
+                .execute()
+            )
+            
+            # Also check old format IDs
+            response_old = (
+                self._client.table(self.TABLE_NAME)
+                .select("id, content, status, delivered_at, discord_status, voice_status")
+                .eq("status", "pending")
+                .like("id", "cal_reminder_%")  # Old format
+                .execute()
+            )
+            
+            all_reminders = [
+                reminder
+                for reminder in (response.data or []) + (response_old.data or [])
+                if _has_pending_delivery(reminder)
+            ]
+            
+            if not all_reminders:
+                return 0
+            
+            expired_ids = []
+            for reminder in all_reminders:
+                content = reminder.get("content", {})
+                
+                # Handle content as string (JSONB stored as string)
+                if isinstance(content, str):
+                    try:
+                        content = json.loads(content)
+                    except (json.JSONDecodeError, TypeError):
+                        continue
+                
+                meta = content.get("meta", {}) if isinstance(content, dict) else {}
+                event_time = (
+                    meta.get("event_datetime_iso")
+                    or content.get("event_datetime_iso")
+                )
+                if not event_time:
+                    continue
+                
+                event_dt = _parse_iso_datetime(event_time)
+                if event_dt is None:
+                    continue
+                if event_dt < now:
+                    expired_ids.append(reminder["id"])
+            
+            # Batch update expired reminders
+            if expired_ids:
+                for reminder_id in expired_ids:
+                    try:
+                        self._client.table(self.TABLE_NAME).update({
+                            "status": "expired"
+                        }).eq("id", reminder_id).execute()
+                    except Exception as e:
+                        print(f"   ⚠️  Failed to expire {reminder_id}: {e}")
+            
+            return len(expired_ids)
+            
+        except Exception as e:
+            print(f"⚠️  Error checking for expired reminders: {e}")
+            return 0
+
+    def _mark_stale_pending_event_reminders(self, desired_ids_by_event_key: Dict[str, Set[str]]) -> int:
+        """
+        Mark stale pending reminders as skipped for events processed in this run.
+
+        For each processed event stream (assistant_user + calendar_user + event_id),
+        any pending calendar reminder row not present in the current desired ID set
+        is marked as skipped.
+        """
+        if not self.is_available() or not desired_ids_by_event_key:
+            return 0
+
+        keys_by_user: Dict[str, Dict[tuple, Set[str]]] = {}
+        for event_key, desired_ids in desired_ids_by_event_key.items():
+            assistant_user, calendar_user, event_id = (event_key.split("|", 2) + ["", "", ""])[:3]
+            if not assistant_user or not calendar_user or not event_id:
+                continue
+            per_user = keys_by_user.setdefault(assistant_user, {})
+            per_user[(calendar_user, event_id)] = {briefing_id for briefing_id in desired_ids if briefing_id}
+
+        if not keys_by_user:
+            return 0
+
+        now_iso = datetime.now(timezone.utc).isoformat()
+        stale_ids: Set[str] = set()
+
+        for assistant_user, desired_map in keys_by_user.items():
+            try:
+                response = (
+                    self._client.table(self.TABLE_NAME)
+                    .select("id, content, status, delivered_at, discord_status, voice_status")
+                    .eq("user_id", assistant_user)
+                    .eq("status", "pending")
+                    .like("id", "calendar_%")
+                    .execute()
+                )
+            except Exception as e:
+                print(f"⚠️  Failed fetching pending reminders for stale check ({assistant_user}): {e}")
+                continue
+
+            for row in response.data or []:
+                if not _has_pending_delivery(row):
+                    continue
+
+                content = row.get("content", {})
+                if isinstance(content, str):
+                    try:
+                        content = json.loads(content)
+                    except (json.JSONDecodeError, TypeError):
+                        continue
+                if not isinstance(content, dict):
+                    continue
+
+                meta = content.get("meta", {})
+                if not isinstance(meta, dict):
+                    continue
+                if str(meta.get("source") or "") != "calendar_briefing":
+                    continue
+
+                key = (str(meta.get("calendar_user") or ""), str(meta.get("event_id") or ""))
+                if key not in desired_map:
+                    continue
+
+                row_id = str(row.get("id") or "")
+                if row_id and row_id not in desired_map[key]:
+                    stale_ids.add(row_id)
+
+        skipped = 0
+        for reminder_id in sorted(stale_ids):
+            try:
+                self._client.table(self.TABLE_NAME).update(
+                    {
+                        "status": "skipped",
+                        "dismissed_at": now_iso,
+                    }
+                ).eq("id", reminder_id).eq("status", "pending").execute()
+                skipped += 1
+            except Exception as e:
+                print(f"   ⚠️  Failed to mark stale reminder {reminder_id} as skipped: {e}")
+
+        return skipped
+    
+    def get_pending_reminders(
+        self,
+        user: str,
+    ) -> List[Dict[str, Any]]:
+        """
+        Get pending calendar reminder briefings for a user.
+        
+        Args:
+            user: User ID to fetch reminders for
+            
+        Returns:
+            List of pending reminder briefings from briefing_announcements table
+        """
+        if not self.is_available():
+            return []
+        
+        try:
+            # Fetch pending calendar reminders for user (new format)
+            response = (
+                self._client.table(self.TABLE_NAME)
+                .select("*")
+                .eq("user_id", user)
+                .eq("status", "pending")
+                .like("id", "calendar_%")
+                .order("created_at")
+                .execute()
+            )
+            
+            # Also check old format IDs
+            response_old = (
+                self._client.table(self.TABLE_NAME)
+                .select("*")
+                .eq("user_id", user)
+                .eq("status", "pending")
+                .like("id", "cal_reminder_%")
+                .order("created_at")
+                .execute()
+            )
+            
+            return [
+                row
+                for row in (response.data or []) + (response_old.data or [])
+                if _has_pending_delivery(row)
+            ]
+            
+        except Exception as e:
+            print(f"❌ Failed to fetch pending reminders: {e}")
+            return []
+    
+    def cleanup_delivered_reminders(self, older_than_days: int = 7) -> int:
+        """
+        Delete delivered calendar reminder briefings older than specified days.
+        
+        Args:
+            older_than_days: Delete delivered reminders older than this
+            
+        Returns:
+            Number of deleted records
+        """
+        if not self.is_available():
+            return 0
+        
+        try:
+            cutoff = datetime.now(timezone.utc) - timedelta(days=older_than_days)
+            
+            # Delete old reminders that have already been spoken by the voice assistant.
+            response = (
+                self._client.table(self.TABLE_NAME)
+                .select("id, status, delivered_at, discord_status, voice_status, voice_read_at")
+                .in_("status", ["pending", "delivered"])
+                .like("id", "calendar_%")
+                .execute()
+            )
+            response_old = (
+                self._client.table(self.TABLE_NAME)
+                .select("id, status, delivered_at, discord_status, voice_status, voice_read_at")
+                .in_("status", ["pending", "delivered"])
+                .like("id", "cal_reminder_%")
+                .execute()
+            )
+
+            reminder_ids = []
+            for row in (response.data or []) + (response_old.data or []):
+                if not row.get("id"):
+                    continue
+                if not _is_voice_delivery_complete(row):
+                    continue
+                if _has_pending_delivery(row):
+                    continue
+
+                completed_at = _parse_iso_datetime(row.get("voice_read_at")) or _parse_iso_datetime(row.get("delivered_at"))
+                if completed_at and completed_at < cutoff:
+                    reminder_ids.append(row["id"])
+
+            count = 0
+            for reminder_id in reminder_ids:
+                delete_result = (
+                    self._client.table(self.TABLE_NAME)
+                    .delete()
+                    .eq("id", reminder_id)
+                    .execute()
+                )
+                if delete_result.data:
+                    count += len(delete_result.data)
+
+            if count > 0:
+                print(f"🧹 Cleaned up {count} old voice-read calendar reminders")
+            
+            return count
+            
+        except Exception as e:
+            print(f"❌ Failed to cleanup delivered reminders: {e}")
+            return 0
+    
+    def format_briefing_summary(self, briefings: List[Dict[str, Any]]) -> str:
+        """Format briefings into a human-readable summary."""
+        if not briefings:
+            return "No briefings created."
+        
+        # Count how many have openers
+        with_openers = sum(1 for b in briefings if b.get("opener_text"))
+        
+        lines = [
+            f"📣 Created {len(briefings)} Reminder Briefings ({with_openers} with openers)",
+            "=" * 50,
+        ]
+        
+        for b in briefings[:10]:  # Limit display
+            content = b.get("content", {})
+            meta = content.get("meta", {})
+            
+            event_title = meta.get("event_title", "Event")
+            active_from = content.get("active_from", "")
+            reminder_at = meta.get("reminder_at_iso", "")
+            user = b.get("user_id", "")
+            opener_text = b.get("opener_text", "")
+            
+            # Parse reminder_at for display
+            try:
+                dt = datetime.fromisoformat(reminder_at.replace("Z", "+00:00"))
+                dt_local = dt.astimezone(self.calculator.tz)
+                time_str = dt_local.strftime("%b %d at %I:%M %p")
+            except (ValueError, AttributeError):
+                time_str = active_from
+            
+            lines.append(f"\n📅 {event_title}")
+            lines.append(f"   👤 {user} | 🕐 Active: {time_str}")
+            if opener_text:
+                lines.append(f"   🗣️ \"{opener_text[:80]}{'...' if len(opener_text) > 80 else ''}\"")
+            else:
+                lines.append(f"   ⚠️ No opener generated")
+        
+        if len(briefings) > 10:
+            lines.append(f"\n... and {len(briefings) - 10} more")
+        
+        return "\n".join(lines)

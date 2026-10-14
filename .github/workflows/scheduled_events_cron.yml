@@ -1,0 +1,354 @@
+# ============================================
+# GitHub Actions Workflow for Scheduled Events
+# ============================================
+# Runs email summarizer, news summarizer, calendar briefing, and weather briefing
+# Results are stored in Supabase tables
+#
+# SCHEDULE:
+#   - Email & Calendar: 9am EDT (1pm UTC), 1pm EDT (5pm UTC), 5pm EDT (9pm UTC)
+#   - Weather & News: 9am EDT (1pm UTC) only
+#
+# REQUIRED SECRETS (Settings → Secrets → Actions → Repository secrets):
+#   - GEMINI_API_KEY        : Google Gemini API key (email/calendar)
+#   - OPENAI_API_KEY        : OpenAI API key (news analysis)
+#   - SUPABASE_URL          : Supabase project URL
+#   - SUPABASE_KEY          : Supabase service role key
+#   - NEWS_API_KEY_1        : NewsAPI.org key (get free at newsapi.org)
+#
+# OPTIONAL SECRETS (for email summarizer):
+#   - GMAIL_CLIENT_ID       : From Google Cloud Console OAuth credentials
+#   - GMAIL_CLIENT_SECRET   : From Google Cloud Console OAuth credentials
+#   - GMAIL_REFRESH_TOKEN   : From your token.json (get via reauth_gmail.py locally)
+#   - GH_PAT                : GitHub Personal Access Token with 'repo' scope
+#                             (enables auto-update of GMAIL_REFRESH_TOKEN if Google rotates it)
+#   - NEWS_API_KEY_2 to _5  : Additional NewsAPI keys for quota rotation
+#
+# OPTIONAL SECRETS (for calendar briefing):
+#   Option 1 - Service Account (RECOMMENDED - never expires, no user interaction):
+#   - GOOGLE_SERVICE_ACCOUNT_JSON : Service account JSON key (base64-encoded)
+#
+#   Option 2 - OAuth (requires initial user authorization):
+#   - GOOGLE_CREDENTIALS_JSON : Full OAuth client credentials JSON
+#   - GOOGLE_TOKEN_JSON       : Full OAuth token JSON (with refresh_token)
+#
+# OPTIONAL VARIABLES (Settings → Secrets → Actions → Variables):
+#   - HOMEASSIST_USER_NAME         : Primary user name (default: User); the per-feature users below default to it
+#   - HOMEASSIST_OTHER_USERS       : Other household members, comma-separated (optional)
+#   - EMAIL_NOTIFICATION_RECIPIENT : Target user (default: HOMEASSIST_USER_NAME)
+#   - NEWS_NOTIFICATION_RECIPIENT  : Target user (default: HOMEASSIST_USER_NAME)
+#   - WEATHER_ZIP_CODE             : ZIP code for weather (auto-detected from IP if not set)
+#   - WEATHER_USER_ID              : User for weather briefings (default: HOMEASSIST_USER_NAME)
+#   - CALENDAR_ID_PERSONAL / CALENDAR_ID_SCHOOL / CALENDAR_ID_CLUB / CALENDAR_ID_HOMEASSIST
+#                                  : Google Calendar IDs used by the calendar briefing
+#
+# SUPABASE TABLES REQUIRED:
+#   - notification_sources      : Email/news summaries
+#   - briefing_announcements    : Calendar/weather briefings
+#   - calendar_event_cache      : Deduplication cache (run supabase_migration.sql)
+# ============================================
+
+name: Scheduled Events (Email, News, Calendar & Weather)
+
+on:
+  # Run at 9am EDT (1pm UTC), 1pm EDT (5pm UTC), 5pm EDT (9pm UTC)
+  # Email & Calendar run at all three times
+  # Weather & News only run at 9am EDT
+  schedule:
+    - cron: '0 13,17,21 * * *'
+  
+  # Allow manual trigger from GitHub UI
+  workflow_dispatch:
+    inputs:
+      skip_email:
+        description: 'Skip email summarizer'
+        required: false
+        default: 'false'
+        type: boolean
+      skip_news:
+        description: 'Skip news summarizer'
+        required: false
+        default: 'false'
+        type: boolean
+      skip_calendar:
+        description: 'Skip calendar briefing'
+        required: false
+        default: 'false'
+        type: boolean
+      skip_weather:
+        description: 'Skip weather briefing'
+        required: false
+        default: 'false'
+        type: boolean
+
+env:
+  PYTHON_VERSION: '3.12'
+
+jobs:
+  run-scheduled-events:
+    runs-on: ubuntu-latest
+    
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+      
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: ${{ env.PYTHON_VERSION }}
+          cache: 'pip'
+      
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r scripts/scheduled/requirements_cron.txt
+      
+      - name: Set up environment variables
+        run: |
+          echo "Setting up environment..."
+        env:
+          # These secrets must be configured in GitHub repo settings
+          GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
+          OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
+          OPENAI_KEY: ${{ secrets.OPENAI_API_KEY }}
+          SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
+          SUPABASE_KEY: ${{ secrets.SUPABASE_KEY }}
+          NEWS_API_KEY: ${{ secrets.NEWS_API_KEY }}
+          EMAIL_NOTIFICATION_RECIPIENT: ${{ vars.EMAIL_NOTIFICATION_RECIPIENT || vars.HOMEASSIST_USER_NAME || 'User' }}
+          NEWS_NOTIFICATION_RECIPIENT: ${{ vars.NEWS_NOTIFICATION_RECIPIENT || vars.HOMEASSIST_USER_NAME || 'User' }}
+      
+      # ─────────────────────────────────────────────────────────────
+      # EMAIL SUMMARIZER (runs at 9am, 1pm, 5pm EDT)
+      # ─────────────────────────────────────────────────────────────
+      - name: Run Email Summarizer
+        id: email_summarizer
+        if: ${{ github.event.inputs.skip_email != 'true' }}
+        continue-on-error: true
+        working-directory: scripts/scheduled/email_summarizer
+        env:
+          GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
+          SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
+          SUPABASE_KEY: ${{ secrets.SUPABASE_KEY }}
+          EMAIL_NOTIFICATION_RECIPIENT: ${{ vars.EMAIL_NOTIFICATION_RECIPIENT || vars.HOMEASSIST_USER_NAME || 'User' }}
+          # Gmail OAuth via environment variables (no files needed!)
+          # Extract these from your Google OAuth JSON credentials
+          GMAIL_CLIENT_ID: ${{ secrets.GMAIL_CLIENT_ID }}
+          GMAIL_CLIENT_SECRET: ${{ secrets.GMAIL_CLIENT_SECRET }}
+          GMAIL_REFRESH_TOKEN: ${{ secrets.GMAIL_REFRESH_TOKEN }}
+          # Mark as headless/CI environment
+          CI: 'true'
+        run: |
+          echo "📧 Running email summarizer..."
+          
+          # Create ephemeral data directory
+          mkdir -p ephemeral_data
+          mkdir -p creds
+          
+          # Check if Gmail credentials are configured
+          if [ -n "$GMAIL_CLIENT_ID" ] && [ -n "$GMAIL_CLIENT_SECRET" ] && [ -n "$GMAIL_REFRESH_TOKEN" ]; then
+            echo "✅ Gmail OAuth credentials found (via environment variables)"
+            python mail_main.py
+          else
+            echo "⏭️ Skipping email summarizer (Gmail credentials not configured)"
+            echo "   To enable, add these secrets: GMAIL_CLIENT_ID, GMAIL_CLIENT_SECRET, GMAIL_REFRESH_TOKEN"
+          fi
+      
+      - name: Update Refresh Token if Rotated
+        if: ${{ github.event.inputs.skip_email != 'true' && steps.email_summarizer.outcome == 'success' }}
+        working-directory: scripts/scheduled/email_summarizer
+        env:
+          GH_TOKEN: ${{ secrets.GH_PAT }}
+        run: |
+          # Check if Google issued a new refresh token
+          if [ -f "creds/new_refresh_token.txt" ]; then
+            NEW_TOKEN=$(cat creds/new_refresh_token.txt)
+            if [ -n "$NEW_TOKEN" ] && [ -n "$GH_TOKEN" ]; then
+              echo "🔄 Updating GMAIL_REFRESH_TOKEN secret with rotated token..."
+              gh secret set GMAIL_REFRESH_TOKEN --body "$NEW_TOKEN" --repo ${{ github.repository }}
+              echo "✅ Secret updated successfully"
+              rm -f creds/new_refresh_token.txt
+            elif [ -z "$GH_TOKEN" ]; then
+              echo "⚠️ New refresh token found but GH_PAT secret not configured"
+              echo "   Add a Personal Access Token with 'repo' scope as GH_PAT secret to enable auto-update"
+            fi
+          fi
+      
+      - name: Notify on Email Auth Failure
+        if: ${{ steps.email_summarizer.outcome == 'failure' }}
+        env:
+          SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
+          SUPABASE_KEY: ${{ secrets.SUPABASE_KEY }}
+          TARGET_USER: ${{ vars.EMAIL_NOTIFICATION_RECIPIENT || vars.HOMEASSIST_USER_NAME || 'User' }}
+        run: |
+          echo "🚨 Email summarizer failed - likely auth issue"
+          echo "   Run locally: python scripts/scheduled/email_summarizer/reauth_gmail.py"
+          echo "   Then update GMAIL_REFRESH_TOKEN secret in GitHub"
+          
+          # Send notification via Supabase
+          curl -s -X POST "${SUPABASE_URL}/rest/v1/notification_sources" \
+            -H "apikey: ${SUPABASE_KEY}" \
+            -H "Authorization: Bearer ${SUPABASE_KEY}" \
+            -H "Content-Type: application/json" \
+            -H "Prefer: return=minimal" \
+            -d '{
+              "source": "system",
+              "title": "Gmail Reauth Required",
+              "summary": "Email summarizer failed. Run reauth_gmail.py locally and update GMAIL_REFRESH_TOKEN secret in GitHub.",
+              "target_user": "'"${TARGET_USER}"'",
+              "created_at": "'$(date -u +%Y-%m-%dT%H:%M:%SZ)'"
+            }' && echo "✅ Notification sent to Supabase" || echo "⚠️ Failed to send notification"
+      
+      # ─────────────────────────────────────────────────────────────
+      # NEWS SUMMARIZER (runs at 9am EDT only)
+      # ─────────────────────────────────────────────────────────────
+      - name: Run News Summarizer
+        # Only run at 13:00 UTC (9am EDT) or on manual trigger
+        if: ${{ github.event.inputs.skip_news != 'true' && (github.event_name == 'workflow_dispatch' || github.event.schedule == '0 13,17,21 * * *') }}
+        working-directory: scripts/scheduled/news_summary
+        env:
+          OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
+          OPENAI_KEY: ${{ secrets.OPENAI_API_KEY }}
+          # NewsAPI keys (supports rotation when quota exhausted)
+          # If you only have one key, set NEWS_API_KEY_1 or NEWS_API_KEY
+          NEWS_API_KEY_1: ${{ secrets.NEWS_API_KEY_1 || secrets.NEWS_API_KEY }}
+          NEWS_API_KEY_2: ${{ secrets.NEWS_API_KEY_2 }}
+          NEWS_API_KEY_3: ${{ secrets.NEWS_API_KEY_3 }}
+          NEWS_API_KEY_4: ${{ secrets.NEWS_API_KEY_4 }}
+          NEWS_API_KEY_5: ${{ secrets.NEWS_API_KEY_5 }}
+          SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
+          SUPABASE_KEY: ${{ secrets.SUPABASE_KEY }}
+          NEWS_NOTIFICATION_RECIPIENT: ${{ vars.NEWS_NOTIFICATION_RECIPIENT || vars.HOMEASSIST_USER_NAME || 'User' }}
+        run: |
+          # Check if this is the 13:00 UTC (9am EDT) run
+          current_hour=$(date -u +%H)
+          if [ "$current_hour" = "13" ] || [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
+            echo "📰 Running news summarizer..."
+            
+            # Debug: Check if API keys are set (shows only if set, not the value)
+            echo "Checking NewsAPI keys..."
+            [ -n "$NEWS_API_KEY_1" ] && echo "✅ NEWS_API_KEY_1 is set" || echo "❌ NEWS_API_KEY_1 is NOT set"
+            [ -n "$NEWS_API_KEY_2" ] && echo "✅ NEWS_API_KEY_2 is set" || echo "⚪ NEWS_API_KEY_2 is not set (optional)"
+            
+            # Create ephemeral_data directory
+            mkdir -p ephemeral_data
+            
+            # Run the news summarizer with cleanup
+            python news_main.py --clean || echo "⚠️ News summarizer completed with warnings"
+          else
+            echo "⏭️ Skipping news summarizer (only runs at 9am EDT)"
+          fi
+      
+      # ─────────────────────────────────────────────────────────────
+      # CALENDAR BRIEFING (runs at 9am, 1pm, 5pm EDT)
+      # ─────────────────────────────────────────────────────────────
+      - name: Run Calendar Briefing
+        if: ${{ github.event.inputs.skip_calendar != 'true' }}
+        working-directory: scripts/scheduled/calendar_briefing
+        env:
+          GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
+          SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
+          SUPABASE_KEY: ${{ secrets.SUPABASE_KEY }}
+          # Google Calendar - Service Account (recommended, never expires)
+          GOOGLE_SERVICE_ACCOUNT_JSON: ${{ secrets.GOOGLE_SERVICE_ACCOUNT_JSON }}
+          # Google Calendar - OAuth (fallback, can expire)
+          GOOGLE_CREDENTIALS_JSON: ${{ secrets.GOOGLE_CREDENTIALS_JSON }}
+          GOOGLE_CALENDAR_TOKEN_JSON: ${{ secrets.GOOGLE_CALENDAR_TOKEN_JSON }}
+          GOOGLE_TOKEN_JSON: ${{ secrets.GOOGLE_TOKEN_JSON }}
+          # Calendar IDs (mcp_server/config.py reads these; set as repository variables)
+          CALENDAR_ID_PERSONAL: ${{ vars.CALENDAR_ID_PERSONAL }}
+          CALENDAR_ID_SCHOOL: ${{ vars.CALENDAR_ID_SCHOOL }}
+          CALENDAR_ID_CLUB: ${{ vars.CALENDAR_ID_CLUB }}
+          CALENDAR_ID_HOMEASSIST: ${{ vars.CALENDAR_ID_HOMEASSIST }}
+          # Users that calendar briefings are assigned to
+          HOMEASSIST_USER_NAME: ${{ vars.HOMEASSIST_USER_NAME || 'User' }}
+          HOMEASSIST_OTHER_USERS: ${{ vars.HOMEASSIST_OTHER_USERS }}
+          # Mark as headless/CI environment
+          CI: 'true'
+        run: |
+          echo "📅 Running calendar briefing..."
+          
+          # Create ephemeral data directory
+          mkdir -p ephemeral_data
+          
+          # Debug: check what secrets we have (show length only, not content)
+          echo "🔍 Checking credentials..."
+          [ -n "$GOOGLE_SERVICE_ACCOUNT_JSON" ] && echo "   ✅ GOOGLE_SERVICE_ACCOUNT_JSON: ${#GOOGLE_SERVICE_ACCOUNT_JSON} chars (Service Account)" || echo "   ⚪ GOOGLE_SERVICE_ACCOUNT_JSON: NOT SET"
+          [ -n "$GOOGLE_CREDENTIALS_JSON" ] && echo "   ⚪ GOOGLE_CREDENTIALS_JSON: ${#GOOGLE_CREDENTIALS_JSON} chars (OAuth)" || echo "   ⚪ GOOGLE_CREDENTIALS_JSON: NOT SET"
+          [ -n "$GOOGLE_CALENDAR_TOKEN_JSON" ] && echo "   ⚪ GOOGLE_CALENDAR_TOKEN_JSON: ${#GOOGLE_CALENDAR_TOKEN_JSON} chars" || echo "   ⚪ GOOGLE_CALENDAR_TOKEN_JSON: NOT SET"
+          
+          # Check if any credentials are configured
+          if [ -n "$GOOGLE_SERVICE_ACCOUNT_JSON" ]; then
+            echo "✅ Using Service Account credentials (recommended)"
+            python main.py --days 7 || echo "⚠️ Calendar briefing completed with warnings"
+          elif [ -n "$GOOGLE_CREDENTIALS_JSON" ] && [ -n "$GOOGLE_CALENDAR_TOKEN_JSON" ]; then
+            echo "⚠️ Using OAuth credentials (may expire)"
+            python main.py --days 7 || echo "⚠️ Calendar briefing completed with warnings"
+          elif [ -n "$GOOGLE_CREDENTIALS_JSON" ] && [ -n "$GOOGLE_TOKEN_JSON" ]; then
+            echo "⚠️ Using generic OAuth token (may not have calendar scopes)"
+            python main.py --days 7 || echo "⚠️ Calendar briefing completed with warnings"
+          else
+            echo "⏭️ Skipping calendar briefing (credentials not configured)"
+            echo "   Recommended: GOOGLE_SERVICE_ACCOUNT_JSON (Service Account)"
+            echo "   Alternative: GOOGLE_CREDENTIALS_JSON + GOOGLE_CALENDAR_TOKEN_JSON (OAuth)"
+          fi
+      
+      # ─────────────────────────────────────────────────────────────
+      # WEATHER BRIEFING (runs at 9am EDT only)
+      # ─────────────────────────────────────────────────────────────
+      - name: Run Weather Briefing
+        # Only run at 13:00 UTC (9am EDT) or on manual trigger
+        if: ${{ github.event.inputs.skip_weather != 'true' && (github.event_name == 'workflow_dispatch' || github.event.schedule == '0 13,17,21 * * *') }}
+        working-directory: scripts/scheduled/weather_briefing
+        env:
+          SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
+          SUPABASE_KEY: ${{ secrets.SUPABASE_KEY }}
+          WEATHER_ZIP_CODE: ${{ vars.WEATHER_ZIP_CODE }}
+          WEATHER_USER_ID: ${{ vars.WEATHER_USER_ID || vars.HOMEASSIST_USER_NAME || 'User' }}
+        run: |
+          # Check if this is the 13:00 UTC (9am EDT) run
+          current_hour=$(date -u +%H)
+          if [ "$current_hour" = "13" ] || [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
+            echo "🌤️ Running weather briefing..."
+            
+            # Create ephemeral data directory
+            mkdir -p ephemeral_data
+            
+            # Run weather briefing (auto-detects location, alerts on today only)
+            # Uses 7-day forecast for context, only alerts on next 24 hours
+            if [ -n "$WEATHER_ZIP_CODE" ]; then
+              python main.py --zip "$WEATHER_ZIP_CODE" --user "$WEATHER_USER_ID" || echo "⚠️ Weather briefing completed with warnings"
+            else
+              echo "📍 No WEATHER_ZIP_CODE set, will auto-detect from IP..."
+              python main.py --user "$WEATHER_USER_ID" || echo "⚠️ Weather briefing completed with warnings"
+            fi
+          else
+            echo "⏭️ Skipping weather briefing (only runs at 9am EDT)"
+          fi
+      
+      # ─────────────────────────────────────────────────────────────
+      # SUMMARY
+      # ─────────────────────────────────────────────────────────────
+      - name: Print Summary
+        if: always()
+        run: |
+          echo "════════════════════════════════════════════════════════════"
+          echo "📊 SCHEDULED EVENTS COMPLETE"
+          echo "════════════════════════════════════════════════════════════"
+          echo "Time: $(date -u '+%Y-%m-%d %H:%M:%S UTC')"
+          current_hour=$(date -u +%H)
+          echo "Current Hour (UTC): $current_hour"
+          echo ""
+          echo "Jobs run this cycle:"
+          echo "  ✅ Email Summarizer"
+          echo "  ✅ Calendar Briefing"
+          if [ "$current_hour" = "13" ]; then
+            echo "  ✅ News Summarizer (9am EDT only)"
+            echo "  ✅ Weather Briefing (9am EDT only)"
+          else
+            echo "  ⏭️ News Summarizer (skipped - only 9am EDT)"
+            echo "  ⏭️ Weather Briefing (skipped - only 9am EDT)"
+          fi
+          echo ""
+          echo "Check Supabase tables for results:"
+          echo "  - notification_sources: Email/news summaries"
+          echo "  - briefing_announcements: Calendar/weather briefings"
+          echo "════════════════════════════════════════════════════════════"

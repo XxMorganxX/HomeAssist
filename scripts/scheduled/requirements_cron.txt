@@ -1,0 +1,24 @@
+# Requirements for scheduled events (GitHub Actions cron)
+# Used by: .github/workflows/scheduled_events_cron.yml
+
+# Core
+python-dotenv>=1.0.0
+
+# Email Summarizer
+google-generativeai>=0.3.0
+google-auth>=2.0.0
+google-auth-oauthlib>=1.0.0
+google-api-python-client>=2.0.0
+
+# News Summarizer
+openai>=1.0.0
+newsapi-python>=0.2.7
+newspaper3k>=0.2.8
+lxml[html_clean]>=5.0.0
+
+# Supabase (notification storage)
+supabase>=2.0.0
+
+# HTTP
+httpx>=0.25.0
+

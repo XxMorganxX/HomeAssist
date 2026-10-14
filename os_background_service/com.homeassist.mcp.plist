@@ -1,0 +1,51 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+    <key>Label</key>
+    <string>com.homeassist.mcp</string>
+
+    <key>ProgramArguments</key>
+    <array>
+        <string>/bin/zsh</string>
+        <string>-c</string>
+        <string>
+PROJECT_DIR="$HOME/Desktop/HomeAssistV3"
+VENV_PYTHON="${PROJECT_DIR}/venv/bin/python"
+
+cd "$PROJECT_DIR" || exit 1
+
+# Load environment
+if [ -f "${PROJECT_DIR}/.env" ]; then
+    set -a; source "${PROJECT_DIR}/.env"; set +a
+fi
+
+# Run MCP server with SSE transport
+exec "$VENV_PYTHON" -m mcp_server.server --transport sse --port 3000 --quiet
+        </string>
+    </array>
+
+    <key>RunAtLoad</key>
+    <true/>
+
+    <!-- Keep MCP server running at all times -->
+    <key>KeepAlive</key>
+    <true/>
+
+    <key>StandardOutPath</key>
+    <string>__HOME__/Desktop/HomeAssistV3/logs/mcp_server.log</string>
+    <key>StandardErrorPath</key>
+    <string>__HOME__/Desktop/HomeAssistV3/logs/mcp_server.log</string>
+
+    <key>EnvironmentVariables</key>
+    <dict>
+        <key>PATH</key>
+        <string>/opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin:/sbin:/usr/sbin</string>
+    </dict>
+
+    <key>Nice</key>
+    <integer>0</integer>
+    <key>ProcessType</key>
+    <string>Background</string>
+</dict>
+</plist>
